@@ -1,0 +1,16 @@
+{
+  "pve": [
+    {"id": 1827, "level": {"min": 1, "max": 80}},
+    {"id": 1828, "level": {"min": 1, "max": 80}}
+  ],
+  "pvp": [
+    {"id": 2018, "level": {"min": 0, "max": 80}}
+  ],
+  "wvw": [
+    {"id": 2952, "level": {"min": 1, "max": 80}}
+  ],
+  "fractals": [
+    {"id": 1750, "level": {"min": 80, "max": 80}}
+  ],
+  "special": []
+}

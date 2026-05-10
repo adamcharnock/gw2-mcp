@@ -13,8 +13,9 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::domain::{
-    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
-    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    Account, AccountAchievement, AccountMastery, ApiKey, BuildSlug, CharacterName, Currency,
+    CurrencyId, Dailies, Item, ItemId, SearchLimit, SearchQuery, SearchResult, Skill, SkillId,
+    Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -173,6 +174,47 @@ pub trait Gw2Api: Send + Sync + 'static {
         key: &ApiKey,
         name: &CharacterName,
     ) -> Result<Vec<serde_json::Value>, Gw2ApiError>;
+
+    // ---------------------------------------------------------------------
+    // Tier 6A — PvE coaching surface (account state, achievements,
+    // masteries, weekly clears, dailies).
+    // ---------------------------------------------------------------------
+
+    /// `/v2/account` — requires `account` scope.
+    async fn fetch_account(&self, key: &ApiKey) -> Result<Account, Gw2ApiError>;
+
+    /// `/v2/characters` — requires `characters` scope. Returns just the
+    /// character names (cheap; the heavy `/v2/characters/:name` family is
+    /// out of scope here).
+    async fn fetch_characters_list(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError>;
+
+    /// `/v2/account/achievements` — requires `progression` scope. Heavy:
+    /// 2000-3000 entries on a long-lived account. Service projects this
+    /// down (drops completed + not-started) before returning to MCP
+    /// callers by default.
+    async fn fetch_account_achievements(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<AccountAchievement>, Gw2ApiError>;
+
+    /// `/v2/account/masteries` — requires `progression` scope.
+    async fn fetch_account_masteries(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<AccountMastery>, Gw2ApiError>;
+
+    /// `/v2/account/raids` — requires `progression` scope. Returns the raid
+    /// encounter ids cleared this reset week (e.g. `vale_guardian`,
+    /// `sabetha`).
+    async fn fetch_account_raids(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError>;
+
+    /// `/v2/account/dungeons` — requires `progression` scope. Returns the
+    /// dungeon-path ids cleared today (resets daily, **not** weekly).
+    async fn fetch_account_dungeons(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError>;
+
+    /// `/v2/achievements/daily` — public, no key. `tomorrow=true` hits the
+    /// twin endpoint at `/v2/achievements/daily/tomorrow`.
+    async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError>;
 }
 
 // ---------------------------------------------------------------------------

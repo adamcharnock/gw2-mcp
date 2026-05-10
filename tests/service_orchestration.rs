@@ -12,10 +12,11 @@ use std::time::Duration;
 use std::collections::BTreeMap;
 
 use gw2_mcp::domain::{
-    BuildChatCode, CharacterName, CurrencyId, SearchLimit, SearchQuery, SearchResult, Skill,
-    SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    Account, AccountAchievement, AccountMastery, BuildChatCode, CharacterName, CurrencyId, Dailies,
+    DailyEntry, SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization,
+    SpecializationId, Trait, TraitId, WalletEntry,
 };
-use gw2_mcp::service::{Service, TabSelector, WALLET_TTL};
+use gw2_mcp::service::{DAILIES_TTL, DailiesWhich, Service, TabSelector, WALLET_TTL};
 use pretty_assertions::assert_eq;
 
 use crate::common::{
@@ -714,4 +715,285 @@ async fn wiki_search_cache_separates_by_limit() {
         2,
         "different limits must not collide in cache"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Tier 6A — account / progression / dailies orchestration tests.
+// ---------------------------------------------------------------------------
+
+fn fake_account() -> Account {
+    let raw = include_str!("fixtures/account_basic.json");
+    serde_json::from_str(raw).unwrap()
+}
+
+#[tokio::test]
+async fn account_caches_within_wallet_ttl() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_account(fake_account());
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let key = valid_api_key();
+
+    let first = svc.get_account(&key).await.unwrap();
+    assert_eq!(first.name, "Snowflake.1234");
+    assert_eq!(gw2.account_calls(), 1);
+
+    svc.get_account(&key).await.unwrap();
+    assert_eq!(gw2.account_calls(), 1, "cache hit must not refetch");
+}
+
+#[tokio::test]
+async fn account_refetches_after_wallet_ttl_expiry() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_account(fake_account());
+
+    let svc = build(gw2.clone(), wiki, cache, clock.clone());
+    let key = valid_api_key();
+    svc.get_account(&key).await.unwrap();
+    clock.advance(WALLET_TTL + Duration::from_secs(1));
+    svc.get_account(&key).await.unwrap();
+    assert_eq!(gw2.account_calls(), 2, "expired cache must refetch");
+}
+
+#[tokio::test]
+async fn list_characters_returns_names_and_caches() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_characters_list(vec!["Snowflake".to_owned(), "Vesta Vey".to_owned()]);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let key = valid_api_key();
+    let first = svc.list_characters(&key).await.unwrap();
+    assert_eq!(first.len(), 2);
+    svc.list_characters(&key).await.unwrap();
+    assert_eq!(gw2.characters_list_calls(), 1, "cached on second call");
+}
+
+#[tokio::test]
+async fn account_achievements_summary_drops_done_and_not_started() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    // Fixture mirrors tests/fixtures/account_achievements.json:
+    // - id 100: not started (current=0, !done) -> dropped in summary
+    // - id 200: in progress (5/10) -> KEPT
+    // - id 300: completed (10/10, done) -> dropped
+    // - id 400: done (no current/max) -> dropped
+    // - id 500: in progress (7/25) -> KEPT
+    // - id 600: not started (no current, !done) -> dropped
+    gw2.set_achievements(vec![
+        AccountAchievement {
+            id: 100,
+            current: Some(0),
+            max: Some(10),
+            done: false,
+            bits: None,
+            repeated: None,
+            unlocked: None,
+        },
+        AccountAchievement {
+            id: 200,
+            current: Some(5),
+            max: Some(10),
+            done: false,
+            bits: None,
+            repeated: None,
+            unlocked: None,
+        },
+        AccountAchievement {
+            id: 300,
+            current: Some(10),
+            max: Some(10),
+            done: true,
+            bits: None,
+            repeated: None,
+            unlocked: None,
+        },
+        AccountAchievement {
+            id: 400,
+            current: None,
+            max: None,
+            done: true,
+            bits: None,
+            repeated: None,
+            unlocked: None,
+        },
+        AccountAchievement {
+            id: 500,
+            current: Some(7),
+            max: Some(25),
+            done: false,
+            bits: None,
+            repeated: None,
+            unlocked: None,
+        },
+        AccountAchievement {
+            id: 600,
+            current: None,
+            max: None,
+            done: false,
+            bits: None,
+            repeated: None,
+            unlocked: None,
+        },
+    ]);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let key = valid_api_key();
+
+    let summary = svc.get_account_achievements(&key, true).await.unwrap();
+    let summary_ids: Vec<u32> = summary.iter().map(|a| a.id).collect();
+    assert_eq!(
+        summary_ids,
+        vec![200, 500],
+        "summary keeps only in-progress"
+    );
+
+    let raw = svc.get_account_achievements(&key, false).await.unwrap();
+    assert_eq!(raw.len(), 6, "summary=false returns the full list");
+
+    // Both calls share the cached upstream payload.
+    assert_eq!(gw2.achievements_calls(), 1);
+}
+
+#[tokio::test]
+async fn account_masteries_caches() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_masteries(vec![
+        AccountMastery { id: 1, level: 4 },
+        AccountMastery { id: 2, level: 6 },
+    ]);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let key = valid_api_key();
+    let m = svc.get_account_masteries(&key).await.unwrap();
+    assert_eq!(m.len(), 2);
+    svc.get_account_masteries(&key).await.unwrap();
+    assert_eq!(gw2.masteries_calls(), 1);
+}
+
+#[tokio::test]
+async fn account_raids_and_dungeons_cache_independently() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_raids(vec!["vale_guardian".to_owned()]);
+    gw2.set_dungeons(vec!["ascalonian_catacombs_story".to_owned()]);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let key = valid_api_key();
+
+    svc.get_account_raids(&key).await.unwrap();
+    svc.get_account_raids(&key).await.unwrap();
+    svc.get_account_dungeons(&key).await.unwrap();
+    svc.get_account_dungeons(&key).await.unwrap();
+
+    assert_eq!(gw2.raids_calls(), 1, "raids cached on second call");
+    assert_eq!(gw2.dungeons_calls(), 1, "dungeons cached on second call");
+}
+
+#[tokio::test]
+async fn dailies_today_and_tomorrow_use_separate_cache_entries() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let today = Dailies {
+        pve: vec![DailyEntry {
+            id: 1827,
+            level: None,
+            required_access: None,
+        }],
+        ..Dailies::default()
+    };
+    let tomorrow = Dailies {
+        pve: vec![DailyEntry {
+            id: 1828,
+            level: None,
+            required_access: None,
+        }],
+        ..Dailies::default()
+    };
+    gw2.set_dailies_today(today);
+    gw2.set_dailies_tomorrow(tomorrow);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let t = svc.get_dailies(DailiesWhich::Today).await.unwrap();
+    let n = svc.get_dailies(DailiesWhich::Tomorrow).await.unwrap();
+    assert_eq!(t.pve[0].id, 1827);
+    assert_eq!(n.pve[0].id, 1828);
+    assert_eq!(
+        gw2.dailies_calls(),
+        2,
+        "today and tomorrow are independent cache entries"
+    );
+
+    // Second calls must hit the cache.
+    svc.get_dailies(DailiesWhich::Today).await.unwrap();
+    svc.get_dailies(DailiesWhich::Tomorrow).await.unwrap();
+    assert_eq!(gw2.dailies_calls(), 2, "both cached on second access");
+}
+
+#[tokio::test]
+async fn dailies_refetch_after_dailies_ttl_expiry() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_dailies_today(Dailies::default());
+
+    let svc = build(gw2.clone(), wiki, cache, clock.clone());
+    svc.get_dailies(DailiesWhich::Today).await.unwrap();
+    clock.advance(DAILIES_TTL + Duration::from_secs(1));
+    svc.get_dailies(DailiesWhich::Today).await.unwrap();
+    assert_eq!(gw2.dailies_calls(), 2);
+}
+
+#[tokio::test]
+async fn account_caches_under_fingerprinted_key_not_raw_secret() {
+    // Two distinct API keys must NOT share a cache entry, and the second
+    // key's call must trigger an upstream fetch — proves the fingerprint is
+    // part of the cache key (otherwise both calls would collide on a
+    // shared "account" key and the second call would return the first
+    // call's payload).
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_account(fake_account());
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+
+    let key_a = valid_api_key();
+    // A second key with a different prefix → different fingerprint.
+    let key_b = gw2_mcp::domain::ApiKey::new(
+        "11111111-2222-3333-4444-555555555555-66666666-7777-8888-9999-AAAAAAAAAAAA".to_owned(),
+    )
+    .unwrap();
+
+    svc.get_account(&key_a).await.unwrap();
+    svc.get_account(&key_b).await.unwrap();
+    assert_eq!(
+        gw2.account_calls(),
+        2,
+        "different keys must not share a cache entry"
+    );
+    // Sanity: a third call with the *first* key must hit the cache.
+    svc.get_account(&key_a).await.unwrap();
+    assert_eq!(gw2.account_calls(), 2, "first key still cached");
 }

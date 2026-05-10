@@ -723,3 +723,249 @@ async fn error_ux_get_skills_with_string_id_is_specific() {
         "should mention the expected type — got: {err}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tier 6A — end-to-end MCP dispatch for the new account/coaching tools.
+// Each test wires the real HTTP adapter against wiremock + dispatches via
+// the MCP layer, mirroring the pattern of the wallet/character tests above.
+// ---------------------------------------------------------------------------
+
+const ACCOUNT_FIXTURE: &str = include_str!("fixtures/account_basic.json");
+const ACHIEVEMENTS_FIXTURE: &str = include_str!("fixtures/account_achievements.json");
+const RAIDS_FIXTURE: &str = include_str!("fixtures/account_raids.json");
+const DUNGEONS_FIXTURE: &str = include_str!("fixtures/account_dungeons.json");
+const DAILIES_FIXTURE: &str = include_str!("fixtures/account_dailies_today.json");
+const CHAR_LIST_FIXTURE: &str = include_str!("fixtures/account_characters_list.json");
+
+#[tokio::test]
+async fn dispatch_get_account_returns_structured_payload() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ACCOUNT_FIXTURE))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let v = mcp
+        .dispatch_tool("get_account", json!({"api_key": valid_api_key().expose()}))
+        .await
+        .unwrap();
+    assert_eq!(v["name"], "Snowflake.1234");
+    assert_eq!(v["fractal_level"], 100);
+    assert!(
+        v["access"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s == "EndOfDragons")
+    );
+}
+
+#[tokio::test]
+async fn dispatch_list_characters_returns_array_of_names() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/characters"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(CHAR_LIST_FIXTURE))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let v = mcp
+        .dispatch_tool(
+            "list_characters",
+            json!({"api_key": valid_api_key().expose()}),
+        )
+        .await
+        .unwrap();
+    let arr = v.as_array().unwrap();
+    assert!(arr.iter().any(|n| n == "Snowflake"));
+    assert!(arr.iter().any(|n| n == "Vesta Vey"));
+}
+
+#[tokio::test]
+async fn dispatch_get_account_achievements_summary_drops_done_and_not_started() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/achievements"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ACHIEVEMENTS_FIXTURE))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let v = mcp
+        .dispatch_tool(
+            "get_account_achievements",
+            json!({"api_key": valid_api_key().expose()}),
+        )
+        .await
+        .unwrap();
+    let arr = v.as_array().unwrap();
+    let ids: Vec<u64> = arr.iter().map(|e| e["id"].as_u64().unwrap()).collect();
+    assert_eq!(
+        ids,
+        vec![200u64, 500],
+        "summary mode keeps only id 200 (5/10) and id 500 (7/25); 100/600 not started, 300/400 done"
+    );
+}
+
+#[tokio::test]
+async fn dispatch_get_account_achievements_summary_false_returns_full_list() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/achievements"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ACHIEVEMENTS_FIXTURE))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let v = mcp
+        .dispatch_tool(
+            "get_account_achievements",
+            json!({"api_key": valid_api_key().expose(), "summary": false}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(v.as_array().unwrap().len(), 6);
+}
+
+#[tokio::test]
+async fn dispatch_get_account_raids_returns_string_array() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/raids"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(RAIDS_FIXTURE))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let v = mcp
+        .dispatch_tool(
+            "get_account_raids",
+            json!({"api_key": valid_api_key().expose()}),
+        )
+        .await
+        .unwrap();
+    let arr = v.as_array().unwrap();
+    assert!(arr.iter().any(|n| n == "vale_guardian"));
+}
+
+#[tokio::test]
+async fn dispatch_get_account_dungeons_returns_string_array() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/dungeons"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DUNGEONS_FIXTURE))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let v = mcp
+        .dispatch_tool(
+            "get_account_dungeons",
+            json!({"api_key": valid_api_key().expose()}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(v.as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn dispatch_get_dailies_today_returns_partitioned_categories() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/achievements/daily"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let v = mcp.dispatch_tool("get_dailies", json!({})).await.unwrap();
+    assert_eq!(v["pve"].as_array().unwrap().len(), 2);
+    assert_eq!(v["fractals"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn dispatch_get_dailies_tomorrow_hits_tomorrow_endpoint() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/achievements/daily/tomorrow"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let _v = mcp
+        .dispatch_tool("get_dailies", json!({"which": "tomorrow"}))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn dispatch_get_dailies_rejects_invalid_which() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("get_dailies", json!({"which": "yesterday"}))
+        .await
+        .unwrap_err();
+    assert!(err.contains("which"), "got: {err}");
+}
+
+#[tokio::test]
+async fn tier_6a_tools_are_present_in_build_tools_list() {
+    // Pin the new tool surface — every Tier 6A tool must appear in the
+    // tools/list response (tested via build_tools indirectly, but we also
+    // dispatch each by name to make sure the dispatcher knows them).
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ACCOUNT_FIXTURE))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/characters"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(CHAR_LIST_FIXTURE))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/account/achievements"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ACHIEVEMENTS_FIXTURE))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/account/masteries"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("[]"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/account/raids"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(RAIDS_FIXTURE))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/account/dungeons"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DUNGEONS_FIXTURE))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/achievements/daily"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .mount(&server)
+        .await;
+
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    for name in [
+        "get_account",
+        "list_characters",
+        "get_account_achievements",
+        "get_account_masteries",
+        "get_account_raids",
+        "get_account_dungeons",
+        "get_dailies",
+    ] {
+        let args = if name == "get_dailies" {
+            json!({})
+        } else {
+            json!({"api_key": valid_api_key().expose()})
+        };
+        let _ = mcp
+            .dispatch_tool(name, args)
+            .await
+            .unwrap_or_else(|e| panic!("{name} failed to dispatch: {e}"));
+    }
+}

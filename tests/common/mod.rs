@@ -13,8 +13,9 @@ use chrono::{DateTime, Utc};
 
 use gw2_mcp::adapters::ChatrDecoder;
 use gw2_mcp::domain::{
-    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
-    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    Account, AccountAchievement, AccountMastery, ApiKey, BuildSlug, CharacterName, Currency,
+    CurrencyId, Dailies, Item, ItemId, SearchLimit, SearchQuery, SearchResult, Skill, SkillId,
+    Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
@@ -250,6 +251,13 @@ pub struct FakeGw2Api {
     pub item_calls: Mutex<usize>,
     pub buildtab_calls: Mutex<usize>,
     pub equipmenttab_calls: Mutex<usize>,
+    pub account_calls: Mutex<usize>,
+    pub characters_list_calls: Mutex<usize>,
+    pub achievements_calls: Mutex<usize>,
+    pub masteries_calls: Mutex<usize>,
+    pub raids_calls: Mutex<usize>,
+    pub dungeons_calls: Mutex<usize>,
+    pub dailies_calls: Mutex<usize>,
     pub wallet_response: Mutex<Result<Vec<WalletEntry>, Gw2ApiError>>,
     pub currencies: Mutex<BTreeMap<CurrencyId, Currency>>,
     pub skills: Mutex<BTreeMap<SkillId, Skill>>,
@@ -258,6 +266,14 @@ pub struct FakeGw2Api {
     pub items: Mutex<BTreeMap<ItemId, Item>>,
     pub buildtabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
     pub equipmenttabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
+    pub account_response: Mutex<Option<Account>>,
+    pub characters_list_response: Mutex<Vec<String>>,
+    pub achievements_response: Mutex<Vec<AccountAchievement>>,
+    pub masteries_response: Mutex<Vec<AccountMastery>>,
+    pub raids_response: Mutex<Vec<String>>,
+    pub dungeons_response: Mutex<Vec<String>>,
+    pub dailies_today: Mutex<Dailies>,
+    pub dailies_tomorrow: Mutex<Dailies>,
 }
 
 impl FakeGw2Api {
@@ -271,6 +287,13 @@ impl FakeGw2Api {
             item_calls: Mutex::new(0),
             buildtab_calls: Mutex::new(0),
             equipmenttab_calls: Mutex::new(0),
+            account_calls: Mutex::new(0),
+            characters_list_calls: Mutex::new(0),
+            achievements_calls: Mutex::new(0),
+            masteries_calls: Mutex::new(0),
+            raids_calls: Mutex::new(0),
+            dungeons_calls: Mutex::new(0),
+            dailies_calls: Mutex::new(0),
             wallet_response: Mutex::new(Ok(Vec::new())),
             currencies: Mutex::new(BTreeMap::new()),
             skills: Mutex::new(BTreeMap::new()),
@@ -279,6 +302,14 @@ impl FakeGw2Api {
             items: Mutex::new(BTreeMap::new()),
             buildtabs: Mutex::new(BTreeMap::new()),
             equipmenttabs: Mutex::new(BTreeMap::new()),
+            account_response: Mutex::new(None),
+            characters_list_response: Mutex::new(Vec::new()),
+            achievements_response: Mutex::new(Vec::new()),
+            masteries_response: Mutex::new(Vec::new()),
+            raids_response: Mutex::new(Vec::new()),
+            dungeons_response: Mutex::new(Vec::new()),
+            dailies_today: Mutex::new(Dailies::default()),
+            dailies_tomorrow: Mutex::new(Dailies::default()),
         })
     }
 
@@ -335,6 +366,52 @@ impl FakeGw2Api {
     }
     pub fn buildtab_calls(&self) -> usize {
         *self.buildtab_calls.lock().unwrap()
+    }
+    pub fn account_calls(&self) -> usize {
+        *self.account_calls.lock().unwrap()
+    }
+    pub fn characters_list_calls(&self) -> usize {
+        *self.characters_list_calls.lock().unwrap()
+    }
+    pub fn achievements_calls(&self) -> usize {
+        *self.achievements_calls.lock().unwrap()
+    }
+    pub fn masteries_calls(&self) -> usize {
+        *self.masteries_calls.lock().unwrap()
+    }
+    pub fn raids_calls(&self) -> usize {
+        *self.raids_calls.lock().unwrap()
+    }
+    pub fn dungeons_calls(&self) -> usize {
+        *self.dungeons_calls.lock().unwrap()
+    }
+    pub fn dailies_calls(&self) -> usize {
+        *self.dailies_calls.lock().unwrap()
+    }
+
+    pub fn set_account(&self, acc: Account) {
+        *self.account_response.lock().unwrap() = Some(acc);
+    }
+    pub fn set_characters_list(&self, names: Vec<String>) {
+        *self.characters_list_response.lock().unwrap() = names;
+    }
+    pub fn set_achievements(&self, items: Vec<AccountAchievement>) {
+        *self.achievements_response.lock().unwrap() = items;
+    }
+    pub fn set_masteries(&self, items: Vec<AccountMastery>) {
+        *self.masteries_response.lock().unwrap() = items;
+    }
+    pub fn set_raids(&self, items: Vec<String>) {
+        *self.raids_response.lock().unwrap() = items;
+    }
+    pub fn set_dungeons(&self, items: Vec<String>) {
+        *self.dungeons_response.lock().unwrap() = items;
+    }
+    pub fn set_dailies_today(&self, d: Dailies) {
+        *self.dailies_today.lock().unwrap() = d;
+    }
+    pub fn set_dailies_tomorrow(&self, d: Dailies) {
+        *self.dailies_tomorrow.lock().unwrap() = d;
     }
 }
 
@@ -433,6 +510,56 @@ impl Gw2Api for FakeGw2Api {
             .get(name.as_str())
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn fetch_account(&self, _key: &ApiKey) -> Result<Account, Gw2ApiError> {
+        *self.account_calls.lock().unwrap() += 1;
+        self.account_response
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| Gw2ApiError::Decode("no fake account configured".to_owned()))
+    }
+
+    async fn fetch_characters_list(&self, _key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
+        *self.characters_list_calls.lock().unwrap() += 1;
+        Ok(self.characters_list_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_account_achievements(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<Vec<AccountAchievement>, Gw2ApiError> {
+        *self.achievements_calls.lock().unwrap() += 1;
+        Ok(self.achievements_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_account_masteries(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<Vec<AccountMastery>, Gw2ApiError> {
+        *self.masteries_calls.lock().unwrap() += 1;
+        Ok(self.masteries_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_account_raids(&self, _key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
+        *self.raids_calls.lock().unwrap() += 1;
+        Ok(self.raids_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_account_dungeons(&self, _key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
+        *self.dungeons_calls.lock().unwrap() += 1;
+        Ok(self.dungeons_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError> {
+        *self.dailies_calls.lock().unwrap() += 1;
+        let d = if tomorrow {
+            self.dailies_tomorrow.lock().unwrap().clone()
+        } else {
+            self.dailies_today.lock().unwrap().clone()
+        };
+        Ok(d)
     }
 }
 
