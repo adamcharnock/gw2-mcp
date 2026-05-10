@@ -60,7 +60,7 @@ description = "Run clippy linter (warnings as errors)"
 run = "cargo clippy --all-targets --all-features -- -D warnings"
 
 [tasks.audit]
-description = "Audit dependencies for known vulnerabilities"
+description = "Audit dependencies for known vulnerabilities (warnings on unmaintained crates are non-fatal)"
 run = "cargo audit"
 
 [tasks.coverage]

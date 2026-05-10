@@ -79,7 +79,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
-      - run: cargo audit --deny warnings
+      # Default cargo-audit posture: fail on actual vulnerabilities,
+      # surface unmaintained-crate advisories as warnings (don't block
+      # CI on transitive deps we don't directly control, e.g. scraper
+      # pulling in fxhash, chatr pulling in rustls-pemfile 1.x).
+      - run: cargo audit
 
   coverage:
     name: coverage
