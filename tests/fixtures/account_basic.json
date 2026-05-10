@@ -1,0 +1,17 @@
+{
+  "id": "ABCDEF12-3456-7890-ABCD-EF1234567890",
+  "name": "Snowflake.1234",
+  "age": 12345678,
+  "world": 2202,
+  "guilds": ["GUILDABC-1234-5678-9012-ABCDEF123456"],
+  "guild_leader": [],
+  "created": "2018-08-28T00:00:00Z",
+  "access": ["GuildWars2", "HeartOfThorns", "PathOfFire", "EndOfDragons", "SecretsOfTheObscure"],
+  "commander": true,
+  "fractal_level": 100,
+  "daily_ap": 14000,
+  "monthly_ap": 250,
+  "wvw_rank": 750,
+  "last_modified": "2026-05-10T12:00:00Z",
+  "build_storage_slots": 12
+}

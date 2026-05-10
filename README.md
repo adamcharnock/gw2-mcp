@@ -102,6 +102,13 @@ Or with the Docker image:
 | `list_catalog_builds`   | `source`          | `profession`, `gamemode`, `page_size` (≤100), `cursor` | Browse a curated source. Cursor-based pagination; pass back `next_cursor`. |
 | `get_catalog_build`     | `source`, `slug`  | —                                                   | Fetch full details for a curated build. |
 | `get_info`              | —                 | —                                                   | Returns the server's usage runbook (same as `initialize.instructions`). |
+| `get_account`           | —                 | `api_key` (falls back to `GW2_API_KEY`)             | Account snapshot: name, world, age, expansion access, fractal level, AP, WvW rank. Needs `account` scope. |
+| `list_characters`       | —                 | `api_key`                                           | Just the character names on the account. Cheap. Needs `characters` scope. |
+| `get_account_achievements` | —              | `api_key`, `summary` (default true)                 | Per-account achievement progress. Summary mode drops completed + not-started entries. Needs `account` + `progression` scopes. |
+| `get_account_masteries` | —                 | `api_key`                                           | Mastery track levels. Needs `account` + `progression` scopes. |
+| `get_account_raids`     | —                 | `api_key`                                           | Raid encounter ids cleared this reset week (resets Mondays). Needs `account` + `progression` scopes. |
+| `get_account_dungeons`  | —                 | `api_key`                                           | Dungeon-path ids cleared today (resets daily, not weekly). Needs `account` + `progression` scopes. |
+| `get_dailies`           | —                 | `which` (`today` / `tomorrow`, default today)       | Today's or tomorrow's daily achievement IDs partitioned by category. Public — no key needed. |
 
 ### Build-source coverage
 

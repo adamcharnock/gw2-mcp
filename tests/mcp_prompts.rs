@@ -13,6 +13,13 @@ const PROMPT_NAMES: &[&str] = &[
     "compare-to-meta",
     "decode-and-explain",
     "recommend-build",
+    // Tier 6A — PvE coaching prompts.
+    "daily-routine",
+    "next-zone",
+    "next-collection",
+    "mount-progression",
+    "legendary-progress",
+    "weekly-roundup",
 ];
 
 #[test]
@@ -230,4 +237,194 @@ fn recommend_build_defaults_experience_to_intermediate_when_omitted() {
 fn unknown_prompt_errors() {
     let err = McpServer::get_prompt_for_test("not-a-prompt", json!({})).unwrap_err();
     assert!(err.contains("unknown prompt"), "got: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// Tier 6A — PvE coaching prompts.
+//
+// Each prompt's body must:
+//   1. Mention every tool name it instructs the LLM to call.
+//   2. Substitute the api_key (and other args) into the rendered text.
+//   3. Tell the LLM to draw on its own conversation memory ("recall") rather
+//      than implying server-side state — the server stores nothing.
+// ---------------------------------------------------------------------------
+
+const TEST_KEY: &str = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-FFFFFFFF-GGGG-HHHH-IIII-JJJJJJJJJJJJ";
+
+fn body_of(name: &'static str, args: serde_json::Value) -> String {
+    let result = McpServer::get_prompt_for_test(name, args)
+        .unwrap_or_else(|e| panic!("{name} render failed: {e}"));
+    match &result.messages[0].content {
+        PromptMessageContent::Text { text } => text.clone(),
+        other => panic!("{name}: expected text content, got {other:?}"),
+    }
+}
+
+#[test]
+fn daily_routine_prompt_chains_dailies_achievements_raids_dungeons_and_recall() {
+    let body = body_of(
+        "daily-routine",
+        json!({"api_key": TEST_KEY, "character": "Snowflake"}),
+    );
+    for tool in [
+        "get_dailies",
+        "get_account_achievements",
+        "get_account_raids",
+        "get_account_dungeons",
+        "get_character_build",
+    ] {
+        assert!(body.contains(tool), "must reference {tool}: {body}");
+    }
+    assert!(
+        body.contains(&format!("api_key=\"{TEST_KEY}\"")),
+        "must inline api_key: {body}"
+    );
+    assert!(
+        body.contains("character=\"Snowflake\""),
+        "must inline character: {body}"
+    );
+    assert!(
+        body.to_lowercase().contains("recall"),
+        "must instruct the LLM to recall its own memory of the player: {body}"
+    );
+    // Server-side amnesia clause — must explicitly tell the AI the server
+    // stores nothing about users.
+    assert!(
+        body.to_lowercase().contains("no memory") || body.to_lowercase().contains("stores nothing"),
+        "must clarify the server has no per-user state: {body}"
+    );
+}
+
+#[test]
+fn daily_routine_skips_character_build_step_when_arg_omitted() {
+    let body = body_of("daily-routine", json!({"api_key": TEST_KEY}));
+    assert!(
+        !body.contains("character=\""),
+        "must not invent a character: {body}"
+    );
+    assert!(
+        body.contains("get_dailies"),
+        "still references the always-on tools: {body}"
+    );
+}
+
+#[test]
+fn daily_routine_requires_api_key() {
+    let err = McpServer::get_prompt_for_test("daily-routine", json!({})).unwrap_err();
+    assert!(err.contains("api_key"), "got: {err}");
+}
+
+#[test]
+fn next_zone_prompt_chains_build_account_masteries_achievements_and_recall() {
+    let body = body_of(
+        "next-zone",
+        json!({"api_key": TEST_KEY, "character": "Vesta"}),
+    );
+    for tool in [
+        "get_character_build",
+        "get_account",
+        "get_account_masteries",
+        "get_account_achievements",
+    ] {
+        assert!(body.contains(tool), "must reference {tool}: {body}");
+    }
+    assert!(body.contains("character=\"Vesta\""), "args inlined: {body}");
+    assert!(body.contains(&format!("api_key=\"{TEST_KEY}\"")));
+    assert!(
+        body.to_lowercase().contains("recall"),
+        "must lean on conversation memory: {body}"
+    );
+}
+
+#[test]
+fn next_zone_requires_both_api_key_and_character() {
+    let err =
+        McpServer::get_prompt_for_test("next-zone", json!({"api_key": TEST_KEY})).unwrap_err();
+    assert!(err.contains("character"), "got: {err}");
+}
+
+#[test]
+fn next_collection_prompt_passes_summary_false_and_recalls() {
+    let body = body_of("next-collection", json!({"api_key": TEST_KEY}));
+    assert!(body.contains("get_account_achievements"));
+    assert!(
+        body.contains("summary=false"),
+        "must request raw list to see in-progress collections: {body}"
+    );
+    assert!(body.contains(&format!("api_key=\"{TEST_KEY}\"")));
+    assert!(
+        body.to_lowercase().contains("recall"),
+        "must lean on conversation memory: {body}"
+    );
+}
+
+#[test]
+fn mount_progression_prompt_uses_account_and_masteries_and_recalls() {
+    let body = body_of("mount-progression", json!({"api_key": TEST_KEY}));
+    assert!(body.contains("get_account"));
+    assert!(body.contains("get_account_masteries"));
+    assert!(body.contains(&format!("api_key=\"{TEST_KEY}\"")));
+    assert!(
+        body.contains("PoF") || body.to_lowercase().contains("path of fire"),
+        "must mention the relevant expansion gate: {body}"
+    );
+    assert!(
+        body.to_lowercase().contains("recall"),
+        "must lean on conversation memory: {body}"
+    );
+}
+
+#[test]
+fn legendary_progress_prompt_chains_wallet_achievements_raids_dungeons_account_and_wiki() {
+    let body = body_of(
+        "legendary-progress",
+        json!({"api_key": TEST_KEY, "legendary": "Twilight"}),
+    );
+    for tool in [
+        "get_wallet",
+        "get_account_achievements",
+        "get_account_raids",
+        "get_account_dungeons",
+        "get_account",
+        "wiki_search",
+    ] {
+        assert!(body.contains(tool), "must reference {tool}: {body}");
+    }
+    assert!(body.contains("Twilight"), "must inline legendary: {body}");
+    assert!(body.contains(&format!("api_key=\"{TEST_KEY}\"")));
+}
+
+#[test]
+fn legendary_progress_without_legendary_falls_back_to_recall_or_offering_choices() {
+    let body = body_of("legendary-progress", json!({"api_key": TEST_KEY}));
+    assert!(
+        body.to_lowercase().contains("recall") || body.to_lowercase().contains("which legendary"),
+        "must either ask the AI to recall or offer choices when no legendary specified: {body}"
+    );
+    // Common starter-legendary names.
+    assert!(
+        body.contains("Twilight") || body.contains("Predator") || body.contains("Bolt"),
+        "must offer at least one starter legendary as a fallback: {body}"
+    );
+}
+
+#[test]
+fn weekly_roundup_prompt_chains_raids_account_dungeons_and_flags_daily_caveat() {
+    let body = body_of("weekly-roundup", json!({"api_key": TEST_KEY}));
+    assert!(body.contains("get_account_raids"));
+    assert!(body.contains("get_account"));
+    assert!(body.contains("get_account_dungeons"));
+    assert!(body.contains(&format!("api_key=\"{TEST_KEY}\"")));
+    // The dungeons-reset-daily caveat is the load-bearing UX bit of this
+    // prompt; if it disappears the LLM will mis-represent dungeon clears
+    // as weekly progress.
+    assert!(
+        body.to_lowercase().contains("daily")
+            && (body.to_lowercase().contains("not weekly") || body.contains("NOT weekly")),
+        "must flag that dungeons reset daily, not weekly: {body}"
+    );
+    assert!(
+        body.to_lowercase().contains("recall"),
+        "must lean on conversation memory: {body}"
+    );
 }

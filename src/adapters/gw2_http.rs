@@ -9,8 +9,9 @@ use serde::Deserialize;
 
 use crate::adapters::error_body::truncate_error_body;
 use crate::domain::{
-    ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, Skill, SkillId, Specialization,
-    SpecializationId, Trait, TraitId, WalletEntry,
+    Account, AccountAchievement, AccountMastery, ApiKey, CharacterName, Currency, CurrencyId,
+    Dailies, Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,
+    WalletEntry,
 };
 use crate::ports::{Gw2Api, Gw2ApiError};
 
@@ -163,6 +164,62 @@ impl Gw2Api for HttpGw2Api {
             url_encode_segment(name.as_str()),
         );
         self.fetch_authed_json(&url, key, Some(name)).await
+    }
+
+    // -------------------------------------------------------------------
+    // Tier 6A — account state for PvE coaching prompts.
+    // -------------------------------------------------------------------
+
+    async fn fetch_account(&self, key: &ApiKey) -> Result<Account, Gw2ApiError> {
+        let url = format!("{}/account", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_characters_list(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
+        let url = format!("{}/characters", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_account_achievements(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<AccountAchievement>, Gw2ApiError> {
+        let url = format!("{}/account/achievements", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_account_masteries(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<AccountMastery>, Gw2ApiError> {
+        let url = format!("{}/account/masteries", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_account_raids(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
+        let url = format!("{}/account/raids", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_account_dungeons(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
+        let url = format!("{}/account/dungeons", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError> {
+        let suffix = if tomorrow { "/tomorrow" } else { "" };
+        let url = format!("{}/achievements/daily{suffix}", self.base_url);
+        // Public endpoint — no auth header needed.
+        let req = self
+            .client
+            .get(&url)
+            .build()
+            .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        let resp = self.send_request(req).await?;
+        let resp = check_status(resp).await?;
+        resp.json::<Dailies>()
+            .await
+            .map_err(|e| Gw2ApiError::Decode(e.to_string()))
     }
 }
 

@@ -525,3 +525,168 @@ async fn fetch_wallet_rejects_invalid_currency_id_in_payload() {
         "expected decode error, got {err:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tier 6A — account / progression / dailies wire tests.
+// ---------------------------------------------------------------------------
+
+const ACCOUNT_FIXTURE: &str = include_str!("fixtures/account_basic.json");
+const ACHIEVEMENTS_FIXTURE: &str = include_str!("fixtures/account_achievements.json");
+const MASTERIES_FIXTURE: &str = include_str!("fixtures/account_masteries.json");
+const RAIDS_FIXTURE: &str = include_str!("fixtures/account_raids.json");
+const DUNGEONS_FIXTURE: &str = include_str!("fixtures/account_dungeons.json");
+const DAILIES_FIXTURE: &str = include_str!("fixtures/account_dailies_today.json");
+const CHAR_LIST_FIXTURE: &str = include_str!("fixtures/account_characters_list.json");
+
+#[tokio::test]
+async fn fetch_account_sends_bearer_and_parses_full_payload() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account"))
+        .and(header(
+            "authorization",
+            format!("Bearer {}", valid_api_key().expose()).as_str(),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ACCOUNT_FIXTURE))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let acc = api.fetch_account(&valid_api_key()).await.unwrap();
+    assert_eq!(acc.name, "Snowflake.1234");
+    assert_eq!(acc.fractal_level, Some(100));
+    assert!(acc.access.iter().any(|s| s == "EndOfDragons"));
+    assert!(acc.commander);
+}
+
+#[tokio::test]
+async fn fetch_characters_list_returns_just_names() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/characters"))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(CHAR_LIST_FIXTURE))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let names = api.fetch_characters_list(&valid_api_key()).await.unwrap();
+    assert_eq!(names.len(), 3);
+    assert!(names.iter().any(|n| n == "Vesta Vey"));
+}
+
+#[tokio::test]
+async fn fetch_account_achievements_parses_fixture() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/achievements"))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ACHIEVEMENTS_FIXTURE))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let entries = api
+        .fetch_account_achievements(&valid_api_key())
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 6);
+    let entry_500 = entries.iter().find(|e| e.id == 500).unwrap();
+    assert_eq!(entry_500.bits.as_ref().unwrap().len(), 7);
+}
+
+#[tokio::test]
+async fn fetch_account_masteries_parses_fixture() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/masteries"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(MASTERIES_FIXTURE))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let masteries = api.fetch_account_masteries(&valid_api_key()).await.unwrap();
+    assert_eq!(masteries.len(), 4);
+    assert_eq!(masteries[1].level, 6);
+}
+
+#[tokio::test]
+async fn fetch_account_raids_returns_string_ids() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/raids"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(RAIDS_FIXTURE))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let raids = api.fetch_account_raids(&valid_api_key()).await.unwrap();
+    assert!(raids.iter().any(|r| r == "vale_guardian"));
+}
+
+#[tokio::test]
+async fn fetch_account_dungeons_returns_string_ids() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/dungeons"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DUNGEONS_FIXTURE))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let dungeons = api.fetch_account_dungeons(&valid_api_key()).await.unwrap();
+    assert_eq!(dungeons.len(), 2);
+}
+
+#[tokio::test]
+async fn fetch_dailies_today_uses_correct_path_and_no_auth() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/achievements/daily"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let d = api.fetch_dailies(false).await.unwrap();
+    assert_eq!(d.pve.len(), 2);
+    assert_eq!(d.fractals.len(), 1);
+}
+
+#[tokio::test]
+async fn fetch_dailies_tomorrow_uses_tomorrow_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/achievements/daily/tomorrow"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let _d = api.fetch_dailies(true).await.unwrap();
+}
+
+#[tokio::test]
+async fn fetch_account_403_with_missing_scope_emits_typed_variant() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/achievements"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_string(r#"{"text":"requires scope progression"}"#),
+        )
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let err = api
+        .fetch_account_achievements(&valid_api_key())
+        .await
+        .unwrap_err();
+    match err {
+        Gw2ApiError::MissingScope { needed } => assert_eq!(needed, "progression"),
+        other => panic!("expected MissingScope, got {other:?}"),
+    }
+}

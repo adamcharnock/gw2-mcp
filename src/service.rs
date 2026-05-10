@@ -14,9 +14,9 @@ use serde_json::{Map, Value, json};
 
 use crate::domain::BuildChatCode;
 use crate::domain::{
-    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
-    SearchResponse, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
-    WalletInfo,
+    Account, AccountAchievement, AccountMastery, ApiKey, BuildSlug, CharacterName, Currency,
+    CurrencyId, Dailies, Item, ItemId, SearchLimit, SearchQuery, SearchResponse, Skill, SkillId,
+    Specialization, SpecializationId, Trait, TraitId, WalletEntry, WalletInfo,
 };
 use crate::ports::{
     BuildCodeDecoder, BuildCodeError, Cache, CacheError, Clock, Gw2Api, Gw2ApiError, Wiki,
@@ -27,6 +27,12 @@ use crate::ports::{
 pub const STATIC_TTL: Duration = Duration::from_secs(60 * 60 * 24 * 365); // 1 year
 pub const WIKI_TTL: Duration = Duration::from_secs(60 * 60 * 24); // 1 day
 pub const WALLET_TTL: Duration = Duration::from_secs(5 * 60); // 5 minutes
+
+/// Dailies roll over once per day. A 1-hour TTL keeps the worst case at
+/// 24 fetches/day per server while still picking up the rollover within
+/// an hour — short enough that the LLM never plans an obsolete routine
+/// against last night's dailies.
+pub const DAILIES_TTL: Duration = Duration::from_secs(60 * 60); // 1 hour
 
 /// Service errors are pass-through wrappers — the inner port errors are
 /// already user-facing (see `Gw2ApiError`, `WikiError`, etc.). Adding a
@@ -63,6 +69,16 @@ pub enum TabSelector {
     All,
     /// A specific tab number (1-indexed, matching the GW2 API `tab` field).
     Index(u8),
+}
+
+/// Which day's dailies to fetch — `Today` hits `/v2/achievements/daily`,
+/// `Tomorrow` hits `/v2/achievements/daily/tomorrow`. Defaults to today
+/// because "what should I do?" almost always means right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DailiesWhich {
+    #[default]
+    Today,
+    Tomorrow,
 }
 
 /// Orchestrates GW2 / wiki access with a TTL cache in front.
@@ -329,6 +345,148 @@ impl Service {
         }
 
         Ok(info)
+    }
+
+    // -----------------------------------------------------------------
+    // Tier 6A — account / progression / dailies
+    //
+    // All cached on `WALLET_TTL` (5 min) except `get_dailies` which uses
+    // `DAILIES_TTL` (1 hour). Cache keys derive from `key.fingerprint()`,
+    // never the raw key — the same pattern wallet/character_build use.
+    // -----------------------------------------------------------------
+
+    /// Fetch the account snapshot (`/v2/account`). Cached `WALLET_TTL`.
+    pub async fn get_account(&self, key: &ApiKey) -> Result<Account, ServiceError> {
+        let cache_key = account_cache_key(key);
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(acc) = serde_json::from_str::<Account>(&json)
+        {
+            debug!(fingerprint = %key.fingerprint(), "account cache hit");
+            return Ok(acc);
+        }
+        let acc = self.gw2.fetch_account(key).await?;
+        if let Ok(json) = serde_json::to_string(&acc) {
+            self.cache.set(&cache_key, json, WALLET_TTL).await;
+        }
+        Ok(acc)
+    }
+
+    /// Fetch character names only (`/v2/characters`). Cached `WALLET_TTL`.
+    pub async fn list_characters(&self, key: &ApiKey) -> Result<Vec<String>, ServiceError> {
+        let cache_key = format!("characters:{}", key.fingerprint());
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str::<Vec<String>>(&json)
+        {
+            return Ok(v);
+        }
+        let v = self.gw2.fetch_characters_list(key).await?;
+        if let Ok(json) = serde_json::to_string(&v) {
+            self.cache.set(&cache_key, json, WALLET_TTL).await;
+        }
+        Ok(v)
+    }
+
+    /// Fetch the per-account achievement progress list. Cached `WALLET_TTL`.
+    ///
+    /// When `summary` is true (the LLM-friendly default), drops entries
+    /// where the user is fully done (`done==true` or `current==max`) and
+    /// entries where they haven't started (`current==0` or `current` is
+    /// missing). What's left is the "what am I working on?" set — usually
+    /// 100-300 entries instead of 2000-3000.
+    pub async fn get_account_achievements(
+        &self,
+        key: &ApiKey,
+        summary: bool,
+    ) -> Result<Vec<AccountAchievement>, ServiceError> {
+        let cache_key = format!("account_achievements:{}", key.fingerprint());
+        let raw: Vec<AccountAchievement> = if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str(&json)
+        {
+            v
+        } else {
+            let v = self.gw2.fetch_account_achievements(key).await?;
+            if let Ok(json) = serde_json::to_string(&v) {
+                self.cache.set(&cache_key, json, WALLET_TTL).await;
+            }
+            v
+        };
+        if !summary {
+            return Ok(raw);
+        }
+        Ok(raw
+            .into_iter()
+            .filter(|a| !a.is_completed() && !a.is_not_started())
+            .collect())
+    }
+
+    /// Fetch unlocked-mastery progress per track. Cached `WALLET_TTL`.
+    pub async fn get_account_masteries(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<AccountMastery>, ServiceError> {
+        let cache_key = format!("account_masteries:{}", key.fingerprint());
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str::<Vec<AccountMastery>>(&json)
+        {
+            return Ok(v);
+        }
+        let v = self.gw2.fetch_account_masteries(key).await?;
+        if let Ok(json) = serde_json::to_string(&v) {
+            self.cache.set(&cache_key, json, WALLET_TTL).await;
+        }
+        Ok(v)
+    }
+
+    /// Fetch raid encounter ids cleared this reset week. Cached `WALLET_TTL`.
+    pub async fn get_account_raids(&self, key: &ApiKey) -> Result<Vec<String>, ServiceError> {
+        let cache_key = format!("account_raids:{}", key.fingerprint());
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str::<Vec<String>>(&json)
+        {
+            return Ok(v);
+        }
+        let v = self.gw2.fetch_account_raids(key).await?;
+        if let Ok(json) = serde_json::to_string(&v) {
+            self.cache.set(&cache_key, json, WALLET_TTL).await;
+        }
+        Ok(v)
+    }
+
+    /// Fetch dungeon-path ids cleared today (resets daily). Cached `WALLET_TTL`.
+    pub async fn get_account_dungeons(&self, key: &ApiKey) -> Result<Vec<String>, ServiceError> {
+        let cache_key = format!("account_dungeons:{}", key.fingerprint());
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str::<Vec<String>>(&json)
+        {
+            return Ok(v);
+        }
+        let v = self.gw2.fetch_account_dungeons(key).await?;
+        if let Ok(json) = serde_json::to_string(&v) {
+            self.cache.set(&cache_key, json, WALLET_TTL).await;
+        }
+        Ok(v)
+    }
+
+    /// Fetch today's or tomorrow's dailies. Public endpoint — no key.
+    /// Cached `DAILIES_TTL` (1 hour).
+    pub async fn get_dailies(&self, which: DailiesWhich) -> Result<Dailies, ServiceError> {
+        let cache_key = match which {
+            DailiesWhich::Today => "dailies:today".to_owned(),
+            DailiesWhich::Tomorrow => "dailies:tomorrow".to_owned(),
+        };
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(d) = serde_json::from_str::<Dailies>(&json)
+        {
+            return Ok(d);
+        }
+        let d = self
+            .gw2
+            .fetch_dailies(matches!(which, DailiesWhich::Tomorrow))
+            .await?;
+        if let Ok(json) = serde_json::to_string(&d) {
+            self.cache.set(&cache_key, json, DAILIES_TTL).await;
+        }
+        Ok(d)
     }
 
     // -----------------------------------------------------------------
@@ -972,6 +1130,10 @@ fn inline_trait(v: &Value, traits: &BTreeMap<TraitId, Trait>) -> Value {
 
 fn wallet_cache_key(key: &ApiKey) -> String {
     format!("wallet:{}", key.fingerprint())
+}
+
+fn account_cache_key(key: &ApiKey) -> String {
+    format!("account:{}", key.fingerprint())
 }
 
 fn currency_cache_key(id: CurrencyId) -> String {

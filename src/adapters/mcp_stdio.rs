@@ -21,7 +21,7 @@ use crate::domain::{
     SkillId, SpecializationId, TraitId,
 };
 use crate::ports::CatalogFilter;
-use crate::service::{Service, TabSelector};
+use crate::service::{DailiesWhich, Service, TabSelector};
 
 /// Server runbook — what good clients put in the system prompt and what
 /// `get_info` returns verbatim. Keep both call sites pointing here so the
@@ -137,6 +137,13 @@ impl McpServer {
             "list_catalog_sources" => self.handle_list_catalog_sources(),
             "list_catalog_builds" => self.handle_list_catalog_builds(&args).await,
             "get_catalog_build" => self.handle_get_catalog_build(&args).await,
+            "get_account" => self.handle_get_account(&args).await,
+            "list_characters" => self.handle_list_characters(&args).await,
+            "get_account_achievements" => self.handle_get_account_achievements(&args).await,
+            "get_account_masteries" => self.handle_get_account_masteries(&args).await,
+            "get_account_raids" => self.handle_get_account_raids(&args).await,
+            "get_account_dungeons" => self.handle_get_account_dungeons(&args).await,
+            "get_dailies" => self.handle_get_dailies(&args).await,
             "get_info" => Ok(serde_json::Value::String(SERVER_RUNBOOK.to_owned())),
             other => return Err(format!("unknown tool: {other}")),
         };
@@ -554,6 +561,112 @@ impl McpServer {
             .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&detail)?)
+    }
+
+    // -------------------------------------------------------------------
+    // Tier 6A — account / progression / dailies handlers.
+    // -------------------------------------------------------------------
+
+    async fn handle_get_account(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let acc = self
+            .service
+            .get_account(&key)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&acc)?)
+    }
+
+    async fn handle_list_characters(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let v = self
+            .service
+            .list_characters(&key)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
+    async fn handle_get_account_achievements(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let summary = parse_summary(args);
+        let v = self
+            .service
+            .get_account_achievements(&key, summary)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
+    async fn handle_get_account_masteries(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let v = self
+            .service
+            .get_account_masteries(&key)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
+    async fn handle_get_account_raids(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let v = self
+            .service
+            .get_account_raids(&key)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
+    async fn handle_get_account_dungeons(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let v = self
+            .service
+            .get_account_dungeons(&key)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
+    async fn handle_get_dailies(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let which = match args.get("which").and_then(|v| v.as_str()) {
+            None => DailiesWhich::Today,
+            Some(s) if s.eq_ignore_ascii_case("today") => DailiesWhich::Today,
+            Some(s) if s.eq_ignore_ascii_case("tomorrow") => DailiesWhich::Tomorrow,
+            Some(_) => {
+                return Err(CallError::BadArg {
+                    name: "which",
+                    expected: "\"today\" or \"tomorrow\"",
+                });
+            }
+        };
+        let d = self
+            .service
+            .get_dailies(which)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&d)?)
     }
 }
 
@@ -1111,6 +1224,63 @@ fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    // Tier 6A — schemas reused across the new account/coaching tools.
+    //
+    // `authed_no_args` covers the half-dozen endpoints that take *only* an
+    // optional API key (account, character list, masteries, raids, dungeons).
+    // Keeping them on a shared schema avoids drift across them.
+    let authed_no_args: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "api_key": {
+                "type": ["string", "null"],
+                "default": null,
+                "format": "password",
+                "writeOnly": true,
+                "pattern": API_KEY_PATTERN,
+                "description": "GW2 API key with the scopes the called tool documents (typically `account` + `progression`). Optional — falls back to the server-configured key (GW2_API_KEY) if omitted."
+            }
+        }
+    }))
+    .expect("valid schema literal");
+
+    let get_account_achievements: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "api_key": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "format": "password",
+                    "writeOnly": true,
+                    "pattern": API_KEY_PATTERN,
+                    "description": "GW2 API key with `account` + `progression` scopes. Optional — falls back to the server-configured key."
+                },
+                "summary": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When true (default), drop entries that are fully complete (`done==true` or `current==max`) and entries with no progress yet (`current==0` or absent). What's left is roughly the player's in-flight work — typically 100–300 entries instead of 2000–3000. Pass false to get the raw account-achievement list."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
+    let get_dailies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "which": {
+                "type": "string",
+                "enum": ["today", "tomorrow"],
+                "default": "today",
+                "description": "Which day's dailies to fetch. `today` (default) hits `/v2/achievements/daily`; `tomorrow` hits `/v2/achievements/daily/tomorrow` — useful for planning ahead near reset."
+            }
+        }
+    }))
+    .expect("valid schema literal");
+
     vec![
         Tool::new(
             "wiki_search",
@@ -1206,6 +1376,51 @@ fn build_tools() -> Vec<Tool> {
             empty_args,
         )
         .annotate(read_only_closed_world("About this server")),
+        // Tier 6A — PvE coaching surface.
+        Tool::new(
+            "get_account",
+            "Fetch account-level snapshot: id, name, world, age, expansion access list, guilds, fractal level, daily/monthly AP, WvW rank, commander status. Requires an API key with `account` scope. The single most useful endpoint for 'what does this player have?' (e.g. checking whether mounts/jade-bot/etc. are unlocked via expansion ownership before recommending content).",
+            authed_no_args.clone(),
+        )
+        .annotate(read_only_open_world("Get Account"))
+        .with_output_schema::<crate::domain::Account>(),
+        Tool::new(
+            "list_characters",
+            "List the names of all characters on the account. Cheap — returns just the names, not their builds. Requires an API key with `characters` scope. Pair with `get_character_build` to fetch a specific character's setup.",
+            authed_no_args.clone(),
+        )
+        .annotate(read_only_open_world("List Characters")),
+        Tool::new(
+            "get_account_achievements",
+            "Fetch per-account achievement progress. Heavy: 2000–3000 entries on a long-lived account, so summary mode (default true) drops both completed and not-started entries — what's left is the player's in-flight work. Requires an API key with `account` + `progression` scopes. Pass `summary=false` for the raw list (e.g. when checking for a specific achievement id by hand).",
+            get_account_achievements,
+        )
+        .annotate(read_only_open_world("Get Account Achievements")),
+        Tool::new(
+            "get_account_masteries",
+            "Fetch unlocked-mastery progress per track ({id, level}). Requires an API key with `account` + `progression` scopes. Useful for recommending zones/collections gated by mastery levels (gliding, mounts, fishing, jade-bot, etc.).",
+            authed_no_args.clone(),
+        )
+        .annotate(read_only_open_world("Get Account Masteries")),
+        Tool::new(
+            "get_account_raids",
+            "Fetch the list of raid encounter ids the account has cleared this reset week (e.g. `vale_guardian`, `sabetha`). Resets every Monday 07:30 UTC. Requires an API key with `account` + `progression` scopes.",
+            authed_no_args.clone(),
+        )
+        .annotate(read_only_open_world("Get Account Raids")),
+        Tool::new(
+            "get_account_dungeons",
+            "Fetch the list of dungeon-path ids the account has cleared *today* (resets daily, NOT weekly — different from `get_account_raids`). Requires an API key with `account` + `progression` scopes.",
+            authed_no_args,
+        )
+        .annotate(read_only_open_world("Get Account Dungeons")),
+        Tool::new(
+            "get_dailies",
+            "Fetch today's (or tomorrow's) Guild Wars 2 daily achievement IDs partitioned by category (pve, pvp, wvw, fractals, special). Public — no API key required. Pair with `get_account_achievements` to compute which dailies the player has already finished today.",
+            get_dailies,
+        )
+        .annotate(read_only_open_world("Get Dailies"))
+        .with_output_schema::<crate::domain::Dailies>(),
     ]
 }
 
@@ -1334,6 +1549,9 @@ fn resource_templates() -> Vec<rmcp::model::ResourceTemplate> {
 
 /// Slash commands surfaced via `prompts/list`. The body of each prompt is
 /// rendered server-side in [`render_prompt`] — keep the two in sync.
+#[allow(clippy::too_many_lines)] // 10 prompts × ~12 lines each — table-driven
+// would be denser at the cost of readability per prompt; each prompt benefits
+// from sitting next to its argument list.
 fn build_prompts() -> Vec<Prompt> {
     fn arg(name: &str, description: &str, required: bool) -> PromptArgument {
         PromptArgument {
@@ -1413,6 +1631,87 @@ fn build_prompts() -> Vec<Prompt> {
                 ),
             ]),
         ),
+        Prompt::new(
+            PROMPT_DAILY_ROUTINE,
+            Some(
+                "Plan today's GW2 routine: daily achievements, dungeon paths, raid clears, \
+                 fused with what the AI remembers about the player.",
+            ),
+            Some(vec![
+                arg(
+                    "api_key",
+                    "GW2 API key with `account` + `progression` scopes.",
+                    true,
+                ),
+                arg(
+                    "character",
+                    "Optional character name to also pull the active build for.",
+                    false,
+                ),
+            ]),
+        ),
+        Prompt::new(
+            PROMPT_NEXT_ZONE,
+            Some(
+                "Recommend the next zone for a character to explore based on their build, \
+                 expansion access, and mastery progress.",
+            ),
+            Some(vec![
+                arg(
+                    "api_key",
+                    "GW2 API key with `account` + `progression` scopes.",
+                    true,
+                ),
+                arg("character", "Character name (case-sensitive).", true),
+            ]),
+        ),
+        Prompt::new(
+            PROMPT_NEXT_COLLECTION,
+            Some("Find the most rewarding achievement collection to finish next."),
+            Some(vec![arg(
+                "api_key",
+                "GW2 API key with `account` + `progression` scopes.",
+                true,
+            )]),
+        ),
+        Prompt::new(
+            PROMPT_MOUNT_PROGRESSION,
+            Some(
+                "Plan the next mount unlock based on expansion access and Mount Mastery progress.",
+            ),
+            Some(vec![arg(
+                "api_key",
+                "GW2 API key with `account` + `progression` scopes.",
+                true,
+            )]),
+        ),
+        Prompt::new(
+            PROMPT_LEGENDARY_PROGRESS,
+            Some(
+                "Track legendary crafting progress: gold, currencies, raids/WvW gates, recipe steps.",
+            ),
+            Some(vec![
+                arg(
+                    "api_key",
+                    "GW2 API key with `account` + `wallet` + `progression` scopes.",
+                    true,
+                ),
+                arg(
+                    "legendary",
+                    "Optional. The legendary the player is working toward (e.g. `Twilight`, `The Predator`).",
+                    false,
+                ),
+            ]),
+        ),
+        Prompt::new(
+            PROMPT_WEEKLY_ROUNDUP,
+            Some("Summarise what's left this reset week: raids, fractals, WvW, dungeons."),
+            Some(vec![arg(
+                "api_key",
+                "GW2 API key with `account` + `progression` scopes.",
+                true,
+            )]),
+        ),
     ]
 }
 
@@ -1420,6 +1719,19 @@ const PROMPT_ANALYZE_CHARACTER: &str = "analyze-character";
 const PROMPT_COMPARE_TO_META: &str = "compare-to-meta";
 const PROMPT_DECODE_AND_EXPLAIN: &str = "decode-and-explain";
 const PROMPT_RECOMMEND_BUILD: &str = "recommend-build";
+
+// Tier 6A — PvE coaching prompts. Each fuses a live API call (or three)
+// with what the *AI* remembers about the player from prior conversations
+// — the server itself stores nothing user-specific. The exact wording
+// matters: phrases like "recall what you know" steer the model toward
+// using its own conversation memory rather than implying server-side
+// state.
+const PROMPT_DAILY_ROUTINE: &str = "daily-routine";
+const PROMPT_NEXT_ZONE: &str = "next-zone";
+const PROMPT_NEXT_COLLECTION: &str = "next-collection";
+const PROMPT_MOUNT_PROGRESSION: &str = "mount-progression";
+const PROMPT_LEGENDARY_PROGRESS: &str = "legendary-progress";
+const PROMPT_WEEKLY_ROUNDUP: &str = "weekly-roundup";
 
 #[derive(Debug)]
 enum PromptError {
@@ -1597,6 +1909,248 @@ fn render_recommend_build(
     ))
 }
 
+fn render_daily_routine(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let api_key = require_arg(args, PROMPT_DAILY_ROUTINE, "api_key")?;
+    let character = optional_arg(args, "character");
+
+    let character_step = if let Some(ref name) = character {
+        format!(
+            "4. Call `get_character_build` with `character=\"{name}\"` and \
+             `api_key=\"{api_key}\"` to know what setup the player will be running.\n\
+             "
+        )
+    } else {
+        "4. (No character was specified — skip the build lookup; if a particular \
+         activity needs a build choice, ask the user which character to run.)\n"
+            .to_owned()
+    };
+
+    let body = format!(
+        "You are helping the user plan today's Guild Wars 2 routine. The server itself \
+         has no memory of this user — anything you 'know' about them comes from your \
+         own conversation history with them. Workflow:\n\n\
+         1. Call `get_dailies` (the default `which=\"today\"`) for today's PvE/PvP/WvW/\
+         fractal achievement IDs.\n\
+         2. Call `get_account_achievements` with `api_key=\"{api_key}\"` and the default \
+         `summary=true`. Cross-reference with the daily IDs from step 1 to see which \
+         dailies the player has already completed today.\n\
+         3. Call `get_account_raids` and `get_account_dungeons` (both with \
+         `api_key=\"{api_key}\"`) to see what's been cleared this week (raids) and \
+         today (dungeons). Note the cadence difference: raids reset Monday 07:30 UTC, \
+         dungeon paths reset daily.\n\
+         {character_step}\
+         5. **Recall what you know about this player from your previous conversations \
+         with them**: their preferred game modes, how much time they typically have, \
+         what long-term goal they're working toward (legendary, mastery, achievement, \
+         collection). Do NOT ask the API server for this — it stores nothing about \
+         users.\n\
+         6. Produce a checklist for today, ordered by reward-per-time, scoped to the \
+         player's available time and stated preferences. Mark items they have already \
+         completed today.\n\n\
+         If you have no prior context for this player, ask: \"How much time do you have \
+         today, and what do you feel like — open world, instanced PvE, PvP, WvW?\" \
+         before producing the checklist."
+    );
+    Ok(finish_prompt(
+        "Plan today's GW2 routine: daily achievements, dungeon paths, raid clears, fused with \
+         what the AI remembers about the player.",
+        body,
+    ))
+}
+
+fn render_next_zone(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let api_key = require_arg(args, PROMPT_NEXT_ZONE, "api_key")?;
+    let character = require_arg(args, PROMPT_NEXT_ZONE, "character")?;
+    let body = format!(
+        "You are recommending the next zone for {character} to explore in Guild Wars 2. \
+         The server has no memory of this player — anything you 'know' about them comes \
+         from your own conversation history with them.\n\n\
+         Steps to follow:\n\n\
+         1. Call `get_character_build` with `character=\"{character}\"` and \
+         `api_key=\"{api_key}\"` to see profession, elite spec, and current setup.\n\
+         2. Call `get_account` with `api_key=\"{api_key}\"` to see character level (via \
+         age proxy), expansion `access` flags (HoT/PoF/EoD/SotO/JW/...), and fractal \
+         level.\n\
+         3. Call `get_account_masteries` with `api_key=\"{api_key}\"` to see mastery \
+         track progress — many zones gate behind specific masteries (gliding, mounts, \
+         jade-bot, skiff, fishing, etc.).\n\
+         4. Call `get_account_achievements` with `api_key=\"{api_key}\"` (default \
+         `summary=true`) to spot any in-progress map-completion or zone-related \
+         collections.\n\
+         5. **Recall this player's stated progression goals from your previous \
+         conversations**: legendary they're crafting, achievement set they're chasing, \
+         story chapter they want to finish, mount they want, etc. Do NOT ask the server \
+         — it stores nothing about users.\n\
+         6. Suggest one specific zone with a one-paragraph rationale tying it to (a) \
+         the character's level/build appropriateness, (b) the masteries they have \
+         unlocked, and (c) what they have said they're working toward.\n\n\
+         If you have no prior context for this player, ask: \"Are you working toward \
+         something specific (legendary, mount, story, achievement), or do you just want \
+         a fun map you haven't done?\" before recommending."
+    );
+    Ok(finish_prompt(
+        "Recommend the next zone for a character to explore based on their build, expansion \
+         access, and mastery progress.",
+        body,
+    ))
+}
+
+fn render_next_collection(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let api_key = require_arg(args, PROMPT_NEXT_COLLECTION, "api_key")?;
+    let body = format!(
+        "You are finding the most rewarding Guild Wars 2 achievement collection for the \
+         player to finish next. The server itself has no memory of this user — anything \
+         you 'know' about them comes from your own conversation history.\n\n\
+         Steps to follow:\n\n\
+         1. Call `get_account_achievements` with `api_key=\"{api_key}\"` and \
+         `summary=false` so you see the full in-progress + completed list (you need the \
+         raw `current` / `max` numbers to rank by closeness-to-completion).\n\
+         2. Mentally filter to entries that look like collections — bits-based \
+         achievements with high `current` relative to `max` are the ripest. Discard the \
+         ones the player has not started.\n\
+         3. **Recall what this player has said in previous conversations about their \
+         interest profile**: legendaries, skins, titles, masteries, gen3 weapons, \
+         specific story content. Use that to weight your candidates.\n\
+         4. Suggest the best 1–3 candidate collections with their current progress \
+         (`X / Y` complete) and what completing each one unlocks (precursor, skin, \
+         title, mastery point, legendary chunk, etc.).\n\n\
+         If you have no prior context for this player, ask which axis matters most to \
+         them — legendary progress, skin/wardrobe completion, title/AP, or mastery \
+         points — before ranking the candidates."
+    );
+    Ok(finish_prompt(
+        "Find the most rewarding achievement collection to finish next.",
+        body,
+    ))
+}
+
+fn render_mount_progression(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let api_key = require_arg(args, PROMPT_MOUNT_PROGRESSION, "api_key")?;
+    let body = format!(
+        "You are helping the player plan their next Guild Wars 2 mount unlock. The \
+         server itself has no memory of this user — anything you 'know' about them \
+         comes from your own conversation history.\n\n\
+         Steps to follow:\n\n\
+         1. Call `get_account` with `api_key=\"{api_key}\"` and confirm expansion \
+         access from the `access` array. Mounts gate behind specific expansions: PoF \
+         unlocks the original five (raptor, springer, skimmer, jackal, griffon), \
+         beetle/skyscale come from PoF + LWS4, EoD adds the siege turtle and skiff, \
+         SotO adds the skyscale rework and the warclaw is unlocked via WvW.\n\
+         2. Call `get_account_masteries` with `api_key=\"{api_key}\"` to see Mount \
+         Mastery track progress — many of the more-advanced mount masteries (Beetle's \
+         Roll, Skimmer underwater, Skyscale Air mastery, etc.) need spending mastery \
+         points to unlock skills.\n\
+         3. **Recall** which mounts the player has previously mentioned having \
+         unlocked, which they've said they want, and which content they're heading \
+         toward (raids, open-world meta events, achievement hunting). Do NOT ask the \
+         server — it stores nothing about users.\n\
+         4. Suggest the next mount-related step: which collection or mastery to push, \
+         what it unlocks, where to start (zone + collection + first achievement). If \
+         the player owns no mount-bearing expansion, recommend that first.\n\n\
+         If you have no prior context, ask which mount they have already unlocked and \
+         which one they're most excited about before recommending."
+    );
+    Ok(finish_prompt(
+        "Plan the next mount unlock based on expansion access and Mount Mastery progress.",
+        body,
+    ))
+}
+
+fn render_legendary_progress(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let api_key = require_arg(args, PROMPT_LEGENDARY_PROGRESS, "api_key")?;
+    let legendary = optional_arg(args, "legendary");
+
+    let intro = if let Some(ref name) = legendary {
+        format!("You are tracking the player's progress toward {name}.\n\n")
+    } else {
+        "You are tracking the player's legendary crafting progress. If you can recall \
+         which legendary they have been working toward in your previous conversations \
+         with them, use that. Otherwise, defer the deep dive and offer choices (see \
+         the bottom of these instructions).\n\n"
+            .to_owned()
+    };
+
+    let body = format!(
+        "{intro}\
+         The server itself stores nothing about this user — anything you 'know' comes \
+         from your own conversation history with them.\n\n\
+         Steps to follow:\n\n\
+         1. **Recall** which legendary the player has been chasing across your previous \
+         conversations (or use the `legendary` arg if it was supplied). Hold that \
+         choice in mind for the rest of these steps.\n\
+         2. Call `get_wallet` with `api_key=\"{api_key}\"` for gold + the key currencies \
+         this legendary needs (mystic clovers, philosopher's stones, spirit shards, \
+         provisioner tokens, etc.).\n\
+         3. Call `get_account_achievements` with `api_key=\"{api_key}\"` (default \
+         `summary=true`) to surface gift-related collections in flight — every \
+         legendary needs at least one collection, and some need multiple.\n\
+         4. Call `get_account_raids` and `get_account_dungeons` with \
+         `api_key=\"{api_key}\"` if the legendary needs LI/LD or dungeon tokens.\n\
+         5. Call `get_account` with `api_key=\"{api_key}\"` if the legendary's gifts \
+         need WvW rank (Gift of Battle is unrelated, but some pieces want WvW track \
+         currencies) or a fractal level.\n\
+         6. Use `wiki_search` for the legendary's recipe page if you need authoritative \
+         numbers for any single material — the wiki is the source of truth.\n\
+         7. Produce a 'what's left' breakdown grouped by acquisition path: \
+         gold-buyable now, achievement-locked (with the next achievement to chase), \
+         raid- or instance-locked (with how many weeks of clears remain), and \
+         time-gated (mystic clovers, provisioner tokens, etc.). End with a concrete \
+         next-action suggestion.\n\n\
+         If you have no prior context and no `legendary` arg was passed, list 3–4 \
+         commonly-pursued first legendaries (e.g. The Predator, Bolt, Twilight, Bifrost) \
+         with brief difficulty + theme notes and ask which one fits the player."
+    );
+    Ok(finish_prompt(
+        "Track legendary crafting progress: gold, currencies, raids/WvW gates, recipe steps.",
+        body,
+    ))
+}
+
+fn render_weekly_roundup(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let api_key = require_arg(args, PROMPT_WEEKLY_ROUNDUP, "api_key")?;
+    let body = format!(
+        "You are summarising what's left this reset week in Guild Wars 2 for the \
+         player. The server itself has no memory of this user — anything you 'know' \
+         about them comes from your own conversation history.\n\n\
+         Steps to follow:\n\n\
+         1. Call `get_account_raids` with `api_key=\"{api_key}\"` for the encounter \
+         ids cleared this week. Raids reset every Monday 07:30 UTC.\n\
+         2. Call `get_account` with `api_key=\"{api_key}\"` for `fractal_level` and \
+         `wvw_rank` — use these to scope the fractal/WvW recommendations to a sensible \
+         tier.\n\
+         3. Call `get_account_dungeons` with `api_key=\"{api_key}\"` for dungeon paths \
+         cleared today. **Flag this distinction explicitly to the user**: dungeons \
+         reset daily, NOT weekly, so 'left this week' for dungeons means 'left today \
+         × the days remaining until next Monday'.\n\
+         4. **Recall** which content this player typically clears each week from your \
+         previous conversations: which raid wings, which strikes, T4 fractal CMs, \
+         WvW participation rank, etc. Skip recommendations for content they've told \
+         you they don't run.\n\
+         5. Produce a brief 'done / left' list partitioned into raids, fractals \
+         (T4 + CMs separately), strikes, dungeons (with the daily caveat), and WvW \
+         participation. Suggest the highest-value remaining items first.\n\n\
+         If you have no prior context for this player, ask which categories they \
+         actually run before listing every possible weekly clear — many players \
+         deliberately skip whole pillars."
+    );
+    Ok(finish_prompt(
+        "Summarise what's left this reset week: raids, fractals, WvW, dungeons.",
+        body,
+    ))
+}
+
 fn render_prompt(
     name: &str,
     args: &serde_json::Map<String, serde_json::Value>,
@@ -1606,6 +2160,12 @@ fn render_prompt(
         PROMPT_COMPARE_TO_META => render_compare_to_meta(args),
         PROMPT_DECODE_AND_EXPLAIN => render_decode_and_explain(args),
         PROMPT_RECOMMEND_BUILD => render_recommend_build(args),
+        PROMPT_DAILY_ROUTINE => render_daily_routine(args),
+        PROMPT_NEXT_ZONE => render_next_zone(args),
+        PROMPT_NEXT_COLLECTION => render_next_collection(args),
+        PROMPT_MOUNT_PROGRESSION => render_mount_progression(args),
+        PROMPT_LEGENDARY_PROGRESS => render_legendary_progress(args),
+        PROMPT_WEEKLY_ROUNDUP => render_weekly_roundup(args),
         other => Err(PromptError::NotFound(other.to_owned())),
     }
 }
@@ -1622,8 +2182,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            13,
-            "tier-5 ships 13 tools (12 functional + get_info)"
+            20,
+            "tier-6a ships 20 tools (13 carried over + 7 new account/coaching tools)"
         );
     }
 
