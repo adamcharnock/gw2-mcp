@@ -1,1 +1,158 @@
-[{"tab":1,"is_active":true,"build":{"name":"Power DH","profession":"Guardian","specializations":[{"id":42,"traits":[574,565,1683]},{"id":16,"traits":[634,653,2017]},{"id":27,"traits":[1898,1835,1955]}],"skills":{"heal":21664,"utilities":[30364,9168,9093],"elite":30273},"aquatic_skills":{"heal":21664,"utilities":[30364,9168,9093],"elite":30273}}}]
+[
+  {
+    "tab": 1,
+    "is_active": false,
+    "build": {
+      "name": "",
+      "profession": "Guardian",
+      "specializations": [
+        {
+          "id": 42,
+          "traits": [
+            634,
+            653,
+            2017
+          ]
+        },
+        {
+          "id": 13,
+          "traits": [
+            581,
+            584,
+            589
+          ]
+        },
+        {
+          "id": 46,
+          "traits": [
+            625,
+            610,
+            554
+          ]
+        }
+      ],
+      "skills": {
+        "heal": 9102,
+        "utilities": [
+          9247,
+          9251,
+          9153
+        ],
+        "elite": 29965
+      },
+      "aquatic_skills": {
+        "heal": 9102,
+        "utilities": [
+          null,
+          null,
+          null
+        ],
+        "elite": null
+      }
+    }
+  },
+  {
+    "tab": 2,
+    "is_active": true,
+    "build": {
+      "name": "",
+      "profession": "Guardian",
+      "specializations": [
+        {
+          "id": 16,
+          "traits": [
+            566,
+            567,
+            1686
+          ]
+        },
+        {
+          "id": 49,
+          "traits": [
+            654,
+            562,
+            558
+          ]
+        },
+        {
+          "id": 62,
+          "traits": [
+            2101,
+            2063,
+            2179
+          ]
+        }
+      ],
+      "skills": {
+        "heal": 41714,
+        "utilities": [
+          40915,
+          46148,
+          9153
+        ],
+        "elite": 29965
+      },
+      "aquatic_skills": {
+        "heal": null,
+        "utilities": [
+          null,
+          null,
+          null
+        ],
+        "elite": null
+      }
+    }
+  },
+  {
+    "tab": 3,
+    "is_active": false,
+    "build": {
+      "name": "",
+      "profession": "Guardian",
+      "specializations": [
+        {
+          "id": null,
+          "traits": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "id": null,
+          "traits": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "id": null,
+          "traits": [
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "skills": {
+        "heal": null,
+        "utilities": [
+          null,
+          null,
+          null
+        ],
+        "elite": null
+      },
+      "aquatic_skills": {
+        "heal": null,
+        "utilities": [
+          null,
+          null,
+          null
+        ],
+        "elite": null
+      }
+    }
+  }
+]

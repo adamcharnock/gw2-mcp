@@ -26,21 +26,25 @@ pub const STATIC_TTL: Duration = Duration::from_secs(60 * 60 * 24 * 365); // 1 y
 pub const WIKI_TTL: Duration = Duration::from_secs(60 * 60 * 24); // 1 day
 pub const WALLET_TTL: Duration = Duration::from_secs(5 * 60); // 5 minutes
 
+/// Service errors are pass-through wrappers — the inner port errors are
+/// already user-facing (see `Gw2ApiError`, `WikiError`, etc.). Adding a
+/// "upstream X error: " prefix would just push the useful sentence further
+/// down the user's eye-line.
 #[derive(Debug, Error)]
 pub enum ServiceError {
-    #[error("upstream GW2 API error: {0}")]
+    #[error("{0}")]
     Gw2(#[from] Gw2ApiError),
 
-    #[error("upstream wiki error: {0}")]
+    #[error("{0}")]
     Wiki(#[from] WikiError),
 
-    #[error("cache error: {0}")]
+    #[error("{0}")]
     Cache(#[from] CacheError),
 
-    #[error("build code decode error: {0}")]
+    #[error("{0}")]
     BuildCode(#[from] BuildCodeError),
 
-    #[error("build catalog error: {0}")]
+    #[error("{0}")]
     Catalog(#[from] crate::ports::CatalogError),
 }
 
@@ -90,7 +94,10 @@ impl Service {
         self.catalogs.names()
     }
 
-    /// List builds from a named catalog.
+    /// List builds from a named catalog. Cached for `WIKI_TTL` (24 h) per
+    /// (source, filter) — listings are large and rarely change within a
+    /// day. The filter is fingerprinted into the cache key so different
+    /// filters share storage but don't collide.
     pub async fn list_catalog_builds(
         &self,
         source: &str,
@@ -100,10 +107,25 @@ impl Service {
             .catalogs
             .get(source)
             .ok_or_else(|| crate::ports::CatalogError::NoSuchSource(source.to_owned()))?;
-        Ok(cat.list(&filter).await?)
+
+        let cache_key = catalog_list_cache_key(source, &filter);
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(cached) = serde_json::from_str::<Vec<crate::ports::BuildSummary>>(&json)
+        {
+            debug!(source, "catalog list cache hit");
+            return Ok(cached);
+        }
+
+        let summaries = cat.list(&filter).await?;
+        if let Ok(json) = serde_json::to_string(&summaries) {
+            self.cache.set(&cache_key, json, WIKI_TTL).await;
+        }
+        Ok(summaries)
     }
 
-    /// Fetch a specific build from a catalog.
+    /// Fetch a specific build from a catalog. Cached for `WIKI_TTL` per
+    /// (source, slug). 1-day TTL is enough — catalogs publish updates on
+    /// patch days and we don't need read-after-write consistency.
     pub async fn get_catalog_build(
         &self,
         source: &str,
@@ -113,7 +135,20 @@ impl Service {
             .catalogs
             .get(source)
             .ok_or_else(|| crate::ports::CatalogError::NoSuchSource(source.to_owned()))?;
-        Ok(cat.fetch(slug).await?)
+
+        let cache_key = catalog_fetch_cache_key(source, slug);
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(cached) = serde_json::from_str::<crate::ports::BuildDetail>(&json)
+        {
+            debug!(source, slug, "catalog fetch cache hit");
+            return Ok(cached);
+        }
+
+        let detail = cat.fetch(slug).await?;
+        if let Ok(json) = serde_json::to_string(&detail) {
+            self.cache.set(&cache_key, json, WIKI_TTL).await;
+        }
+        Ok(detail)
     }
 
     // -----------------------------------------------------------------
@@ -409,6 +444,19 @@ fn wiki_search_cache_key(query: &SearchQuery, limit: SearchLimit) -> String {
 
 fn wiki_extract_cache_key(title: &str) -> String {
     format!("wiki:extract:{title}")
+}
+
+fn catalog_list_cache_key(source: &str, f: &crate::ports::CatalogFilter) -> String {
+    // Compact, deterministic — `*` for "no filter on that dimension" so the
+    // key is human-readable in logs.
+    let prof = f.profession.as_deref().unwrap_or("*");
+    let mode = f.gamemode.as_deref().unwrap_or("*");
+    let limit = f.limit.map_or("*".to_owned(), |n| n.to_string());
+    format!("catalog:{source}:list:{prof}:{mode}:{limit}")
+}
+
+fn catalog_fetch_cache_key(source: &str, slug: &str) -> String {
+    format!("catalog:{source}:build:{slug}")
 }
 
 /// Public so adapters can build canonical wiki URLs.

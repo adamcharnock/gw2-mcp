@@ -360,10 +360,25 @@ impl ServerHandler for McpServer {
                 ..Default::default()
             },
             instructions: Some(
-                "Guild Wars 2 MCP server. Tools: wiki_search (search the GW2 wiki), \
-                 get_wallet (returns the user's wallet — requires a GW2 API key with \
-                 'wallet' scope), get_currencies (currency metadata; pass `ids` for a \
-                 subset, omit for all). Resource: gw2://currencies (full currency list)."
+                "Guild Wars 2 MCP server.\n\
+                 \n\
+                 Read-only / no-auth tools:\n\
+                 - wiki_search — search the GW2 wiki, returns enriched results with prose extracts.\n\
+                 - get_currencies — currency metadata. Pass `ids` for specific currencies, omit for all.\n\
+                 - get_skills / get_traits / get_specializations — resolve API ids (returned by\n\
+                   get_character_build) into name + description + facts. `ids` is required.\n\
+                 - decode_build_code — decode a `[&Dw…]` build chat code into structured JSON\n\
+                   (profession, specs, traits, skill palette ids, pets/legends).\n\
+                 - list_build_sources / list_recommended_builds / get_recommended_build — browse\n\
+                   curated builds from Discretize (fractals), MetaBattle (all gamemodes), or Snow\n\
+                   Crows (raids/strikes; on-demand only — pass slug `<category>/<profession>/<build>`).\n\
+                 \n\
+                 Authed tools (need a GW2 API key from https://account.arena.net/applications):\n\
+                 - get_wallet — wallet contents + currency metadata (scopes: account, wallet).\n\
+                 - get_character_build — every build/equipment tab for a character\n\
+                   (scopes: account, characters, builds).\n\
+                 \n\
+                 Resource: gw2://currencies — full currency list as JSON."
                     .to_owned(),
             ),
         }
@@ -387,24 +402,16 @@ impl ServerHandler for McpServer {
             serde_json::Value::Object,
         );
 
-        let outcome = match request.name.as_ref() {
-            "wiki_search" => self.handle_wiki_search(&args).await,
-            "get_wallet" => self.handle_get_wallet(&args).await,
-            "get_currencies" => self.handle_get_currencies(&args).await,
-            other => {
-                return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "unknown tool: {other}"
-                ))]));
-            }
-        };
-
-        match outcome {
+        // Single dispatch path — `dispatch_tool` is also exercised by
+        // integration tests, so the protocol handler can never drift out
+        // of sync with the test harness.
+        match self.dispatch_tool(&request.name, args).await {
             Ok(text) => {
                 let mut result = CallToolResult::success(vec![Content::text(text.clone())]);
                 result.structured_content = serde_json::from_str(&text).ok();
                 Ok(result)
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e.to_string())])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }
 

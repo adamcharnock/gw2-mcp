@@ -46,6 +46,20 @@ Run the server (it speaks MCP over stdio):
 mise run run
 ```
 
+### Local secrets (.env)
+
+`mise` auto-loads variables from a `.env` file in the repo root whenever you
+`cd` into the project. Copy the example and fill in your GW2 API key for
+local testing:
+
+```bash
+cp .env.example .env
+# edit .env, set GW2_API_KEY=...
+```
+
+`.env` is gitignored. The example file documents every variable the binary
+understands.
+
 ## MCP client config
 
 ```json

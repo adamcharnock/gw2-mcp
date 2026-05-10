@@ -137,7 +137,7 @@ impl Gw2Api for HttpGw2Api {
             self.base_url,
             url_encode_segment(name.as_str()),
         );
-        self.fetch_authed_json(&url, key).await
+        self.fetch_authed_json(&url, key, Some(name)).await
     }
 
     async fn fetch_equipmenttabs(
@@ -150,7 +150,7 @@ impl Gw2Api for HttpGw2Api {
             self.base_url,
             url_encode_segment(name.as_str()),
         );
-        self.fetch_authed_json(&url, key).await
+        self.fetch_authed_json(&url, key, Some(name)).await
     }
 }
 
@@ -200,10 +200,14 @@ impl HttpGw2Api {
         Ok(out)
     }
 
+    /// `character` lets us recognise the GW2-specific "no such character"
+    /// payload and surface it as a typed [`Gw2ApiError::CharacterNotFound`]
+    /// rather than a noisy raw-JSON dump.
     async fn fetch_authed_json<T: for<'de> Deserialize<'de>>(
         &self,
         url: &str,
         key: &ApiKey,
+        character: Option<&CharacterName>,
     ) -> Result<T, Gw2ApiError> {
         let resp = self
             .client
@@ -215,7 +219,7 @@ impl HttpGw2Api {
         if resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN {
             return Err(Gw2ApiError::Unauthorized);
         }
-        let resp = check_status(resp).await?;
+        let resp = check_status_with_context(resp, character).await?;
         resp.json::<T>()
             .await
             .map_err(|e| Gw2ApiError::Decode(e.to_string()))
@@ -223,17 +227,101 @@ impl HttpGw2Api {
 }
 
 fn url_encode_segment(s: &str) -> String {
-    // GW2 character names allow spaces; reqwest doesn't auto-encode path
-    // segments built into the URL string, so we do it ourselves.
-    url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+    // GW2 character names allow spaces and apostrophes. We must use *path*
+    // percent-encoding (space → `%20`), not form-encoding (space → `+`) —
+    // the GW2 API responds to `Vesta+Vey` with HTTP 400 "no such character".
+    use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+    utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
+}
+
+#[cfg(test)]
+mod url_encode_tests {
+    use super::url_encode_segment;
+
+    #[test]
+    fn space_becomes_percent_20_not_plus() {
+        // The whole reason this function exists.
+        assert_eq!(url_encode_segment("Vesta Vey"), "Vesta%20Vey");
+    }
+
+    #[test]
+    fn apostrophe_is_encoded() {
+        assert_eq!(url_encode_segment("Lara's"), "Lara%27s");
+    }
+
+    #[test]
+    fn pure_ascii_alnum_is_unchanged() {
+        assert_eq!(url_encode_segment("HeroOne"), "HeroOne");
+    }
 }
 
 async fn check_status(resp: reqwest::Response) -> Result<reqwest::Response, Gw2ApiError> {
+    check_status_with_context(resp, None).await
+}
+
+/// Map a non-success GW2 response into the most specific error variant we
+/// can. GW2 errors are uniformly shaped `{"text":"..."}`, which we extract
+/// and pattern-match against the handful of cases worth surfacing typed.
+async fn check_status_with_context(
+    resp: reqwest::Response,
+    character: Option<&CharacterName>,
+) -> Result<reqwest::Response, Gw2ApiError> {
     if resp.status().is_success() {
-        Ok(resp)
-    } else {
-        let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
-        Err(Gw2ApiError::Status { status, body })
+        return Ok(resp);
+    }
+    let status = resp.status().as_u16();
+    if status == 429 {
+        return Err(Gw2ApiError::RateLimited);
+    }
+    if status == 401 || status == 403 {
+        return Err(Gw2ApiError::Unauthorized);
+    }
+    let body = resp.text().await.unwrap_or_default();
+    let message = extract_gw2_error_text(&body).unwrap_or_else(|| body.clone());
+
+    if message.eq_ignore_ascii_case("no such character")
+        && let Some(name) = character
+    {
+        return Err(Gw2ApiError::CharacterNotFound {
+            name: name.as_str().to_owned(),
+        });
+    }
+    if message.to_ascii_lowercase().contains("invalid key")
+        || message
+            .to_ascii_lowercase()
+            .contains("invalid access token")
+    {
+        return Err(Gw2ApiError::Unauthorized);
+    }
+    Err(Gw2ApiError::Upstream { status, message })
+}
+
+/// GW2 v2 errors are JSON of the form `{"text":"..."}`. Pull that out;
+/// fall back to `None` if the body isn't recognisable.
+fn extract_gw2_error_text(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    v.get("text").and_then(|t| t.as_str()).map(str::to_owned)
+}
+
+#[cfg(test)]
+mod gw2_error_extraction_tests {
+    use super::extract_gw2_error_text;
+
+    #[test]
+    fn extracts_text_from_canonical_shape() {
+        assert_eq!(
+            extract_gw2_error_text(r#"{"text":"no such character"}"#).as_deref(),
+            Some("no such character")
+        );
+    }
+
+    #[test]
+    fn returns_none_when_body_is_not_json() {
+        assert!(extract_gw2_error_text("plain text").is_none());
+    }
+
+    #[test]
+    fn returns_none_when_no_text_field() {
+        assert!(extract_gw2_error_text(r#"{"other":"x"}"#).is_none());
     }
 }

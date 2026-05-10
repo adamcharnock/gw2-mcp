@@ -121,11 +121,13 @@ async fn wallet_propagates_unauthorized() {
 
     let svc = build(gw2, wiki, cache, clock);
     let err = svc.get_wallet(&valid_api_key()).await.unwrap_err();
-    let msg = format!("{err}");
+    let msg = format!("{err}").to_lowercase();
+    // Friendly user-facing message — see Gw2ApiError::Unauthorized in ports.rs.
     assert!(
-        msg.to_lowercase().contains("unauthorized") || msg.to_lowercase().contains("invalid"),
-        "expected unauthorized signal, got: {msg}"
+        msg.contains("rejected"),
+        "expected key-rejected message, got: {msg}"
     );
+    assert!(msg.contains("scope"), "expected scope hint, got: {msg}");
 }
 
 #[tokio::test]
@@ -410,7 +412,14 @@ async fn decode_build_code_via_service() {
             .unwrap();
     let decoded = svc.decode_build_code(&code).unwrap();
     assert_eq!(decoded["profession"], 6);
-    assert_eq!(decoded["skills"]["healing"]["terrestrial"], 116);
+    assert_eq!(
+        decoded["skills"]["healing"]["terrestrial"]["palette_id"],
+        116
+    );
+    assert!(
+        decoded["skills"]["healing"]["terrestrial"]["api_skill_id"].is_number(),
+        "service must surface resolved api_skill_id alongside the raw palette"
+    );
 }
 
 #[tokio::test]

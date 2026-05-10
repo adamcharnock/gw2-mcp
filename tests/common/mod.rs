@@ -17,8 +17,8 @@ use gw2_mcp::domain::{
     SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 use gw2_mcp::ports::{
-    BuildCodeDecoder, Cache, CacheError, CatalogRegistry, Clock, Gw2Api, Gw2ApiError, Wiki,
-    WikiError,
+    BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
+    CatalogFilter, CatalogRegistry, Clock, Gw2Api, Gw2ApiError, Wiki, WikiError,
 };
 
 /// Build a `Service` with the in-memory fakes and a real chatr decoder.
@@ -33,6 +33,108 @@ pub fn build_service(
     let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
     let catalogs = Arc::new(CatalogRegistry::new());
     Service::new(gw2, wiki, cache, clock, decoder, catalogs)
+}
+
+/// Build a `Service` with a custom set of catalogs registered.
+#[must_use]
+pub fn build_service_with_catalogs(
+    gw2: Arc<dyn Gw2Api>,
+    wiki: Arc<dyn Wiki>,
+    cache: Arc<dyn Cache>,
+    clock: Arc<dyn Clock>,
+    catalogs: Arc<CatalogRegistry>,
+) -> Service {
+    let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
+    Service::new(gw2, wiki, cache, clock, decoder, catalogs)
+}
+
+// ---------------------------------------------------------------------------
+// Recording fake for the BuildCatalog port. The service caches catalog
+// calls — the call counters here let tests prove cache hits and misses.
+// ---------------------------------------------------------------------------
+
+pub struct FakeCatalog {
+    name: &'static str,
+    pub list_calls: Mutex<usize>,
+    pub fetch_calls: Mutex<usize>,
+    pub list_response: Mutex<Vec<BuildSummary>>,
+    pub fetch_response: Mutex<Option<BuildDetail>>,
+}
+
+impl FakeCatalog {
+    pub fn new(name: &'static str) -> Arc<Self> {
+        Arc::new(Self {
+            name,
+            list_calls: Mutex::new(0),
+            fetch_calls: Mutex::new(0),
+            list_response: Mutex::new(Vec::new()),
+            fetch_response: Mutex::new(None),
+        })
+    }
+
+    pub fn set_list(&self, summaries: Vec<BuildSummary>) {
+        *self.list_response.lock().unwrap() = summaries;
+    }
+
+    pub fn set_fetch(&self, detail: BuildDetail) {
+        *self.fetch_response.lock().unwrap() = Some(detail);
+    }
+
+    pub fn list_calls(&self) -> usize {
+        *self.list_calls.lock().unwrap()
+    }
+
+    pub fn fetch_calls(&self) -> usize {
+        *self.fetch_calls.lock().unwrap()
+    }
+}
+
+#[async_trait]
+impl BuildCatalog for FakeCatalog {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    async fn list(&self, _filter: &CatalogFilter) -> Result<Vec<BuildSummary>, CatalogError> {
+        *self.list_calls.lock().unwrap() += 1;
+        Ok(self.list_response.lock().unwrap().clone())
+    }
+
+    async fn fetch(&self, slug: &str) -> Result<BuildDetail, CatalogError> {
+        *self.fetch_calls.lock().unwrap() += 1;
+        match self.fetch_response.lock().unwrap().clone() {
+            Some(d) => Ok(d),
+            None => Err(CatalogError::NotFound {
+                source_name: self.name.to_owned(),
+                slug: slug.to_owned(),
+            }),
+        }
+    }
+}
+
+#[must_use]
+pub fn build_summary(slug: &str, profession: &str) -> BuildSummary {
+    BuildSummary {
+        slug: slug.to_owned(),
+        title: slug.to_owned(),
+        profession: profession.to_owned(),
+        elite_spec: None,
+        role: String::new(),
+        gamemode: "fractals".to_owned(),
+        rating: None,
+        source: "fake".to_owned(),
+        source_url: format!("https://example.test/{slug}"),
+    }
+}
+
+#[must_use]
+pub fn build_detail(slug: &str, profession: &str) -> BuildDetail {
+    BuildDetail {
+        summary: build_summary(slug, profession),
+        details: serde_json::Value::Null,
+        description: String::new(),
+        chat_code: None,
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,12 @@ lefthook = "latest"
 [env]
 RUST_BACKTRACE = 1
 
+# Load secrets / per-engineer overrides from a local .env file (gitignored).
+# Format is `KEY=value` lines; quoting is optional. Missing file is fine —
+# mise treats _.file as best-effort. See .env.example for the variables
+# this project understands.
+_.file = ".env"
+
 [tasks.install-hooks]
 description = "Install git hooks via lefthook"
 run = "lefthook install"

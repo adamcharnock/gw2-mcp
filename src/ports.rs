@@ -74,17 +74,34 @@ pub trait Cache: Send + Sync + 'static {
 
 #[derive(Debug, Error)]
 pub enum Gw2ApiError {
-    #[error("transport error: {0}")]
+    #[error("could not reach the Guild Wars 2 API ({0}) — check your network and try again")]
     Transport(String),
 
-    #[error("GW2 API returned status {status}: {body}")]
-    Status { status: u16, body: String },
+    /// The GW2 API responded but with an error. Carries the most useful
+    /// info we can extract: the inner `text` payload (GW2 errors are
+    /// shaped `{"text":"..."}`) plus the raw status for diagnostics.
+    #[error("Guild Wars 2 API error ({status}): {message}")]
+    Upstream { status: u16, message: String },
 
-    #[error("failed to decode GW2 response: {0}")]
+    #[error(
+        "could not understand the Guild Wars 2 API response — this usually means the API \
+         changed shape; please open an issue. Detail: {0}"
+    )]
     Decode(String),
 
-    #[error("invalid API key (rejected by GW2 API)")]
+    #[error(
+        "the Guild Wars 2 API rejected this key. Verify the key at \
+         https://account.arena.net/applications and check it has the required scopes \
+         (`account` + `wallet` for get_wallet; `account` + `characters` + `builds` for \
+         get_character_build)."
+    )]
     Unauthorized,
+
+    #[error("character `{name}` does not exist on this account")]
+    CharacterNotFound { name: String },
+
+    #[error("Guild Wars 2 API rate limit hit — try again in a few seconds")]
+    RateLimited,
 }
 
 /// Read-only Guild Wars 2 API client.

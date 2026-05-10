@@ -224,7 +224,11 @@ async fn end_to_end_decode_build_code_returns_structured_json() {
         .unwrap();
     let parsed: Value = serde_json::from_str(&result).unwrap();
     assert_eq!(parsed["profession"], 6);
-    assert_eq!(parsed["skills"]["healing"]["terrestrial"], 116);
+    assert_eq!(
+        parsed["skills"]["healing"]["terrestrial"]["palette_id"],
+        116
+    );
+    assert!(parsed["skills"]["healing"]["terrestrial"]["api_skill_id"].is_number());
 }
 
 #[tokio::test]
@@ -324,4 +328,201 @@ async fn end_to_end_unknown_resource_uri_errors() {
         .await
         .unwrap_err();
     assert!(err.contains("not_found") || err.contains("not found"));
+}
+
+// ---------------------------------------------------------------------------
+// Error UX — pin the messages the LLM/user actually sees for the most
+// common failure modes. These are the bug reports we want to never write.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn error_ux_invalid_api_key_explains_where_to_get_one() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("get_wallet", json!({"api_key": valid_api_key().expose()}))
+        .await
+        .unwrap_err();
+    let lower = err.to_lowercase();
+    assert!(
+        lower.contains("rejected"),
+        "should say the API rejected the key — got: {err}"
+    );
+    assert!(
+        lower.contains("scope"),
+        "should mention scopes — got: {err}"
+    );
+    assert!(
+        err.contains("https://account.arena.net/applications"),
+        "should link the user to where they manage keys — got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn error_ux_short_api_key_validation_runs_before_http() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("get_wallet", json!({"api_key": "too-short"}))
+        .await
+        .unwrap_err();
+    let lower = err.to_lowercase();
+    assert!(
+        lower.contains("api key"),
+        "should say what's wrong — got: {err}"
+    );
+    // Guard against accidentally echoing the input back at the user.
+    assert!(
+        !err.contains("too-short"),
+        "should not echo the (presumed-secret) input — got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn error_ux_missing_required_arg_is_specific() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("get_wallet", json!({}))
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("api_key"),
+        "should name the missing arg — got: {err}"
+    );
+    assert!(
+        err.to_lowercase().contains("missing") || err.to_lowercase().contains("required"),
+        "should say it is missing/required — got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn error_ux_no_such_character_is_clean() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/characters/Ghost/buildtabs"))
+        .respond_with(ResponseTemplate::new(400).set_body_string(r#"{"text":"no such character"}"#))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/characters/Ghost/equipmenttabs"))
+        .respond_with(ResponseTemplate::new(400).set_body_string(r#"{"text":"no such character"}"#))
+        .mount(&server)
+        .await;
+
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool(
+            "get_character_build",
+            json!({"api_key": valid_api_key().expose(), "character": "Ghost"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("Ghost"),
+        "should name the character — got: {err}"
+    );
+    assert!(
+        err.to_lowercase().contains("does not exist") || err.to_lowercase().contains("not found"),
+        "should say the character doesn't exist — got: {err}"
+    );
+    assert!(
+        !err.contains("\"text\""),
+        "should not leak the raw JSON error envelope — got: {err}"
+    );
+    assert!(
+        !err.contains("status 400"),
+        "should not leak the HTTP status code in the user message — got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn error_ux_rate_limit_tells_user_to_retry() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(ResponseTemplate::new(429))
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("get_wallet", json!({"api_key": valid_api_key().expose()}))
+        .await
+        .unwrap_err();
+    assert!(err.to_lowercase().contains("rate limit"));
+    assert!(err.to_lowercase().contains("try again"));
+}
+
+#[tokio::test]
+async fn error_ux_unknown_build_source_lists_what_is_available_implicitly() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("list_recommended_builds", json!({"source": "totally-fake"}))
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("totally-fake"),
+        "should echo the bad source — got: {err}"
+    );
+    assert!(err.to_lowercase().contains("no such build source"));
+}
+
+#[tokio::test]
+async fn error_ux_malformed_chat_code_does_not_echo_long_blob() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let huge = "a".repeat(5000);
+    let err = mcp
+        .dispatch_tool("decode_build_code", json!({"code": huge.clone()}))
+        .await
+        .unwrap_err();
+    // We allow up to 16 chars of preview in the domain error.
+    assert!(
+        !err.contains(&"a".repeat(100)),
+        "must not echo the full malformed blob — got {} chars",
+        err.len()
+    );
+    assert!(err.to_lowercase().contains("chat code") || err.to_lowercase().contains("malformed"));
+}
+
+#[tokio::test]
+async fn error_ux_get_skills_with_zero_id_is_specific() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("get_skills", json!({"ids": [0, 1]}))
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_lowercase().contains("skill id"),
+        "should mention what's wrong — got: {err}"
+    );
+    assert!(
+        err.contains('0'),
+        "should name the offending id — got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn error_ux_get_skills_with_string_id_is_specific() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let err = mcp
+        .dispatch_tool("get_skills", json!({"ids": ["not", "ints"]}))
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("ids"),
+        "should mention the offending arg name — got: {err}"
+    );
+    assert!(
+        err.to_lowercase().contains("integer"),
+        "should mention the expected type — got: {err}"
+    );
 }

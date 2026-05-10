@@ -64,7 +64,7 @@ async fn fetch_wallet_unauthorized_status_maps_to_unauthorized_error() {
 }
 
 #[tokio::test]
-async fn fetch_wallet_5xx_maps_to_status_error() {
+async fn fetch_wallet_5xx_maps_to_upstream_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/account/wallet"))
@@ -74,13 +74,16 @@ async fn fetch_wallet_5xx_maps_to_status_error() {
 
     let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
     let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
+    let pretty = format!("{err}");
     match err {
-        Gw2ApiError::Status { status, body } => {
+        Gw2ApiError::Upstream { status, message } => {
             assert_eq!(status, 503);
-            assert!(body.contains("upstream down"));
+            assert!(message.contains("upstream down"));
         }
-        other => panic!("expected Status error, got {other:?}"),
+        other => panic!("expected Upstream error, got {other:?}"),
     }
+    // The user-facing message should announce the API problem clearly.
+    assert!(pretty.to_lowercase().contains("guild wars 2 api error"));
 }
 
 #[tokio::test]
@@ -208,8 +211,11 @@ async fn fetch_specializations_decodes_real_response() {
 #[tokio::test]
 async fn fetch_buildtabs_returns_authed_array() {
     let server = MockServer::start().await;
+    // Real GW2 path-encoding: space → %20, NOT + (form encoding). The earlier
+    // `+` form passed the unit test but produced 400 "no such character"
+    // against the live API.
     Mock::given(method("GET"))
-        .and(path("/characters/My+Hero/buildtabs"))
+        .and(path("/characters/Vesta%20Vey/buildtabs"))
         .and(query_param("tabs", "all"))
         .and(header(
             "authorization",
@@ -220,11 +226,11 @@ async fn fetch_buildtabs_returns_authed_array() {
         .await;
 
     let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
-    let name = CharacterName::new("My Hero").unwrap();
+    let name = CharacterName::new("Vesta Vey").unwrap();
     let tabs = api.fetch_buildtabs(&valid_api_key(), &name).await.unwrap();
-    assert_eq!(tabs.len(), 1);
+    // Real fixture has 3 build tabs.
+    assert_eq!(tabs.len(), 3);
     assert_eq!(tabs[0]["build"]["profession"], "Guardian");
-    // Specializations are on the build payload.
     assert_eq!(tabs[0]["build"]["specializations"][0]["id"], 42);
 }
 
@@ -232,20 +238,70 @@ async fn fetch_buildtabs_returns_authed_array() {
 async fn fetch_equipmenttabs_returns_authed_array() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/characters/My+Hero/equipmenttabs"))
+        .and(path("/characters/Vesta%20Vey/equipmenttabs"))
         .and(query_param("tabs", "all"))
         .respond_with(ResponseTemplate::new(200).set_body_string(EQUIPMENTTABS_FIXTURE))
         .mount(&server)
         .await;
 
     let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
-    let name = CharacterName::new("My Hero").unwrap();
+    let name = CharacterName::new("Vesta Vey").unwrap();
     let tabs = api
         .fetch_equipmenttabs(&valid_api_key(), &name)
         .await
         .unwrap();
-    assert_eq!(tabs.len(), 1);
-    assert_eq!(tabs[0]["equipment"][0]["id"], 30689);
+    // Real fixture has 2 equipment tabs.
+    assert_eq!(tabs.len(), 2);
+    // First piece in tab 1 is the aquatic helm (real character data).
+    assert_eq!(tabs[0]["equipment"][0]["slot"], "HelmAquatic");
+}
+
+#[tokio::test]
+async fn fetch_buildtabs_translates_no_such_character_into_typed_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/characters/Ghost/buildtabs"))
+        .respond_with(ResponseTemplate::new(400).set_body_string(r#"{"text":"no such character"}"#))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let err = api
+        .fetch_buildtabs(&valid_api_key(), &CharacterName::new("Ghost").unwrap())
+        .await
+        .unwrap_err();
+    match err {
+        Gw2ApiError::CharacterNotFound { name } => assert_eq!(name, "Ghost"),
+        other => panic!("expected CharacterNotFound, got {other:?}"),
+    }
+    // And the rendered message must NOT contain the raw JSON noise.
+    let pretty = format!(
+        "{}",
+        Gw2ApiError::CharacterNotFound {
+            name: "Ghost".into()
+        }
+    );
+    assert!(pretty.contains("Ghost"));
+    assert!(
+        !pretty.contains('{'),
+        "rendered message must not echo raw JSON"
+    );
+}
+
+#[tokio::test]
+async fn fetch_429_maps_to_rate_limited() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(ResponseTemplate::new(429))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
+    assert!(matches!(err, Gw2ApiError::RateLimited));
+    let pretty = format!("{err}");
+    assert!(pretty.to_lowercase().contains("rate limit"));
 }
 
 #[tokio::test]
