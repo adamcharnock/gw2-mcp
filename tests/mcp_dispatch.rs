@@ -7,16 +7,19 @@ mod common;
 
 use std::sync::Arc;
 
+use gw2_mcp::adapters::mumble_link::{MumbleLink, StubMumbleLink};
 use gw2_mcp::adapters::{
     ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpWiki, McpServer, MemoryCache, SystemClock,
 };
-use gw2_mcp::ports::{BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, Wiki};
+use gw2_mcp::ports::{
+    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, Wiki,
+};
 use gw2_mcp::service::Service;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use crate::common::valid_api_key;
+use crate::common::{FakeMapData, valid_api_key};
 
 fn build_server(gw2_uri: String, wiki_uri: String) -> McpServer {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -25,7 +28,12 @@ fn build_server(gw2_uri: String, wiki_uri: String) -> McpServer {
     let wiki: Arc<dyn Wiki> = Arc::new(HttpWiki::with_base_url(wiki_uri).unwrap());
     let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
     let catalogs = Arc::new(CatalogRegistry::new());
-    McpServer::new(Service::new(gw2, wiki, cache, clock, decoder, catalogs))
+    let mumble: Arc<dyn MumbleLink> =
+        Arc::new(StubMumbleLink::new("integration test: no live mumble link"));
+    let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+    McpServer::new(Service::new(
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps,
+    ))
 }
 
 /// Build server with one Discretize catalog wired in (mock at `gh_uri`).
@@ -40,7 +48,12 @@ fn build_server_with_discretize(gh_api: String, gh_raw: String) -> McpServer {
     let discretize: Arc<dyn BuildCatalog> =
         Arc::new(DiscretizeCatalog::with_bases(gh_api, gh_raw).unwrap());
     let catalogs = Arc::new(CatalogRegistry::new().with(discretize));
-    McpServer::new(Service::new(gw2, wiki, cache, clock, decoder, catalogs))
+    let mumble: Arc<dyn MumbleLink> =
+        Arc::new(StubMumbleLink::new("integration test: no live mumble link"));
+    let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+    McpServer::new(Service::new(
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps,
+    ))
 }
 
 #[tokio::test]

@@ -5,12 +5,15 @@
 use std::sync::Arc;
 
 use clap::Parser;
+use gw2_mcp::adapters::mumble_link::{MumbleLink, probe_default};
 use gw2_mcp::adapters::{
-    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpWiki, McpServer, MemoryCache,
+    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpMapData, HttpWiki, McpServer, MemoryCache,
     MetaBattleCatalog, SnowCrowsCatalog, SystemClock,
 };
 use gw2_mcp::domain::ApiKey;
-use gw2_mcp::ports::{BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, Wiki};
+use gw2_mcp::ports::{
+    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, Wiki,
+};
 use gw2_mcp::service::Service;
 use tracing_subscriber::EnvFilter;
 
@@ -36,6 +39,15 @@ struct Cli {
     /// Tracing filter (e.g. `debug` or `gw2_mcp=debug,reqwest=info`).
     #[arg(long, env = "RUST_LOG", default_value = "info")]
     log: String,
+
+    /// Disable the Mumble Link reader. Useful for headless/Docker
+    /// deployments where GW2 isn't running on the same host. The
+    /// navigation tools (`get_my_location`, `describe_facing`,
+    /// `find_nearby` with `here`, `get_directions` with `here`) will
+    /// return a clear "not supported" error; everything else keeps
+    /// working.
+    #[arg(long, default_value_t = false)]
+    no_mumble_link: bool,
 }
 
 #[tokio::main]
@@ -88,7 +100,33 @@ async fn main() -> anyhow::Result<()> {
         _ => None,
     };
 
-    let mut service = Service::new(gw2, wiki, cache, clock, build_decoder, catalogs);
+    // Mumble Link adapter — auto-probe unless --no-mumble-link is set.
+    // probe_default never fails: it returns a stub on missing region.
+    let mumble: Arc<dyn MumbleLink> = probe_default(cli.no_mumble_link);
+    match mumble.snapshot() {
+        Ok(snap) => tracing::info!(
+            ui_tick = snap.ui_tick,
+            map_id = snap.context.map_id,
+            "mumble link adapter: connected"
+        ),
+        Err(e) => tracing::info!(
+            error = %e,
+            "mumble link adapter: stub (navigation tools will return this error until GW2 is running on the same host)"
+        ),
+    }
+
+    let maps: Arc<dyn MapData> = Arc::new(HttpMapData::new()?);
+
+    let mut service = Service::new(
+        gw2,
+        wiki,
+        cache,
+        clock,
+        build_decoder,
+        catalogs,
+        mumble,
+        maps,
+    );
     if let Some(k) = default_api_key {
         service = service.with_default_api_key(k);
     }
