@@ -330,9 +330,9 @@ async fn fetch_429_maps_to_rate_limited() {
 
     let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
     let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
-    assert!(matches!(err, Gw2ApiError::RateLimited));
+    assert!(matches!(err, Gw2ApiError::RateLimited(_)));
     let pretty = format!("{err}");
-    assert!(pretty.to_lowercase().contains("rate limit"));
+    assert!(pretty.to_lowercase().contains("rate"));
 }
 
 #[tokio::test]
@@ -350,6 +350,163 @@ async fn fetch_buildtabs_unauthorized_maps_correctly() {
         .await
         .unwrap_err();
     assert!(matches!(err, Gw2ApiError::Unauthorized));
+}
+
+#[tokio::test]
+async fn fetch_403_with_requires_scope_emits_missing_scope_variant() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_string(r#"{"text":"requires scope wallet"}"#),
+        )
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
+    match err {
+        Gw2ApiError::MissingScope { needed } => assert_eq!(needed, "wallet"),
+        other => panic!("expected MissingScope, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn fetch_403_without_scope_hint_still_unauthorized() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(ResponseTemplate::new(403).set_body_string("forbidden"))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
+    assert!(matches!(err, Gw2ApiError::Unauthorized));
+}
+
+#[tokio::test]
+async fn fetch_429_retries_once_on_short_retry_after() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let server = MockServer::start().await;
+    let counter = Arc::new(AtomicUsize::new(0));
+
+    // First request: 429 with Retry-After: 1. Second: 200.
+    let counter_a = counter.clone();
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(move |_req: &wiremock::Request| {
+            let n = counter_a.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                ResponseTemplate::new(429).insert_header("Retry-After", "1")
+            } else {
+                ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                    {"id": 1, "value": 100}
+                ]))
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let started = std::time::Instant::now();
+    let entries = api.fetch_wallet(&valid_api_key()).await.unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(counter.load(Ordering::SeqCst), 2, "must have retried once");
+    assert!(
+        elapsed >= std::time::Duration::from_secs(1),
+        "must have honoured Retry-After: 1 (waited {elapsed:?})"
+    );
+}
+
+#[tokio::test]
+async fn fetch_429_returns_typed_error_after_single_retry_when_still_throttled() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "1"))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
+    match err {
+        Gw2ApiError::RateLimited(Some(d)) => {
+            assert_eq!(d.as_secs(), 1, "retry hint must be carried into the error");
+        }
+        Gw2ApiError::RateLimited(None) => panic!("expected typed retry-after value"),
+        other => panic!("expected RateLimited, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn fetch_429_with_no_retry_after_does_not_retry_or_block() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let server = MockServer::start().await;
+    let counter = Arc::new(AtomicUsize::new(0));
+    let c = counter.clone();
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(move |_req: &wiremock::Request| {
+            c.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(429)
+        })
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let started = std::time::Instant::now();
+    let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
+    let elapsed = started.elapsed();
+
+    assert!(matches!(err, Gw2ApiError::RateLimited(None)));
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "must NOT retry without a Retry-After header"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "must not sleep when there's nothing to wait for"
+    );
+}
+
+#[tokio::test]
+async fn fetch_500_with_html_body_truncates_response() {
+    let html = format!(
+        "<!DOCTYPE html><html><body>{}</body></html>",
+        "noisy ".repeat(2000)
+    );
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wallet"))
+        .respond_with(ResponseTemplate::new(503).set_body_string(html))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let err = api.fetch_wallet(&valid_api_key()).await.unwrap_err();
+    match err {
+        Gw2ApiError::Upstream { status, message } => {
+            assert_eq!(status, 503);
+            assert!(
+                message.contains("HTML response"),
+                "HTML body must collapse to the sentinel message; got: {message}"
+            );
+            assert!(
+                message.len() < 200,
+                "truncated HTML message must be short; got {} chars",
+                message.len()
+            );
+        }
+        other => panic!("expected Upstream, got {other:?}"),
+    }
 }
 
 #[tokio::test]

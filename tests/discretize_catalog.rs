@@ -5,6 +5,7 @@
 //! header comment in `tests/fixtures/README.md` for capture commands.
 
 use gw2_mcp::adapters::DiscretizeCatalog;
+use gw2_mcp::domain::BuildSlug;
 use gw2_mcp::ports::{BuildCatalog, CatalogError, CatalogFilter};
 use pretty_assertions::assert_eq;
 use wiremock::matchers::{method, path};
@@ -110,7 +111,8 @@ async fn fetch_parses_yaml_frontmatter_and_body() {
 
     let catalog =
         DiscretizeCatalog::with_bases("http://unused.invalid".to_owned(), server.uri()).unwrap();
-    let detail = catalog.fetch("guardian/power-dragonhunter").await.unwrap();
+    let slug = BuildSlug::new("guardian/power-dragonhunter").unwrap();
+    let detail = catalog.fetch(&slug).await.unwrap();
 
     // Front-matter assertions — these come from the real Discretize file.
     assert_eq!(detail.summary.title, "Power Dragonhunter");
@@ -141,7 +143,8 @@ async fn fetch_returns_not_found_for_missing_build() {
 
     let catalog =
         DiscretizeCatalog::with_bases("http://unused.invalid".to_owned(), server.uri()).unwrap();
-    let err = catalog.fetch("guardian/does-not-exist").await.unwrap_err();
+    let slug = BuildSlug::new("guardian/does-not-exist").unwrap();
+    let err = catalog.fetch(&slug).await.unwrap_err();
     assert!(matches!(err, CatalogError::NotFound { .. }));
 }
 
@@ -150,6 +153,7 @@ async fn fetch_rejects_malformed_slug() {
     let server = MockServer::start().await;
     let catalog =
         DiscretizeCatalog::with_bases("http://unused.invalid".to_owned(), server.uri()).unwrap();
-    let err = catalog.fetch("just-one-segment").await.unwrap_err();
+    let slug = BuildSlug::new("justonesegment").unwrap();
+    let err = catalog.fetch(&slug).await.unwrap_err();
     assert!(matches!(err, CatalogError::Parse { .. }));
 }

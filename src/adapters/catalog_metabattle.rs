@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
 
+use crate::domain::BuildSlug;
 use crate::ports::{BuildCatalog, BuildDetail, BuildSummary, CatalogError, CatalogFilter};
 
 const SOURCE_NAME: &str = "metabattle";
@@ -114,6 +115,10 @@ impl BuildCatalog for MetaBattleCatalog {
             .into_iter()
             .filter_map(|m| {
                 // MetaBattle build pages are titled "Build:Profession - Build name".
+                // We map this to a sanitised slug `<profession>/<build>` so the
+                // value satisfies the `BuildSlug` newtype's validation
+                // (lower-case alphanumeric + `_-/` only). The original
+                // wiki title is recoverable from the slug at fetch time.
                 let stripped = m.title.strip_prefix("Build:")?;
                 let (profession_raw, build_part) = stripped.split_once(" - ")?;
                 let profession = profession_raw.trim().to_owned();
@@ -122,9 +127,11 @@ impl BuildCatalog for MetaBattleCatalog {
                 {
                     return None;
                 }
-                let slug = m.title.replace(' ', "_");
+                let slug = format!("{}/{}", slugify(&profession), slugify(build_part.trim()),);
+                // The user-facing wiki URL still uses the original title.
+                let url_title = m.title.replace(' ', "_");
                 Some(BuildSummary {
-                    slug: slug.clone(),
+                    slug,
                     title: build_part.trim().to_owned(),
                     profession,
                     elite_spec: None,
@@ -132,15 +139,20 @@ impl BuildCatalog for MetaBattleCatalog {
                     gamemode: String::new(),
                     rating: Some("Meta".to_owned()),
                     source: SOURCE_NAME.to_owned(),
-                    source_url: format!("https://metabattle.com/wiki/{slug}"),
+                    source_url: format!("https://metabattle.com/wiki/{url_title}"),
                 })
             })
             .collect())
     }
 
-    async fn fetch(&self, slug: &str) -> Result<BuildDetail, CatalogError> {
-        // Accept slugs in either underscore or space form; MediaWiki tolerates both.
-        let page = slug.replace('_', " ");
+    async fn fetch(&self, slug: &BuildSlug) -> Result<BuildDetail, CatalogError> {
+        // Slugs from `list()` are `<profession>/<build>` (lower-case,
+        // underscores). Reconstruct the MediaWiki page title:
+        // `Build:<Profession> - <Build Name>` (MediaWiki treats `_` as
+        // space and titles are case-insensitive after the namespace colon,
+        // so the lower-case form resolves to the correct page).
+        let slug_str = slug.as_str();
+        let page = mediawiki_page_from_slug(slug_str);
         let resp = self
             .client
             .get(&self.base_url)
@@ -164,7 +176,7 @@ impl BuildCatalog for MetaBattleCatalog {
         if value.get("error").is_some() {
             return Err(CatalogError::NotFound {
                 source_name: SOURCE_NAME.to_owned(),
-                slug: slug.to_owned(),
+                slug: slug_str.to_owned(),
             });
         }
         let parsed: ParseResponse =
@@ -175,8 +187,9 @@ impl BuildCatalog for MetaBattleCatalog {
 
         let title = parsed.parse.title.clone();
         let wikitext = parsed.parse.wikitext.star;
+        let url_title = title.replace(' ', "_");
         let summary = BuildSummary {
-            slug: slug.to_owned(),
+            slug: slug_str.to_owned(),
             title: title.clone(),
             profession: extract_profession(&wikitext).unwrap_or_default(),
             elite_spec: None,
@@ -184,7 +197,7 @@ impl BuildCatalog for MetaBattleCatalog {
             gamemode: String::new(),
             rating: Some("Meta".to_owned()),
             source: SOURCE_NAME.to_owned(),
-            source_url: format!("https://metabattle.com/wiki/{}", slug.replace(' ', "_")),
+            source_url: format!("https://metabattle.com/wiki/{url_title}"),
         };
         Ok(BuildDetail {
             summary,
@@ -192,6 +205,49 @@ impl BuildCatalog for MetaBattleCatalog {
             description: wikitext,
             chat_code: None,
         })
+    }
+}
+
+/// Lower-case + collapse whitespace into underscores. Drops any character
+/// outside the [`BuildSlug`] alphabet so `MetaBattle`'s eclectic page titles
+/// (parens, ampersands, accented letters) still produce a valid slug.
+fn slugify(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut last_was_sep = false;
+    for c in s.chars() {
+        let l = c.to_ascii_lowercase();
+        if l.is_ascii_alphanumeric() {
+            out.push(l);
+            last_was_sep = false;
+        } else if l == '_' || l == '-' {
+            if !last_was_sep {
+                out.push(l);
+                last_was_sep = true;
+            }
+        } else if l.is_whitespace() && !last_was_sep {
+            out.push('_');
+            last_was_sep = true;
+        }
+        // anything else (punctuation, accents) is dropped
+    }
+    out.trim_matches(|c| c == '_' || c == '-').to_owned()
+}
+
+/// Reconstruct the `MediaWiki` page title from a `<profession>/<build>` slug.
+/// `MediaWiki` accepts lower-case + underscores, so we don't need to recover
+/// the original casing — the API normalises titles server-side.
+fn mediawiki_page_from_slug(slug: &str) -> String {
+    match slug.split_once('/') {
+        Some((profession, build)) => {
+            format!(
+                "Build:{} - {}",
+                profession.replace('_', " "),
+                build.replace('_', " ")
+            )
+        }
+        // Fallback: slug without `/`. Pass through unmodified — MediaWiki
+        // tolerates funky titles and will return `error` on miss.
+        None => slug.replace('_', " "),
     }
 }
 
@@ -235,5 +291,28 @@ mod tests {
     #[test]
     fn extract_profession_returns_none_when_absent() {
         assert_eq!(extract_profession("nothing here"), None);
+    }
+
+    #[test]
+    fn slugify_lowercases_and_replaces_whitespace() {
+        assert_eq!(slugify("Power Berserker"), "power_berserker");
+        assert_eq!(slugify("PvE  Heal Firebrand"), "pve_heal_firebrand");
+    }
+
+    #[test]
+    fn slugify_drops_unsupported_characters() {
+        assert_eq!(slugify("Foo (Bar)"), "foo_bar");
+        assert_eq!(slugify("Foo & Bar"), "foo_bar");
+    }
+
+    #[test]
+    fn slugify_preserves_existing_underscores_and_dashes() {
+        assert_eq!(slugify("foo_bar-baz"), "foo_bar-baz");
+    }
+
+    #[test]
+    fn mediawiki_page_round_trips_slug() {
+        let p = mediawiki_page_from_slug("berserker/power_berserker");
+        assert_eq!(p, "Build:berserker - power berserker");
     }
 }

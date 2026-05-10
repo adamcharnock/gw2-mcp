@@ -4,6 +4,7 @@
 
 pub mod api_key;
 pub mod build_code;
+pub mod build_slug;
 pub mod character;
 pub mod currency;
 pub mod error;
@@ -13,6 +14,7 @@ pub mod wiki;
 
 pub use api_key::ApiKey;
 pub use build_code::BuildChatCode;
+pub use build_slug::BuildSlug;
 pub use character::CharacterName;
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;

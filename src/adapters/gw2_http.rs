@@ -1,12 +1,13 @@
 //! HTTP adapter for the Guild Wars 2 v2 REST API.
 
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
-use reqwest::{Client, StatusCode};
+use reqwest::{Client, Request, Response, StatusCode};
 use serde::Deserialize;
 
+use crate::adapters::error_body::truncate_error_body;
 use crate::domain::{
     ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, Skill, SkillId, Specialization,
     SpecializationId, Trait, TraitId, WalletEntry,
@@ -20,6 +21,16 @@ const USER_AGENT: &str = concat!(
     " (+https://github.com/adamcharnock/gw2-mcp)"
 );
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Maximum `Retry-After` we honour with an in-process sleep+retry. Larger
+/// values are surfaced to the caller as a typed error so the LLM can decide
+/// whether to retry later — we never want to block the request thread for
+/// minutes.
+const MAX_AUTO_RETRY_DELAY: Duration = Duration::from_secs(60);
+
+/// Upper bound on the random jitter added to `Retry-After` to avoid every
+/// MCP client waking the GW2 API at exactly the same moment.
+const MAX_JITTER: Duration = Duration::from_millis(500);
 
 pub struct HttpGw2Api {
     client: Client,
@@ -53,17 +64,14 @@ impl Gw2Api for HttpGw2Api {
         }
 
         let url = format!("{}/account/wallet", self.base_url);
-        let resp = self
+        let req = self
             .client
             .get(&url)
             .bearer_auth(key.expose())
-            .send()
-            .await
+            .build()
             .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        let resp = self.send_request(req).await?;
 
-        if resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN {
-            return Err(Gw2ApiError::Unauthorized);
-        }
         let resp = check_status(resp).await?;
         let wire: Vec<Wire> = resp
             .json()
@@ -83,12 +91,12 @@ impl Gw2Api for HttpGw2Api {
 
     async fn fetch_currency_ids(&self) -> Result<Vec<CurrencyId>, Gw2ApiError> {
         let url = format!("{}/currencies", self.base_url);
-        let resp = self
+        let req = self
             .client
             .get(&url)
-            .send()
-            .await
+            .build()
             .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        let resp = self.send_request(req).await?;
         let resp = check_status(resp).await?;
         let raw: Vec<i64> = resp
             .json()
@@ -185,12 +193,12 @@ impl HttpGw2Api {
                 .collect::<Vec<_>>()
                 .join(",");
             let url = format!("{}/{endpoint}?ids={ids_param}", self.base_url);
-            let resp = self
+            let req = self
                 .client
                 .get(&url)
-                .send()
-                .await
+                .build()
                 .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+            let resp = self.send_request(req).await?;
             let resp = check_status(resp).await?;
             let items: Vec<T> = resp
                 .json()
@@ -213,20 +221,66 @@ impl HttpGw2Api {
         key: &ApiKey,
         character: Option<&CharacterName>,
     ) -> Result<T, Gw2ApiError> {
-        let resp = self
+        let req = self
             .client
             .get(url)
             .bearer_auth(key.expose())
-            .send()
-            .await
+            .build()
             .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
-        if resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN {
-            return Err(Gw2ApiError::Unauthorized);
-        }
+        let resp = self.send_request(req).await?;
         let resp = check_status_with_context(resp, character).await?;
         resp.json::<T>()
             .await
             .map_err(|e| Gw2ApiError::Decode(e.to_string()))
+    }
+
+    /// Send a request with rate-limit retry: on 429 with a parseable
+    /// `Retry-After ≤ 60s`, sleep `retry_after + jitter(0..500ms)` once
+    /// and re-issue. After the single retry, the response is returned
+    /// as-is for `check_status_with_context` to translate into a typed
+    /// error (or success).
+    ///
+    /// Other status codes (including 401/403) flow through unchanged
+    /// — only 429 short-circuits here, because rate limits are the one
+    /// case where automatic backoff is unambiguously the right move.
+    async fn send_request(&self, request: Request) -> Result<Response, Gw2ApiError> {
+        // Clone first so the retry path still has a usable request — the
+        // original is consumed by `client.execute`.
+        let retry_request = request.try_clone();
+        let resp = self
+            .client
+            .execute(request)
+            .await
+            .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        if resp.status() != StatusCode::TOO_MANY_REQUESTS {
+            return Ok(resp);
+        }
+
+        // 429 path. Honour Retry-After only when small; bail otherwise.
+        let Some(retry_after) = parse_retry_after(resp.headers(), SystemTime::now()) else {
+            // No Retry-After header at all — return as-is.
+            return Ok(resp);
+        };
+        if retry_after > MAX_AUTO_RETRY_DELAY {
+            // Server asked us to wait too long — surface to the caller.
+            return Ok(resp);
+        }
+        let Some(retry_request) = retry_request else {
+            // Non-clonable body (e.g. streamed). Can't retry; return.
+            return Ok(resp);
+        };
+
+        // MAX_JITTER is 500ms — fits comfortably in u64.
+        let jitter_ms_max = u64::try_from(MAX_JITTER.as_millis()).unwrap_or(500);
+        let jitter = Duration::from_millis(rand::random::<u64>() % jitter_ms_max.max(1));
+        let delay = retry_after.min(MAX_AUTO_RETRY_DELAY) + jitter;
+        tracing::debug!(?delay, "429 received; sleeping then retrying once");
+        tokio::time::sleep(delay).await;
+
+        self.client
+            .execute(retry_request)
+            .await
+            .map_err(|e| Gw2ApiError::Transport(e.to_string()))
     }
 }
 
@@ -275,9 +329,29 @@ async fn check_status_with_context(
     }
     let status = resp.status().as_u16();
     if status == 429 {
-        return Err(Gw2ApiError::RateLimited);
+        // `send_request` already attempted one retry for short delays;
+        // we land here when the upstream is still throttling. Carry the
+        // Retry-After (if any) forward so the caller can quote a precise
+        // backoff to the user.
+        let retry_after = parse_retry_after(resp.headers(), SystemTime::now());
+        return Err(Gw2ApiError::RateLimited(retry_after));
     }
-    if status == 401 || status == 403 {
+    // 401 vs 403 split. 403 with "requires scope"/"insufficient scope"
+    // means the key is structurally fine but lacks a scope; we extract
+    // the scope name so the LLM can tell the user exactly which checkbox
+    // to tick. Bare 401 (or 403 without that signal) means the key is
+    // bad — fall back to Unauthorized.
+    if status == 401 {
+        // Drain body so it doesn't leak — we don't need it.
+        let _ = resp.text().await;
+        return Err(Gw2ApiError::Unauthorized);
+    }
+    if status == 403 {
+        let body = resp.text().await.unwrap_or_default();
+        let message = extract_gw2_error_text(&body).unwrap_or_else(|| body.clone());
+        if let Some(scope) = parse_missing_scope(&message) {
+            return Err(Gw2ApiError::MissingScope { needed: scope });
+        }
         return Err(Gw2ApiError::Unauthorized);
     }
     let body = resp.text().await.unwrap_or_default();
@@ -297,7 +371,46 @@ async fn check_status_with_context(
     {
         return Err(Gw2ApiError::Unauthorized);
     }
-    Err(Gw2ApiError::Upstream { status, message })
+    // Cap the message before bubbling it up — GW2 occasionally returns
+    // an HTML maintenance page or a multi-kilobyte stack trace, and the
+    // raw body lands in the LLM context window otherwise.
+    Err(Gw2ApiError::Upstream {
+        status,
+        message: truncate_error_body(&message),
+    })
+}
+
+/// Parse `Retry-After`. Accepts both seconds (e.g. `120`) and HTTP-date
+/// (`Wed, 21 Oct 2025 07:28:00 GMT`) forms — the spec allows either.
+/// Returns `None` if the header is absent or unparseable.
+fn parse_retry_after(headers: &reqwest::header::HeaderMap, now: SystemTime) -> Option<Duration> {
+    let v = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
+    if let Ok(secs) = v.trim().parse::<u64>() {
+        return Some(Duration::from_secs(secs));
+    }
+    if let Ok(date) = httpdate::parse_http_date(v.trim()) {
+        return date.duration_since(now).ok();
+    }
+    None
+}
+
+/// Pull a missing scope name out of GW2's "requires scope X" body.
+/// The match is case-insensitive on the prefix; the scope token itself
+/// is the next punctuation-bounded word, lower-cased. Returns `None` if
+/// the body doesn't carry a scope hint at all (caller falls back to
+/// generic `Unauthorized`).
+fn parse_missing_scope(message: &str) -> Option<String> {
+    let lower = message.to_ascii_lowercase();
+    for needle in ["requires scope", "insufficient scope"] {
+        if let Some(idx) = lower.find(needle) {
+            let tail = &lower[idx + needle.len()..];
+            let scope = tail
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .find(|s| !s.is_empty());
+            return Some(scope.map_or_else(|| "unknown".to_owned(), str::to_owned));
+        }
+    }
+    None
 }
 
 /// GW2 v2 errors are JSON of the form `{"text":"..."}`. Pull that out;
@@ -327,5 +440,99 @@ mod gw2_error_extraction_tests {
     #[test]
     fn returns_none_when_no_text_field() {
         assert!(extract_gw2_error_text(r#"{"other":"x"}"#).is_none());
+    }
+}
+
+#[cfg(test)]
+mod missing_scope_tests {
+    use super::parse_missing_scope;
+
+    #[test]
+    fn extracts_lowercase_scope() {
+        assert_eq!(
+            parse_missing_scope("requires scope wallet").as_deref(),
+            Some("wallet")
+        );
+    }
+
+    #[test]
+    fn extracts_with_colon_separator() {
+        assert_eq!(
+            parse_missing_scope("requires scope: characters").as_deref(),
+            Some("characters")
+        );
+    }
+
+    #[test]
+    fn handles_insufficient_scope_phrasing() {
+        assert_eq!(
+            parse_missing_scope("Insufficient scope (builds)").as_deref(),
+            Some("builds")
+        );
+    }
+
+    #[test]
+    fn returns_unknown_when_no_scope_token() {
+        assert_eq!(
+            parse_missing_scope("requires scope").as_deref(),
+            Some("unknown")
+        );
+    }
+
+    #[test]
+    fn returns_none_when_no_phrase_found() {
+        assert!(parse_missing_scope("invalid key").is_none());
+    }
+
+    #[test]
+    fn case_insensitive_match() {
+        assert_eq!(
+            parse_missing_scope("REQUIRES SCOPE wallet").as_deref(),
+            Some("wallet")
+        );
+    }
+}
+
+#[cfg(test)]
+mod retry_after_tests {
+    use super::parse_retry_after;
+    use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn parses_seconds_form() {
+        let mut h = HeaderMap::new();
+        h.insert(RETRY_AFTER, HeaderValue::from_static("30"));
+        assert_eq!(
+            parse_retry_after(&h, SystemTime::now()),
+            Some(Duration::from_secs(30))
+        );
+    }
+
+    #[test]
+    fn parses_http_date_form() {
+        let mut h = HeaderMap::new();
+        // 60 seconds in the future from a fixed `now`. Use httpdate to format.
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let future = now + Duration::from_secs(60);
+        let formatted = httpdate::fmt_http_date(future);
+        h.insert(RETRY_AFTER, HeaderValue::from_str(&formatted).unwrap());
+        let got = parse_retry_after(&h, now).unwrap();
+        // Allow a 1s slop because http_date drops sub-second precision.
+        assert!(got <= Duration::from_secs(60));
+        assert!(got >= Duration::from_secs(59));
+    }
+
+    #[test]
+    fn returns_none_for_garbage() {
+        let mut h = HeaderMap::new();
+        h.insert(RETRY_AFTER, HeaderValue::from_static("not a number"));
+        assert!(parse_retry_after(&h, SystemTime::now()).is_none());
+    }
+
+    #[test]
+    fn returns_none_when_header_absent() {
+        let h = HeaderMap::new();
+        assert!(parse_retry_after(&h, SystemTime::now()).is_none());
     }
 }

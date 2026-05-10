@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use scraper::{Html, Selector};
 
+use crate::domain::BuildSlug;
 use crate::ports::{BuildCatalog, BuildDetail, BuildSummary, CatalogError, CatalogFilter};
 
 const SOURCE_NAME: &str = "snowcrows";
@@ -65,23 +66,25 @@ impl BuildCatalog for SnowCrowsCatalog {
         Ok(Vec::new())
     }
 
-    async fn fetch(&self, slug: &str) -> Result<BuildDetail, CatalogError> {
+    async fn fetch(&self, slug: &BuildSlug) -> Result<BuildDetail, CatalogError> {
         // slug shape: <category>/<profession>/<build-slug>
-        let parts: Vec<&str> = slug.splitn(3, '/').collect();
+        let slug_str = slug.as_str();
+        let parts: Vec<&str> = slug_str.splitn(3, '/').collect();
         if parts.len() != 3 {
             return Err(CatalogError::Parse {
                 source_name: SOURCE_NAME.to_owned(),
                 message: format!(
-                    "snowcrows slug must be `<category>/<profession>/<build-slug>` (got: {slug})"
+                    "snowcrows slug must be `<category>/<profession>/<build-slug>` (got: \
+                     {slug_str})"
                 ),
             });
         }
-        let url = format!("{}/builds/{slug}", self.base_url);
+        let url = format!("{}/builds/{slug_str}", self.base_url);
         let resp = self.client.get(&url).send().await.map_err(transport)?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Err(CatalogError::NotFound {
                 source_name: SOURCE_NAME.to_owned(),
-                slug: slug.to_owned(),
+                slug: slug_str.to_owned(),
             });
         }
         if !resp.status().is_success() {
@@ -97,7 +100,7 @@ impl BuildCatalog for SnowCrowsCatalog {
         let body_text = extract_main_text(&parsed);
 
         let summary = BuildSummary {
-            slug: slug.to_owned(),
+            slug: slug_str.to_owned(),
             title,
             profession: capitalise(parts[1]),
             elite_spec: None,

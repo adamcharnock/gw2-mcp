@@ -387,17 +387,40 @@ async fn error_ux_short_api_key_validation_runs_before_http() {
 async fn error_ux_missing_required_arg_is_specific() {
     let server = MockServer::start().await;
     let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    // With Tier 4, `api_key` is no longer required at the schema level —
+    // the server can be started with `--api-key` / `GW2_API_KEY` to
+    // provide a default. When neither is configured AND the call omits
+    // the arg, the error must point the user at both fix options without
+    // echoing the env var name into the response only as documentation.
     let err = mcp
         .dispatch_tool("get_wallet", json!({}))
         .await
         .unwrap_err();
     assert!(
-        err.contains("api_key"),
-        "should name the missing arg — got: {err}"
+        err.to_lowercase().contains("api key"),
+        "should mention API key — got: {err}"
     );
     assert!(
-        err.to_lowercase().contains("missing") || err.to_lowercase().contains("required"),
-        "should say it is missing/required — got: {err}"
+        err.contains("GW2_API_KEY") || err.contains("api_key"),
+        "should mention either the env var or the argument name — got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn missing_character_arg_still_errors_specifically() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    // `character` is still required — only api_key got the default treatment.
+    let err = mcp
+        .dispatch_tool(
+            "get_character_build",
+            json!({ "api_key": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-FFFFFFFF-GGGG-HHHH-IIII-JJJJJJJJJJJJ" }),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("character"),
+        "should name the missing arg — got: {err}"
     );
 }
 

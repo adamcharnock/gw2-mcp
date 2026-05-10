@@ -31,6 +31,26 @@ pub enum DomainError {
     #[error("build chat code must start with `[&` and end with `]` (got: {got_prefix})")]
     BuildCodeMalformed { got_prefix: String },
 
+    #[error(
+        "build chat code is too long ({len} chars; max {max}). Real codes are ~100 chars; got \
+         starts with `{got_prefix}…`."
+    )]
+    BuildCodeTooLong {
+        len: usize,
+        max: usize,
+        got_prefix: String,
+    },
+
+    #[error(
+        "catalog slug `{got}` is invalid: {reason}. Slugs must match \
+         `^[a-z0-9_\\-/]+$`, contain no `..`, and be ≤ {max} chars."
+    )]
+    BuildSlugInvalid {
+        got: String,
+        reason: &'static str,
+        max: usize,
+    },
+
     #[error("search query is empty after trimming")]
     SearchQueryEmpty,
 

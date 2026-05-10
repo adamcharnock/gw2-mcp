@@ -9,6 +9,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use gw2_mcp::domain::BuildSlug;
 use gw2_mcp::ports::{CatalogFilter, CatalogRegistry};
 use gw2_mcp::service::WIKI_TTL;
 
@@ -120,8 +121,9 @@ async fn catalog_fetch_caches_per_slug() {
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
     let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
 
-    svc.get_catalog_build("fake", "guardian/x").await.unwrap();
-    svc.get_catalog_build("fake", "guardian/x").await.unwrap();
+    let slug_x = BuildSlug::new("guardian/x").unwrap();
+    svc.get_catalog_build("fake", &slug_x).await.unwrap();
+    svc.get_catalog_build("fake", &slug_x).await.unwrap();
     assert_eq!(
         cat.fetch_calls(),
         1,
@@ -130,7 +132,8 @@ async fn catalog_fetch_caches_per_slug() {
 
     // Different slug — new upstream call.
     cat.set_fetch(build_detail("guardian/y", "Guardian"));
-    svc.get_catalog_build("fake", "guardian/y").await.unwrap();
+    let slug_y = BuildSlug::new("guardian/y").unwrap();
+    svc.get_catalog_build("fake", &slug_y).await.unwrap();
     assert_eq!(cat.fetch_calls(), 2);
 }
 
@@ -146,8 +149,9 @@ async fn catalog_fetch_does_not_cache_errors() {
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
     let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
 
-    let _ = svc.get_catalog_build("fake", "missing").await;
-    let _ = svc.get_catalog_build("fake", "missing").await;
+    let slug = BuildSlug::new("missing").unwrap();
+    let _ = svc.get_catalog_build("fake", &slug).await;
+    let _ = svc.get_catalog_build("fake", &slug).await;
     assert_eq!(
         cat.fetch_calls(),
         2,
@@ -166,8 +170,9 @@ async fn catalog_unknown_source_does_not_call_anything() {
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
     let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
 
+    let slug = BuildSlug::new("anything").unwrap();
     let err = svc
-        .get_catalog_build("not-registered", "anything")
+        .get_catalog_build("not-registered", &slug)
         .await
         .unwrap_err();
     assert!(format!("{err}").contains("no such build source"));

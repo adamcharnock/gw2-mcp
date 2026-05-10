@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::domain::{
-    ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
+    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
     SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 
@@ -97,11 +97,36 @@ pub enum Gw2ApiError {
     )]
     Unauthorized,
 
+    /// 403 with body matching `requires scope`. The key is otherwise
+    /// valid but lacks the named scope. We carry the scope name so the
+    /// LLM can tell the user exactly which checkbox to tick.
+    #[error(
+        "the Guild Wars 2 API rejected this key for missing scope: {needed}. Generate a new key \
+         at https://account.arena.net/applications and ensure that scope is checked."
+    )]
+    MissingScope { needed: String },
+
     #[error("character `{name}` does not exist on this account")]
     CharacterNotFound { name: String },
 
-    #[error("Guild Wars 2 API rate limit hit — try again in a few seconds")]
-    RateLimited,
+    /// 429 from the GW2 API. Carries the parsed `Retry-After` value if
+    /// the upstream supplied one — surfaced to the user so they don't
+    /// retry too eagerly.
+    #[error("{}", rate_limited_message(*.0))]
+    RateLimited(Option<std::time::Duration>),
+}
+
+/// Render the rate-limit message with a concrete retry hint when we
+/// have one. Defined here (not as an `impl Display` body) so the
+/// `#[error]` attribute above stays a single-line literal.
+fn rate_limited_message(retry_after: Option<std::time::Duration>) -> String {
+    match retry_after {
+        Some(d) if d.as_secs() > 0 => format!(
+            "the Guild Wars 2 API rate limit was hit. Try again in {} seconds.",
+            d.as_secs()
+        ),
+        _ => "the Guild Wars 2 API rate limit was hit. Try again in a few seconds.".into(),
+    }
 }
 
 /// Read-only Guild Wars 2 API client.
@@ -227,7 +252,10 @@ pub trait BuildCatalog: Send + Sync + 'static {
 
     async fn list(&self, filter: &CatalogFilter) -> Result<Vec<BuildSummary>, CatalogError>;
 
-    async fn fetch(&self, slug: &str) -> Result<BuildDetail, CatalogError>;
+    /// Fetch a single build by its (already-validated) slug. The
+    /// [`BuildSlug`] newtype guarantees the value is safe to interpolate
+    /// into a URL path (no `..`, no newlines, ≤ 256 chars, all-lowercase).
+    async fn fetch(&self, slug: &BuildSlug) -> Result<BuildDetail, CatalogError>;
 }
 
 /// Tiny registry so `Service` can route by source name without owning a

@@ -14,7 +14,7 @@ use serde_json::{Map, Value, json};
 
 use crate::domain::BuildChatCode;
 use crate::domain::{
-    ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
+    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
     SearchResponse, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
     WalletInfo,
 };
@@ -76,6 +76,10 @@ pub struct Service {
     clock: Arc<dyn Clock>,
     build_decoder: Arc<dyn BuildCodeDecoder>,
     catalogs: Arc<crate::ports::CatalogRegistry>,
+    /// Server-default API key. Tools that take an optional `api_key` arg
+    /// fall back to this when the caller omits it. Set via the binary's
+    /// `--api-key` flag / `GW2_API_KEY` env var.
+    default_api_key: Option<ApiKey>,
 }
 
 impl Service {
@@ -94,7 +98,22 @@ impl Service {
             clock,
             build_decoder,
             catalogs,
+            default_api_key: None,
         }
+    }
+
+    /// Set the default API key used when MCP callers omit `api_key`.
+    /// Builder-style so wiring stays a one-liner.
+    #[must_use]
+    pub fn with_default_api_key(mut self, key: ApiKey) -> Self {
+        self.default_api_key = Some(key);
+        self
+    }
+
+    /// Returns the server-default API key, if one was wired in.
+    #[must_use]
+    pub fn default_api_key(&self) -> Option<&ApiKey> {
+        self.default_api_key.as_ref()
     }
 
     /// Decode a `[&Dw…]` build chat code into structured JSON.
@@ -238,18 +257,18 @@ impl Service {
     pub async fn get_catalog_build(
         &self,
         source: &str,
-        slug: &str,
+        slug: &BuildSlug,
     ) -> Result<crate::ports::BuildDetail, ServiceError> {
         let cat = self
             .catalogs
             .get(source)
             .ok_or_else(|| crate::ports::CatalogError::NoSuchSource(source.to_owned()))?;
 
-        let cache_key = catalog_fetch_cache_key(source, slug);
+        let cache_key = catalog_fetch_cache_key(source, slug.as_str());
         if let Some(json) = self.cache.get(&cache_key).await
             && let Ok(cached) = serde_json::from_str::<crate::ports::BuildDetail>(&json)
         {
-            debug!(source, slug, "catalog fetch cache hit");
+            debug!(source, slug = slug.as_str(), "catalog fetch cache hit");
             return Ok(cached);
         }
 

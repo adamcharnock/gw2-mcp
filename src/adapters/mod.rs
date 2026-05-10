@@ -8,6 +8,7 @@ pub mod build_code_chatr;
 pub mod catalog_discretize;
 pub mod catalog_metabattle;
 pub mod catalog_snowcrows;
+pub mod error_body;
 pub mod gw2_http;
 pub mod mcp_stdio;
 pub mod memory_cache;

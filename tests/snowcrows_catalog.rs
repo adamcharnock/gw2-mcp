@@ -5,6 +5,7 @@
 //! body text, attribution URL) — not the brittle full text content.
 
 use gw2_mcp::adapters::SnowCrowsCatalog;
+use gw2_mcp::domain::BuildSlug;
 use gw2_mcp::ports::{BuildCatalog, CatalogError, CatalogFilter};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -34,10 +35,9 @@ async fn fetch_parses_real_build_page() {
         .await;
 
     let catalog = SnowCrowsCatalog::with_base_url(server.uri()).unwrap();
-    let detail = catalog
-        .fetch("raids/elementalist/celestial-alacrity-tempest-scepter-warhorn")
-        .await
-        .unwrap();
+    let slug =
+        BuildSlug::new("raids/elementalist/celestial-alacrity-tempest-scepter-warhorn").unwrap();
+    let detail = catalog.fetch(&slug).await.unwrap();
 
     assert_eq!(detail.summary.profession, "Elementalist");
     assert_eq!(detail.summary.gamemode, "raids");
@@ -66,7 +66,8 @@ async fn fetch_parses_real_build_page() {
 async fn fetch_rejects_malformed_slug() {
     let server = MockServer::start().await;
     let catalog = SnowCrowsCatalog::with_base_url(server.uri()).unwrap();
-    let err = catalog.fetch("only/two-parts").await.unwrap_err();
+    let slug = BuildSlug::new("only/two-parts").unwrap();
+    let err = catalog.fetch(&slug).await.unwrap_err();
     assert!(matches!(err, CatalogError::Parse { .. }));
 }
 
@@ -80,9 +81,7 @@ async fn fetch_404_maps_to_not_found() {
         .await;
 
     let catalog = SnowCrowsCatalog::with_base_url(server.uri()).unwrap();
-    let err = catalog
-        .fetch("raids/elementalist/missing")
-        .await
-        .unwrap_err();
+    let slug = BuildSlug::new("raids/elementalist/missing").unwrap();
+    let err = catalog.fetch(&slug).await.unwrap_err();
     assert!(matches!(err, CatalogError::NotFound { .. }));
 }

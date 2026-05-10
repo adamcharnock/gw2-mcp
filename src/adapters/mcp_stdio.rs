@@ -17,8 +17,8 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
 use crate::domain::{
-    ApiKey, BuildChatCode, CharacterName, CurrencyId, ItemId, SearchLimit, SearchQuery, SkillId,
-    SpecializationId, TraitId,
+    ApiKey, BuildChatCode, BuildSlug, CharacterName, CurrencyId, ItemId, SearchLimit, SearchQuery,
+    SkillId, SpecializationId, TraitId,
 };
 use crate::ports::CatalogFilter;
 use crate::service::{Service, TabSelector};
@@ -210,10 +210,11 @@ impl McpServer {
         // the catalog-listing URIs above; those exact matches consume their
         // own paths first, so we only see per-build URIs here.
         if let Some(parsed) = parse_build_uri(uri) {
-            let (source, slug) = parsed?;
+            let (source, slug_raw) = parsed?;
+            let slug = BuildSlug::new(slug_raw).map_err(|e| e.to_string())?;
             let detail = self
                 .service
-                .get_catalog_build(source, slug)
+                .get_catalog_build(source, &slug)
                 .await
                 .map_err(|e| e.to_string())?;
             return serde_json::to_string(&detail).map_err(|e| e.to_string());
@@ -310,17 +311,30 @@ impl McpServer {
         &self,
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
-        let raw_key = args
-            .get("api_key")
-            .and_then(|v| v.as_str())
-            .ok_or(CallError::MissingArg("api_key"))?;
-        let key = ApiKey::new(raw_key).map_err(CallError::Domain)?;
+        let key = self.resolve_api_key(args)?;
         let wallet = self
             .service
             .get_wallet(&key)
             .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&wallet)?)
+    }
+
+    /// Resolve the API key for an authed tool call: explicit `api_key`
+    /// argument takes priority; if absent, fall back to the service's
+    /// default (loaded from `--api-key` / `GW2_API_KEY` at startup);
+    /// if neither, raise [`CallError::NoApiKey`] so the caller sees a
+    /// single actionable message.
+    fn resolve_api_key(&self, args: &serde_json::Value) -> Result<ApiKey, CallError> {
+        if let Some(raw) = args.get("api_key").and_then(|v| v.as_str())
+            && !raw.trim().is_empty()
+        {
+            return ApiKey::new(raw).map_err(CallError::Domain);
+        }
+        self.service
+            .default_api_key()
+            .cloned()
+            .ok_or(CallError::NoApiKey)
     }
 
     async fn handle_get_currencies(
@@ -395,15 +409,11 @@ impl McpServer {
         &self,
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
-        let raw_key = args
-            .get("api_key")
-            .and_then(|v| v.as_str())
-            .ok_or(CallError::MissingArg("api_key"))?;
         let raw_name = args
             .get("character")
             .and_then(|v| v.as_str())
             .ok_or(CallError::MissingArg("character"))?;
-        let key = ApiKey::new(raw_key).map_err(CallError::Domain)?;
+        let key = self.resolve_api_key(args)?;
         let name = CharacterName::new(raw_name).map_err(CallError::Domain)?;
         let tab = parse_tab_selector(args)?;
         let snap = self
@@ -474,13 +484,14 @@ impl McpServer {
             .get("source")
             .and_then(|v| v.as_str())
             .ok_or(CallError::MissingArg("source"))?;
-        let slug = args
+        let slug_raw = args
             .get("slug")
             .and_then(|v| v.as_str())
             .ok_or(CallError::MissingArg("slug"))?;
+        let slug = BuildSlug::new(slug_raw).map_err(CallError::Domain)?;
         let detail = self
             .service
-            .get_catalog_build(source, slug)
+            .get_catalog_build(source, &slug)
             .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&detail)?)
@@ -592,6 +603,8 @@ enum CallError {
         name: &'static str,
         expected: &'static str,
     },
+    /// No API key resolved from arg or service default.
+    NoApiKey,
     Domain(crate::domain::DomainError),
     Service(crate::service::ServiceError),
     Encode(serde_json::Error),
@@ -610,6 +623,12 @@ impl std::fmt::Display for CallError {
             Self::BadArg { name, expected } => {
                 write!(f, "argument '{name}' has wrong type, expected {expected}")
             }
+            Self::NoApiKey => write!(
+                f,
+                "no Guild Wars 2 API key available — set GW2_API_KEY in the environment or pass \
+                 the `api_key` argument. Generate a key at \
+                 https://account.arena.net/applications."
+            ),
             Self::Domain(e) => write!(f, "validation error: {e}"),
             Self::Service(e) => write!(f, "{e}"),
             Self::Encode(e) => write!(f, "failed to encode response: {e}"),
@@ -798,12 +817,14 @@ fn build_tools() -> Vec<Tool> {
         "type": "object",
         "properties": {
             "api_key": {
-                "type": "string",
+                "type": ["string", "null"],
+                "default": null,
                 "description": "GW2 API key with 'account' and 'wallet' scopes. \
-                                Generate at https://account.arena.net/applications."
+                                Generate at https://account.arena.net/applications. \
+                                Optional — falls back to the server-configured key \
+                                (GW2_API_KEY env var) if omitted."
             }
-        },
-        "required": ["api_key"]
+        }
     }))
     .expect("valid schema literal");
     let get_currencies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
@@ -856,7 +877,11 @@ fn build_tools() -> Vec<Tool> {
         serde_json::from_value(serde_json::json!({
             "type": "object",
             "properties": {
-                "api_key": { "type": "string", "description": "GW2 API key with 'account' + 'characters' + 'builds' scopes." },
+                "api_key": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "GW2 API key with 'account' + 'characters' + 'builds' scopes. Optional — falls back to the server-configured key (GW2_API_KEY env var) if omitted."
+                },
                 "character": { "type": "string", "description": "Character name (case-sensitive)." },
                 "tab": {
                     "type": ["string", "integer"],
@@ -864,7 +889,7 @@ fn build_tools() -> Vec<Tool> {
                     "description": "Which tab(s) to return: \"active\" (default; the in-game-equipped one), \"all\", or a numeric tab index like 1, 2, 3."
                 }
             },
-            "required": ["api_key", "character"]
+            "required": ["character"]
         }))
         .expect("valid schema literal");
 
@@ -907,7 +932,16 @@ fn build_tools() -> Vec<Tool> {
         "type": "object",
         "properties": {
             "source": { "type": "string", "description": "Source name." },
-            "slug": { "type": "string", "description": "Build slug from list_recommended_builds." }
+            "slug": {
+                "type": "string",
+                // Mirrors `BuildSlug` validation: lower-case alphanumeric +
+                // `_-/` only, no path-traversal segments. Stops the LLM
+                // from sending `../../etc/passwd` or newline-laced slugs
+                // that would explode `url::Url::parse`.
+                "pattern": "^[a-z0-9_\\-/]+$",
+                "maxLength": 256,
+                "description": "Build slug from list_recommended_builds. Must match `^[a-z0-9_\\-/]+$` (lowercase alphanumeric, hyphen, underscore, slash); ≤ 256 chars; no `..` segments."
+            }
         },
         "required": ["source", "slug"]
     }))

@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
 
+use crate::adapters::error_body::truncate_error_body;
 use crate::domain::{SearchLimit, SearchQuery, SearchResult};
 use crate::ports::{Wiki, WikiError};
 
@@ -159,7 +160,12 @@ async fn check_status(resp: reqwest::Response) -> Result<reqwest::Response, Wiki
     } else {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        Err(WikiError::Status { status, body })
+        // Cap before propagation — wiki maintenance pages are ~50 kB of HTML
+        // and would otherwise blow the LLM's context budget.
+        Err(WikiError::Status {
+            status,
+            body: truncate_error_body(&body),
+        })
     }
 }
 

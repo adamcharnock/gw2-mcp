@@ -11,7 +11,11 @@ gitleaks = "latest"
 lefthook = "latest"
 
 [env]
-RUST_BACKTRACE = 1
+# RUST_BACKTRACE is intentionally NOT set here. Backtraces leak source
+# paths, crate versions, and internal call stacks on stderr — and in
+# the MCP topology stderr goes straight to the host process. Tests
+# scope it on per-task (see [tasks.test.env] etc.) so failure
+# diagnostics still get the full backtrace.
 
 # Load secrets / per-engineer overrides from a local .env file (gitignored).
 # Format is `KEY=value` lines; quoting is optional. Missing file is fine —
@@ -38,14 +42,17 @@ run = "cargo run -- $@"
 [tasks.test]
 description = "Run all tests"
 run = "cargo test --all-targets"
+env = { RUST_BACKTRACE = "1" }
 
 [tasks.test-unit]
 description = "Run only unit tests (skip integration tests)"
 run = "cargo test --lib"
+env = { RUST_BACKTRACE = "1" }
 
 [tasks.test-integration]
 description = "Run only integration tests"
 run = "cargo test --tests"
+env = { RUST_BACKTRACE = "1" }
 
 [tasks.fmt]
 description = "Format code with rustfmt"

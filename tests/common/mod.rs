@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 
 use gw2_mcp::adapters::ChatrDecoder;
 use gw2_mcp::domain::{
-    ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
+    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
     SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 use gw2_mcp::ports::{
@@ -100,13 +100,13 @@ impl BuildCatalog for FakeCatalog {
         Ok(self.list_response.lock().unwrap().clone())
     }
 
-    async fn fetch(&self, slug: &str) -> Result<BuildDetail, CatalogError> {
+    async fn fetch(&self, slug: &BuildSlug) -> Result<BuildDetail, CatalogError> {
         *self.fetch_calls.lock().unwrap() += 1;
         match self.fetch_response.lock().unwrap().clone() {
             Some(d) => Ok(d),
             None => Err(CatalogError::NotFound {
                 source_name: self.name.to_owned(),
-                slug: slug.to_owned(),
+                slug: slug.as_str().to_owned(),
             }),
         }
     }

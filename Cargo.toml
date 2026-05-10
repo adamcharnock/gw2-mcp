@@ -61,6 +61,10 @@ scraper = "0.20"
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 
+# Retry-After header parsing + jitter
+httpdate = "1"
+rand = "0.8"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 wiremock = "0.6"

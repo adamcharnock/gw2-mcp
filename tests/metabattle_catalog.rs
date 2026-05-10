@@ -2,6 +2,7 @@
 //! captured `metabattle.com/wiki/api.php` responses as fixtures.
 
 use gw2_mcp::adapters::MetaBattleCatalog;
+use gw2_mcp::domain::BuildSlug;
 use gw2_mcp::ports::{BuildCatalog, CatalogError, CatalogFilter};
 use pretty_assertions::assert_eq;
 use wiremock::matchers::{method, path, query_param};
@@ -27,7 +28,18 @@ async fn list_extracts_summaries_from_categorymembers() {
     // Real fixture has 10 members, all of the form "Build:<Profession> - <Name>".
     assert_eq!(summaries.len(), 10);
     for s in &summaries {
-        assert!(s.slug.starts_with("Build:"));
+        // Slugs are now sanitised to lowercase `<profession>/<build>` form
+        // so they round-trip through `BuildSlug` validation.
+        assert!(
+            s.slug.contains('/'),
+            "slug must be `<profession>/<build>`: got {:?}",
+            s.slug
+        );
+        assert!(
+            BuildSlug::new(&s.slug).is_ok(),
+            "slug must satisfy BuildSlug validation: {:?}",
+            s.slug
+        );
         assert!(!s.profession.is_empty());
         assert_eq!(s.rating.as_deref(), Some("Meta"));
         assert_eq!(s.source, "metabattle");
@@ -76,12 +88,11 @@ async fn fetch_returns_wikitext_under_description() {
         .await;
 
     let catalog = MetaBattleCatalog::with_base_url(format!("{}/api.php", server.uri())).unwrap();
-    let detail = catalog
-        .fetch("Build:Berserker - Power Berserker")
-        .await
-        .unwrap();
+    let slug = BuildSlug::new("berserker/power_berserker").unwrap();
+    let detail = catalog.fetch(&slug).await.unwrap();
 
-    assert_eq!(detail.summary.title, "Build:Berserker - Power Berserker");
+    // Title is whatever MediaWiki returned in the parse fixture.
+    assert!(detail.summary.title.starts_with("Build:"));
     // Profession comes out of the {{Build}} infobox in the wikitext.
     assert!(
         detail.summary.profession.eq_ignore_ascii_case("warrior"),
@@ -109,6 +120,7 @@ async fn fetch_returns_not_found_when_mediawiki_returns_error() {
         .await;
 
     let catalog = MetaBattleCatalog::with_base_url(format!("{}/api.php", server.uri())).unwrap();
-    let err = catalog.fetch("Build:Nope").await.unwrap_err();
+    let slug = BuildSlug::new("warrior/nope").unwrap();
+    let err = catalog.fetch(&slug).await.unwrap_err();
     assert!(matches!(err, CatalogError::NotFound { .. }));
 }

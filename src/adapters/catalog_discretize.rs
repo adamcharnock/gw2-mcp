@@ -17,6 +17,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
 
+use crate::domain::BuildSlug;
 use crate::ports::{BuildCatalog, BuildDetail, BuildSummary, CatalogError, CatalogFilter};
 
 const SOURCE_NAME: &str = "discretize";
@@ -146,12 +147,16 @@ impl BuildCatalog for DiscretizeCatalog {
         Ok(out)
     }
 
-    async fn fetch(&self, slug: &str) -> Result<BuildDetail, CatalogError> {
+    async fn fetch(&self, slug: &BuildSlug) -> Result<BuildDetail, CatalogError> {
         // Slug format we accept: "<profession>/<build-name>".
-        let (profession, build_name) = slug.split_once('/').ok_or_else(|| CatalogError::Parse {
-            source_name: SOURCE_NAME.to_owned(),
-            message: format!("slug must be `<profession>/<build>` (got: {slug})"),
-        })?;
+        let slug_str = slug.as_str();
+        let (profession, build_name) =
+            slug_str
+                .split_once('/')
+                .ok_or_else(|| CatalogError::Parse {
+                    source_name: SOURCE_NAME.to_owned(),
+                    message: format!("slug must be `<profession>/<build>` (got: {slug_str})"),
+                })?;
 
         let url = format!(
             "{}/{REPO}/{DEFAULT_BRANCH}/builds/{profession}/{build_name}/index.md",
@@ -161,7 +166,7 @@ impl BuildCatalog for DiscretizeCatalog {
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Err(CatalogError::NotFound {
                 source_name: SOURCE_NAME.to_owned(),
-                slug: slug.to_owned(),
+                slug: slug_str.to_owned(),
             });
         }
         if !resp.status().is_success() {
@@ -179,7 +184,7 @@ impl BuildCatalog for DiscretizeCatalog {
         })?;
 
         let summary = BuildSummary {
-            slug: slug.to_owned(),
+            slug: slug_str.to_owned(),
             title: fm.title.clone(),
             profession: fm
                 .profession

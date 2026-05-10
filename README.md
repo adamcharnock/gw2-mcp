@@ -90,12 +90,12 @@ Or with the Docker image:
 | Tool                      | Required args              | Optional args                              | Notes |
 |---------------------------|----------------------------|--------------------------------------------|-------|
 | `wiki_search`             | `query`                    | `limit` (1–50, default 5)                  | GW2 wiki search with prose extracts. |
-| `get_wallet`              | `api_key`                  | —                                          | Account wallet + currency metadata. |
+| `get_wallet`              | —                          | `api_key` (falls back to `GW2_API_KEY`)    | Account wallet + currency metadata. |
 | `get_currencies`          | —                          | `ids` (array; omit for all)                | Currency definitions. |
 | `get_skills`              | `ids` (array)              | —                                          | Resolve skill ids to name + description + facts. |
 | `get_traits`              | `ids` (array)              | —                                          | Resolve trait ids. |
 | `get_specializations`     | `ids` (array)              | —                                          | Resolve specialization ids (core + elite). |
-| `get_character_build`     | `api_key`, `character`     | —                                          | Full per-tab build + equipment for a character (needs `builds` scope). |
+| `get_character_build`     | `character`                | `api_key` (falls back to `GW2_API_KEY`)    | Full per-tab build + equipment for a character (needs `builds` scope). |
 | `decode_build_code`       | `code` (`[&Dw…]`)          | —                                          | Decode any build chat code into structured JSON. No auth. |
 | `list_build_sources`      | —                          | —                                          | Lists registered curated-build sources. |
 | `list_recommended_builds` | `source`                   | `profession`, `gamemode`, `limit`          | Browse a curated source. |
@@ -114,9 +114,15 @@ Resource: `gw2://currencies` — full currency list as JSON.
 ## Getting a GW2 API key
 
 1. https://account.arena.net/applications
-2. Create a key with `account` and `wallet` permissions.
-3. Pass it to the `get_wallet` tool. The key is hashed before caching; the raw
-   value never reaches the cache or logs.
+2. Create a key with `account` and `wallet` permissions (add `characters` +
+   `builds` if you want `get_character_build`).
+3. Either pass the key per-call as the `api_key` argument, **or** set
+   `GW2_API_KEY=...` in your environment / `.env` file. When set, the server
+   uses it as the default for `get_wallet` and `get_character_build`; explicit
+   `api_key` arguments still override.
+
+The key is hashed before caching and redacted in logs; the raw value never
+reaches the cache or appears in stderr output.
 
 ## Development
 
