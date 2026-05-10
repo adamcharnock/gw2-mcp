@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::domain::{
-    ApiKey, CharacterName, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResult, Skill,
-    SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
+    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -130,6 +130,9 @@ pub trait Gw2Api: Send + Sync + 'static {
         &self,
         ids: &[SpecializationId],
     ) -> Result<BTreeMap<SpecializationId, Specialization>, Gw2ApiError>;
+
+    /// `/v2/items?ids=…`
+    async fn fetch_items(&self, ids: &[ItemId]) -> Result<BTreeMap<ItemId, Item>, Gw2ApiError>;
 
     /// `/v2/characters/:name/buildtabs?tabs=all` — requires `builds` scope.
     /// Returned as raw JSON values (variants too rich to be worth typing).

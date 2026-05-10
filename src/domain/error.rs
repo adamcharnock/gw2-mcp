@@ -22,6 +22,9 @@ pub enum DomainError {
     #[error("specialization id must be positive (got {got})")]
     SpecializationIdInvalid { got: i64 },
 
+    #[error("item id must be positive (got {got})")]
+    ItemIdInvalid { got: i64 },
+
     #[error("character name must be 1..32 chars (got {got_len})")]
     CharacterNameInvalid { got_len: usize },
 

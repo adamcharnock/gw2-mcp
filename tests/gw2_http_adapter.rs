@@ -6,7 +6,7 @@
 mod common;
 
 use gw2_mcp::adapters::HttpGw2Api;
-use gw2_mcp::domain::{CharacterName, CurrencyId, SkillId, SpecializationId, TraitId};
+use gw2_mcp::domain::{CharacterName, CurrencyId, ItemId, SkillId, SpecializationId, TraitId};
 use gw2_mcp::ports::{Gw2Api, Gw2ApiError};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -181,6 +181,37 @@ async fn fetch_traits_decodes_real_response() {
     // 648 = Zealot's Resolution.
     let t = map.get(&TraitId::new(648).unwrap()).unwrap();
     assert_eq!(t.name, "Zealot's Resolution");
+}
+
+#[tokio::test]
+async fn fetch_items_decodes_real_response() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/items"))
+        .and(query_param("ids", "95438"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "id": 95438,
+                "name": "Harrier's Marauder Hood",
+                "type": "Armor",
+                "rarity": "Ascended",
+                "level": 80,
+                "icon": "https://render.guildwars2.com/file/xxx.png",
+                "details": {"type": "Helm", "weight_class": "Light"}
+            }
+        ])))
+        .mount(&server)
+        .await;
+
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let map = api
+        .fetch_items(&[ItemId::new(95438).unwrap()])
+        .await
+        .unwrap();
+    assert_eq!(map.len(), 1);
+    let item = map.get(&ItemId::new(95438).unwrap()).unwrap();
+    assert_eq!(item.name, "Harrier's Marauder Hood");
+    assert!(item.extra.contains_key("rarity"));
 }
 
 #[tokio::test]

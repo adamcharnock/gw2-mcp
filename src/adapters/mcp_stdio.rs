@@ -15,11 +15,11 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
 use crate::domain::{
-    ApiKey, BuildChatCode, CharacterName, CurrencyId, SearchLimit, SearchQuery, SkillId,
+    ApiKey, BuildChatCode, CharacterName, CurrencyId, ItemId, SearchLimit, SearchQuery, SkillId,
     SpecializationId, TraitId,
 };
 use crate::ports::CatalogFilter;
-use crate::service::Service;
+use crate::service::{Service, TabSelector};
 
 const CURRENCIES_RESOURCE_URI: &str = "gw2://currencies";
 
@@ -62,8 +62,9 @@ impl McpServer {
             "get_skills" => self.handle_get_skills(&args).await,
             "get_traits" => self.handle_get_traits(&args).await,
             "get_specializations" => self.handle_get_specializations(&args).await,
+            "get_items" => self.handle_get_items(&args).await,
             "get_character_build" => self.handle_get_character_build(&args).await,
-            "decode_build_code" => self.handle_decode_build_code_sync(&args),
+            "decode_build_code" => self.handle_decode_build_code(&args).await,
             "list_build_sources" => self.handle_list_build_sources(),
             "list_recommended_builds" => self.handle_list_recommended_builds(&args).await,
             "get_recommended_build" => self.handle_get_recommended_build(&args).await,
@@ -141,22 +142,24 @@ impl McpServer {
 
     async fn handle_get_skills(&self, args: &serde_json::Value) -> Result<String, CallError> {
         let ids = parse_required_id_array(args, "ids", SkillId::new)?;
-        let map = self
+        let summary = parse_summary(args);
+        let value = self
             .service
-            .get_skills(&ids)
+            .get_skills_view(&ids, summary)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&map)?)
+        Ok(serde_json::to_string_pretty(&value)?)
     }
 
     async fn handle_get_traits(&self, args: &serde_json::Value) -> Result<String, CallError> {
         let ids = parse_required_id_array(args, "ids", TraitId::new)?;
-        let map = self
+        let summary = parse_summary(args);
+        let value = self
             .service
-            .get_traits(&ids)
+            .get_traits_view(&ids, summary)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&map)?)
+        Ok(serde_json::to_string_pretty(&value)?)
     }
 
     async fn handle_get_specializations(
@@ -164,9 +167,20 @@ impl McpServer {
         args: &serde_json::Value,
     ) -> Result<String, CallError> {
         let ids = parse_required_id_array(args, "ids", SpecializationId::new)?;
+        let summary = parse_summary(args);
+        let value = self
+            .service
+            .get_specializations_view(&ids, summary)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&value)?)
+    }
+
+    async fn handle_get_items(&self, args: &serde_json::Value) -> Result<String, CallError> {
+        let ids = parse_required_id_array(args, "ids", ItemId::new)?;
         let map = self
             .service
-            .get_specializations(&ids)
+            .get_items(&ids)
             .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_string_pretty(&map)?)
@@ -186,15 +200,19 @@ impl McpServer {
             .ok_or(CallError::MissingArg("character"))?;
         let key = ApiKey::new(raw_key).map_err(CallError::Domain)?;
         let name = CharacterName::new(raw_name).map_err(CallError::Domain)?;
+        let tab = parse_tab_selector(args)?;
         let snap = self
             .service
-            .get_character_build(&key, &name)
+            .get_character_build(&key, &name, tab)
             .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_string_pretty(&snap)?)
     }
 
-    fn handle_decode_build_code_sync(&self, args: &serde_json::Value) -> Result<String, CallError> {
+    async fn handle_decode_build_code(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<String, CallError> {
         let raw = args
             .get("code")
             .and_then(|v| v.as_str())
@@ -203,6 +221,7 @@ impl McpServer {
         let value = self
             .service
             .decode_build_code(&code)
+            .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_string_pretty(&value)?)
     }
@@ -308,6 +327,57 @@ where
         });
     }
     Ok(ids)
+}
+
+/// Parse the optional `summary` flag. Defaults to `true` because summary
+/// mode drops ~70% of payload bytes (facts, icon URLs) — the right default
+/// for an LLM-facing API.
+fn parse_summary(args: &serde_json::Value) -> bool {
+    args.get("summary")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true)
+}
+
+/// Parse the optional `tab` selector for `get_character_build`. Accepts
+/// `"active"` (default), `"all"`, or a numeric string `"1"`/`"2"`/...
+fn parse_tab_selector(args: &serde_json::Value) -> Result<TabSelector, CallError> {
+    let Some(v) = args.get("tab") else {
+        return Ok(TabSelector::default());
+    };
+    match v {
+        serde_json::Value::Null => Ok(TabSelector::default()),
+        serde_json::Value::String(s) => {
+            let s = s.trim();
+            if s.eq_ignore_ascii_case("active") || s.is_empty() {
+                Ok(TabSelector::Active)
+            } else if s.eq_ignore_ascii_case("all") {
+                Ok(TabSelector::All)
+            } else if let Ok(n) = s.parse::<u8>() {
+                Ok(TabSelector::Index(n))
+            } else {
+                Err(CallError::BadArg {
+                    name: "tab",
+                    expected: "\"active\", \"all\", or a numeric tab index (e.g. \"1\")",
+                })
+            }
+        }
+        serde_json::Value::Number(n) => {
+            if let Some(u) = n.as_u64()
+                && let Ok(idx) = u8::try_from(u)
+            {
+                Ok(TabSelector::Index(idx))
+            } else {
+                Err(CallError::BadArg {
+                    name: "tab",
+                    expected: "tab index in 0..=255",
+                })
+            }
+        }
+        _ => Err(CallError::BadArg {
+            name: "tab",
+            expected: "string or integer",
+        }),
+    }
 }
 
 #[derive(Debug)]
@@ -502,6 +572,26 @@ fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    let by_required_ids_with_summary: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 1 },
+                    "minItems": 1,
+                    "description": "Ids to fetch. Required — there are 1000s of entries; pass only what you need."
+                },
+                "summary": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When true (default), return a compact projection (id, name, description, slot/type) and drop facts[] + icon URLs. Set false for the full GW2 API shape."
+                }
+            },
+            "required": ["ids"]
+        }))
+        .expect("valid schema literal");
+
     let by_required_ids: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "properties": {
@@ -521,7 +611,12 @@ fn build_tools() -> Vec<Tool> {
             "type": "object",
             "properties": {
                 "api_key": { "type": "string", "description": "GW2 API key with 'account' + 'characters' + 'builds' scopes." },
-                "character": { "type": "string", "description": "Character name (case-sensitive)." }
+                "character": { "type": "string", "description": "Character name (case-sensitive)." },
+                "tab": {
+                    "type": ["string", "integer"],
+                    "default": "active",
+                    "description": "Which tab(s) to return: \"active\" (default; the in-game-equipped one), \"all\", or a numeric tab index like 1, 2, 3."
+                }
             },
             "required": ["api_key", "character"]
         }))
@@ -543,8 +638,19 @@ fn build_tools() -> Vec<Tool> {
         "type": "object",
         "properties": {
             "source": { "type": "string", "description": "Source name from list_build_sources (e.g. discretize, metabattle, snowcrows)." },
-            "profession": { "type": "string", "description": "Optional profession filter (e.g. 'guardian')." },
-            "gamemode": { "type": "string", "description": "Optional game-mode filter (e.g. 'fractals', 'raids')." },
+            "profession": {
+                "type": "string",
+                "enum": [
+                    "guardian", "warrior", "engineer", "ranger", "thief",
+                    "elementalist", "mesmer", "necromancer", "revenant"
+                ],
+                "description": "Optional profession filter (lower-case). Catalogs match case-insensitively."
+            },
+            "gamemode": {
+                "type": "string",
+                "enum": ["fractals", "raids", "strikes", "open_world", "wvw", "pvp"],
+                "description": "Optional game-mode filter. Available values depend on the source: discretize → fractals only; snowcrows → raids/strikes; metabattle → all."
+            },
             "limit": { "type": "integer", "minimum": 1, "description": "Cap on number of results." }
         },
         "required": ["source"]
@@ -584,22 +690,27 @@ fn build_tools() -> Vec<Tool> {
         ),
         Tool::new(
             "get_skills",
-            "Resolve GW2 skill ids (e.g. those returned by get_character_build) into name + description + facts.",
-            by_required_ids.clone(),
+            "Resolve GW2 skill ids (e.g. those returned by get_character_build) into name + description. Returns a compact summary by default; pass `summary=false` for the full payload (facts[], icon URLs, etc.).",
+            by_required_ids_with_summary.clone(),
         ),
         Tool::new(
             "get_traits",
-            "Resolve GW2 trait ids into name + description + facts.",
-            by_required_ids.clone(),
+            "Resolve GW2 trait ids into name + description. Returns a compact summary by default; pass `summary=false` for the full payload.",
+            by_required_ids_with_summary.clone(),
         ),
         Tool::new(
             "get_specializations",
-            "Resolve GW2 specialization ids (core + elite) into name, profession, and minor/major trait ids.",
+            "Resolve GW2 specialization ids (core + elite) into name, profession, and minor/major trait ids. Pass `summary=false` for the full payload.",
+            by_required_ids_with_summary,
+        ),
+        Tool::new(
+            "get_items",
+            "Resolve GW2 equipment / item ids (e.g. those returned by get_character_build) into name and details.",
             by_required_ids,
         ),
         Tool::new(
             "get_character_build",
-            "Fetch every build/equipment tab for a character. Requires an API key with 'builds' scope.",
+            "Fetch a character's build + equipment, with skill/trait/specialization names pre-resolved. Defaults to the active tab; pass `tab=\"all\"` or a specific index for others. Requires an API key with 'builds' scope.",
             get_character_build,
         ),
         Tool::new(

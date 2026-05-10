@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 
 use gw2_mcp::adapters::ChatrDecoder;
 use gw2_mcp::domain::{
-    ApiKey, CharacterName, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResult, Skill,
-    SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
+    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
@@ -247,6 +247,7 @@ pub struct FakeGw2Api {
     pub skill_calls: Mutex<usize>,
     pub trait_calls: Mutex<usize>,
     pub spec_calls: Mutex<usize>,
+    pub item_calls: Mutex<usize>,
     pub buildtab_calls: Mutex<usize>,
     pub equipmenttab_calls: Mutex<usize>,
     pub wallet_response: Mutex<Result<Vec<WalletEntry>, Gw2ApiError>>,
@@ -254,6 +255,7 @@ pub struct FakeGw2Api {
     pub skills: Mutex<BTreeMap<SkillId, Skill>>,
     pub traits: Mutex<BTreeMap<TraitId, Trait>>,
     pub specs: Mutex<BTreeMap<SpecializationId, Specialization>>,
+    pub items: Mutex<BTreeMap<ItemId, Item>>,
     pub buildtabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
     pub equipmenttabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
 }
@@ -266,6 +268,7 @@ impl FakeGw2Api {
             skill_calls: Mutex::new(0),
             trait_calls: Mutex::new(0),
             spec_calls: Mutex::new(0),
+            item_calls: Mutex::new(0),
             buildtab_calls: Mutex::new(0),
             equipmenttab_calls: Mutex::new(0),
             wallet_response: Mutex::new(Ok(Vec::new())),
@@ -273,6 +276,7 @@ impl FakeGw2Api {
             skills: Mutex::new(BTreeMap::new()),
             traits: Mutex::new(BTreeMap::new()),
             specs: Mutex::new(BTreeMap::new()),
+            items: Mutex::new(BTreeMap::new()),
             buildtabs: Mutex::new(BTreeMap::new()),
             equipmenttabs: Mutex::new(BTreeMap::new()),
         })
@@ -300,6 +304,10 @@ impl FakeGw2Api {
 
     pub fn add_specialization(&self, s: Specialization) {
         self.specs.lock().unwrap().insert(s.id, s);
+    }
+
+    pub fn add_item(&self, i: Item) {
+        self.items.lock().unwrap().insert(i.id, i);
     }
 
     pub fn set_buildtabs(&self, name: &CharacterName, tabs: Vec<serde_json::Value>) {
@@ -385,6 +393,15 @@ impl Gw2Api for FakeGw2Api {
         Ok(ids
             .iter()
             .filter_map(|id| store.get(id).map(|s| (*id, s.clone())))
+            .collect())
+    }
+
+    async fn fetch_items(&self, ids: &[ItemId]) -> Result<BTreeMap<ItemId, Item>, Gw2ApiError> {
+        *self.item_calls.lock().unwrap() += 1;
+        let store = self.items.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|i| (*id, i.clone())))
             .collect())
     }
 

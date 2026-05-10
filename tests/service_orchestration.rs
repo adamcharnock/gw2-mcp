@@ -15,7 +15,7 @@ use gw2_mcp::domain::{
     BuildChatCode, CharacterName, CurrencyId, SearchLimit, SearchQuery, SearchResult, Skill,
     SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
-use gw2_mcp::service::{Service, WALLET_TTL};
+use gw2_mcp::service::{Service, TabSelector, WALLET_TTL};
 use pretty_assertions::assert_eq;
 
 use crate::common::{
@@ -376,8 +376,9 @@ async fn character_build_combines_buildtabs_and_equipmenttabs() {
     );
 
     let svc = build(gw2.clone(), wiki, cache, clock.clone());
+    // tab=Active by default — and the seeded tab is the active one.
     let snap = svc
-        .get_character_build(&valid_api_key(), &name)
+        .get_character_build(&valid_api_key(), &name, TabSelector::Active)
         .await
         .unwrap();
     assert_eq!(snap.character_name, "My Hero");
@@ -388,7 +389,7 @@ async fn character_build_combines_buildtabs_and_equipmenttabs() {
 
     // Cached on second call within TTL.
     let snap2 = svc
-        .get_character_build(&valid_api_key(), &name)
+        .get_character_build(&valid_api_key(), &name, TabSelector::Active)
         .await
         .unwrap();
     assert_eq!(snap, snap2);
@@ -397,6 +398,145 @@ async fn character_build_combines_buildtabs_and_equipmenttabs() {
         1,
         "cached call must not refetch buildtabs"
     );
+}
+
+#[tokio::test]
+async fn character_build_active_picks_only_active_tab() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let name = CharacterName::new("My Hero").unwrap();
+    let buildtabs: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("fixtures/buildtabs_sample.json")).unwrap();
+    let equipmenttabs: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("fixtures/equipmenttabs_sample.json")).unwrap();
+    gw2.set_buildtabs(&name, buildtabs);
+    gw2.set_equipmenttabs(&name, equipmenttabs);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let snap = svc
+        .get_character_build(&valid_api_key(), &name, TabSelector::Active)
+        .await
+        .unwrap();
+
+    assert_eq!(snap.build_tabs.len(), 1, "only the active build tab");
+    assert_eq!(
+        snap.equipment_tabs.len(),
+        1,
+        "only the active equipment tab"
+    );
+    assert_eq!(
+        snap.build_tabs[0]["tab"], 2,
+        "fixture: tab 2 is_active=true"
+    );
+    assert_eq!(snap.equipment_tabs[0]["tab"], 1);
+}
+
+#[tokio::test]
+async fn character_build_strips_cosmetic_equipment_fields() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let name = CharacterName::new("My Hero").unwrap();
+    gw2.set_buildtabs(&name, Vec::new());
+    let equipmenttabs: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("fixtures/equipmenttabs_sample.json")).unwrap();
+    gw2.set_equipmenttabs(&name, equipmenttabs);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let snap = svc
+        .get_character_build(&valid_api_key(), &name, TabSelector::Active)
+        .await
+        .unwrap();
+
+    let pieces = snap.equipment_tabs[0]["equipment"].as_array().unwrap();
+    assert!(!pieces.is_empty(), "fixture has equipment pieces");
+    for piece in pieces {
+        for stripped in ["dyes", "bound_to", "binding", "location"] {
+            assert!(
+                piece.get(stripped).is_none(),
+                "expected {stripped} stripped, got: {piece}"
+            );
+        }
+        // Useful fields preserved.
+        assert!(piece.get("id").is_some());
+        assert!(piece.get("slot").is_some());
+    }
+}
+
+#[tokio::test]
+async fn character_build_resolves_skill_and_trait_names_on_active_tab() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let name = CharacterName::new("My Hero").unwrap();
+    let buildtabs: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("fixtures/buildtabs_sample.json")).unwrap();
+    gw2.set_buildtabs(&name, buildtabs);
+    gw2.set_equipmenttabs(&name, Vec::new());
+
+    // Seed a skill and a trait we expect to see on the active tab.
+    // Active tab (tab 2) has skills.heal=41714, utilities[0]=40915 and spec ids 16/49/62.
+    gw2.add_skill(Skill {
+        id: SkillId::new(41714).unwrap(),
+        name: "Litany of Wrath".to_owned(),
+        extra: BTreeMap::new(),
+    });
+    gw2.add_trait(Trait {
+        id: TraitId::new(566).unwrap(),
+        name: "Piercing Light".to_owned(),
+        extra: BTreeMap::new(),
+    });
+    gw2.add_specialization(Specialization {
+        id: SpecializationId::new(16).unwrap(),
+        name: "Radiance".to_owned(),
+        extra: BTreeMap::new(),
+    });
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let snap = svc
+        .get_character_build(&valid_api_key(), &name, TabSelector::Active)
+        .await
+        .unwrap();
+
+    let tab = &snap.build_tabs[0];
+    // Heal skill becomes {id, name}.
+    assert_eq!(tab["build"]["skills"]["heal"]["id"], 41714);
+    assert_eq!(tab["build"]["skills"]["heal"]["name"], "Litany of Wrath");
+    // First spec gets a name field.
+    let first_spec = &tab["build"]["specializations"][0];
+    assert_eq!(first_spec["id"], 16);
+    assert_eq!(first_spec["name"], "Radiance");
+    // First trait of first spec inlines the name.
+    assert_eq!(first_spec["traits"][0]["id"], 566);
+    assert_eq!(first_spec["traits"][0]["name"], "Piercing Light");
+}
+
+#[tokio::test]
+async fn character_build_all_returns_every_tab() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let name = CharacterName::new("My Hero").unwrap();
+    let buildtabs: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("fixtures/buildtabs_sample.json")).unwrap();
+    gw2.set_buildtabs(&name, buildtabs);
+    gw2.set_equipmenttabs(&name, Vec::new());
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let snap = svc
+        .get_character_build(&valid_api_key(), &name, TabSelector::All)
+        .await
+        .unwrap();
+    assert_eq!(snap.build_tabs.len(), 3, "fixture has 3 build tabs");
 }
 
 #[tokio::test]
@@ -410,8 +550,10 @@ async fn decode_build_code_via_service() {
     let code =
         BuildChatCode::new("[&DQYpGyU+OD90AAAAywAAAI8AAACRAAAAJgAAAAAAAAAAAAAAAAAAAAAAAAA=]")
             .unwrap();
-    let decoded = svc.decode_build_code(&code).unwrap();
+    let decoded = svc.decode_build_code(&code).await.unwrap();
     assert_eq!(decoded["profession"], 6);
+    // Profession byte → profession_name surfaced for LLM ergonomics.
+    assert_eq!(decoded["profession_name"], "Elementalist");
     assert_eq!(
         decoded["skills"]["healing"]["terrestrial"]["palette_id"],
         116
@@ -420,6 +562,135 @@ async fn decode_build_code_via_service() {
         decoded["skills"]["healing"]["terrestrial"]["api_skill_id"].is_number(),
         "service must surface resolved api_skill_id alongside the raw palette"
     );
+    // Each trait slot is now {position, trait_id} (with trait_id null when
+    // we couldn't resolve — no spec data was seeded into the fake).
+    let first_spec = &decoded["specializations"][0];
+    assert!(first_spec["traits"]["adept"]["position"].is_number());
+    assert!(first_spec["traits"]["adept"].get("trait_id").is_some());
+}
+
+#[tokio::test]
+async fn decode_build_code_resolves_trait_ids_via_specialization_lookup() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    // Power Dragonhunter: profession byte = 1 (Guardian).
+    // The build code's first specialization is Radiance (id 16). We seed
+    // the FakeGw2Api with Radiance's real major_traits array so we can
+    // assert the position-to-trait_id mapping.
+    // Radiance major_traits (from the real GW2 API):
+    //   adept:       [566, 567, 1686]
+    //   master:      [589, 568, 569]
+    //   grandmaster: [563, 562, 564]
+    // (positions referenced by the chat code: adept=2, master=2, grandmaster=2)
+    let mut radiance_extra = BTreeMap::new();
+    radiance_extra.insert(
+        "major_traits".to_owned(),
+        serde_json::json!([566, 567, 1686, 589, 568, 569, 563, 562, 564]),
+    );
+    gw2.add_specialization(Specialization {
+        id: SpecializationId::new(16).unwrap(),
+        name: "Radiance".to_owned(),
+        extra: radiance_extra,
+    });
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let code = BuildChatCode::new(
+        "[&DQEQPyo6GzkmDyYPihJIAUgBLQH+ALkBtRI3AQAAAAAAAAAAAAAAAAAAAAACMgAjAAA=]",
+    )
+    .unwrap();
+    let decoded = svc.decode_build_code(&code).await.unwrap();
+    assert_eq!(decoded["profession"], 1);
+    assert_eq!(decoded["profession_name"], "Guardian");
+
+    // Find the Radiance spec in the decoded output.
+    let arr = decoded["specializations"].as_array().unwrap();
+    let radiance = arr
+        .iter()
+        .find(|s| s["id"].as_u64() == Some(16))
+        .expect("first spec should be Radiance");
+
+    // Each tier slot is {position, trait_id}.
+    let adept = &radiance["traits"]["adept"];
+    let master = &radiance["traits"]["master"];
+    let grandmaster = &radiance["traits"]["grandmaster"];
+    assert!(adept["position"].as_u64().unwrap() >= 1);
+    assert!(adept["trait_id"].is_number());
+    // Mapping: position p in tier T -> major_traits[(T-1)*3 + (p-1)]
+    let p_a = usize::try_from(adept["position"].as_u64().unwrap()).unwrap();
+    let p_m = usize::try_from(master["position"].as_u64().unwrap()).unwrap();
+    let p_g = usize::try_from(grandmaster["position"].as_u64().unwrap()).unwrap();
+    let expected_a = [566u64, 567, 1686][p_a - 1];
+    let expected_m = [589u64, 568, 569][p_m - 1];
+    let expected_g = [563u64, 562, 564][p_g - 1];
+    assert_eq!(adept["trait_id"].as_u64().unwrap(), expected_a);
+    assert_eq!(master["trait_id"].as_u64().unwrap(), expected_m);
+    assert_eq!(grandmaster["trait_id"].as_u64().unwrap(), expected_g);
+}
+
+#[tokio::test]
+async fn get_skills_view_summary_drops_facts_and_icon() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let mut extra = BTreeMap::new();
+    extra.insert("facts".to_owned(), serde_json::json!([{"type": "Damage"}]));
+    extra.insert(
+        "icon".to_owned(),
+        serde_json::json!("https://render.guildwars2.com/x.png"),
+    );
+    extra.insert("description".to_owned(), serde_json::json!("Strike."));
+    extra.insert("type".to_owned(), serde_json::json!("Weapon"));
+    extra.insert("slot".to_owned(), serde_json::json!("Weapon_1"));
+    gw2.add_skill(Skill {
+        id: SkillId::new(9137).unwrap(),
+        name: "Wave of Wrath".to_owned(),
+        extra,
+    });
+
+    let svc = build(gw2, wiki, cache, clock);
+    // summary=true (default in MCP wrapper) — the projected payload omits
+    // facts[] and icon.
+    let summary = svc
+        .get_skills_view(&[SkillId::new(9137).unwrap()], true)
+        .await
+        .unwrap();
+    let entry = &summary["9137"];
+    assert_eq!(entry["name"], "Wave of Wrath");
+    assert_eq!(entry["description"], "Strike.");
+    assert!(entry.get("facts").is_none(), "summary must drop facts[]");
+    assert!(entry.get("icon").is_none(), "summary must drop icon");
+
+    // summary=false returns the full shape including facts.
+    let full = svc
+        .get_skills_view(&[SkillId::new(9137).unwrap()], false)
+        .await
+        .unwrap();
+    assert!(full["9137"].get("facts").is_some());
+    assert!(full["9137"].get("icon").is_some());
+}
+
+#[tokio::test]
+async fn items_are_cached_per_id() {
+    use gw2_mcp::domain::{Item, ItemId};
+
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.add_item(Item {
+        id: ItemId::new(95438).unwrap(),
+        name: "Test Helm".to_owned(),
+        extra: BTreeMap::new(),
+    });
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    svc.get_items(&[ItemId::new(95438).unwrap()]).await.unwrap();
+    svc.get_items(&[ItemId::new(95438).unwrap()]).await.unwrap();
+    assert_eq!(*gw2.item_calls.lock().unwrap(), 1);
 }
 
 #[tokio::test]

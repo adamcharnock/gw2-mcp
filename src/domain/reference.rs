@@ -45,6 +45,7 @@ macro_rules! id_newtype {
 id_newtype!(SkillId, SkillIdInvalid);
 id_newtype!(TraitId, TraitIdInvalid);
 id_newtype!(SpecializationId, SpecializationIdInvalid);
+id_newtype!(ItemId, ItemIdInvalid);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Skill {
@@ -67,6 +68,18 @@ pub struct Trait {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Specialization {
     pub id: SpecializationId,
+    #[serde(default)]
+    pub name: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// Equipment / inventory item from `/v2/items`. `extra` carries everything
+/// the GW2 API returns that we don't model (rarity, level, type, details,
+/// etc.) so payloads round-trip verbatim.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Item {
+    pub id: ItemId,
     #[serde(default)]
     pub name: String,
     #[serde(flatten)]

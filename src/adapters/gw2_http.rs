@@ -8,8 +8,8 @@ use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 
 use crate::domain::{
-    ApiKey, CharacterName, Currency, CurrencyId, Skill, SkillId, Specialization, SpecializationId,
-    Trait, TraitId, WalletEntry,
+    ApiKey, CharacterName, Currency, CurrencyId, Item, ItemId, Skill, SkillId, Specialization,
+    SpecializationId, Trait, TraitId, WalletEntry,
 };
 use crate::ports::{Gw2Api, Gw2ApiError};
 
@@ -125,6 +125,10 @@ impl Gw2Api for HttpGw2Api {
     ) -> Result<BTreeMap<SpecializationId, Specialization>, Gw2ApiError> {
         self.fetch_by_ids("specializations", ids, |s: Specialization| (s.id, s))
             .await
+    }
+
+    async fn fetch_items(&self, ids: &[ItemId]) -> Result<BTreeMap<ItemId, Item>, Gw2ApiError> {
+        self.fetch_by_ids("items", ids, |i: Item| (i.id, i)).await
     }
 
     async fn fetch_buildtabs(

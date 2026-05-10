@@ -16,6 +16,8 @@ pub use build_code::BuildChatCode;
 pub use character::CharacterName;
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
-pub use reference::{Skill, SkillId, Specialization, SpecializationId, Trait, TraitId};
+pub use reference::{
+    Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,
+};
 pub use wallet::{WalletEntry, WalletInfo};
 pub use wiki::{SearchLimit, SearchQuery, SearchResponse, SearchResult};
