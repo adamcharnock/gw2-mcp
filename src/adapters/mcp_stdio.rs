@@ -7,9 +7,11 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    Annotated, CallToolRequestParams, CallToolResult, Content, Implementation, ListResourcesResult,
-    ListToolsResult, RawResource, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
-    ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+    Annotated, CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams,
+    GetPromptResult, Implementation, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, Prompt, PromptArgument, PromptMessage, PromptMessageRole,
+    RawResource, RawResourceTemplate, ReadResourceRequestParams, ReadResourceResult,
+    ResourceContents, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
@@ -22,6 +24,63 @@ use crate::ports::CatalogFilter;
 use crate::service::{Service, TabSelector};
 
 const CURRENCIES_RESOURCE_URI: &str = "gw2://currencies";
+const BUILDS_DISCRETIZE_URI: &str = "gw2://builds/discretize";
+const BUILDS_METABATTLE_URI: &str = "gw2://builds/metabattle";
+const BUILDS_SNOWCROWS_URI: &str = "gw2://builds/snowcrows";
+
+const SKILLS_PREFIX: &str = "gw2://skills/";
+const TRAITS_PREFIX: &str = "gw2://traits/";
+const SPECS_PREFIX: &str = "gw2://specializations/";
+const ITEMS_PREFIX: &str = "gw2://items/";
+const BUILDS_PREFIX: &str = "gw2://builds/";
+
+const RESOURCE_JSON_MIME: &str = "application/json";
+
+/// One full URI route for a resource template, with a parser that turns a
+/// matching URI back into the typed args the read handler expects.
+///
+/// The single-id templates (`gw2://skills/{id}` …) are easy: prefix match,
+/// parse the tail as `i64`. The build template is the tricky one: the slug
+/// can contain `/` (discretize uses `<profession>/<build>`, snowcrows uses
+/// `<category>/<profession>/<build>`), so we strip `gw2://builds/` then
+/// split off the first segment as the source and treat *everything else*
+/// as the literal slug.
+fn parse_typed_id_uri<F, Id>(uri: &str, prefix: &str, ctor: F) -> Option<Result<Id, String>>
+where
+    F: Fn(i64) -> Result<Id, crate::domain::DomainError>,
+{
+    let tail = uri.strip_prefix(prefix)?;
+    if tail.is_empty() || tail.contains('/') {
+        return Some(Err(format!(
+            "invalid id segment in URI: {uri} (expected `{prefix}<positive integer>`)"
+        )));
+    }
+    let parsed = tail
+        .parse::<i64>()
+        .map_err(|_| format!("invalid id in URI: {uri} (id segment must be a positive integer)"))
+        .and_then(|n| ctor(n).map_err(|e| format!("invalid id in URI {uri}: {e}")));
+    Some(parsed)
+}
+
+/// Strip `gw2://builds/` and split off the source segment. Returns
+/// `Some((source, slug))` where `slug` may itself contain `/`. Returns
+/// `None` if the URI is not a build-template URI (caller falls through
+/// to the next route).
+fn parse_build_uri(uri: &str) -> Option<Result<(&str, &str), String>> {
+    let tail = uri.strip_prefix(BUILDS_PREFIX)?;
+    let Some((source, slug)) = tail.split_once('/') else {
+        // No `/` in the tail: this is a concrete listing URI like
+        // `gw2://builds/discretize`, not a per-build template URI. Let the
+        // caller's listing dispatch handle it.
+        return None;
+    };
+    if source.is_empty() || slug.is_empty() {
+        return Some(Err(format!(
+            "invalid builds URI: {uri} (expected `gw2://builds/<source>/<slug>`)"
+        )));
+    }
+    Some(Ok((source, slug)))
+}
 
 #[derive(Clone)]
 pub struct McpServer {
@@ -76,17 +135,143 @@ impl McpServer {
     }
 
     /// Read a resource by URI. Returns the body the MCP client would receive.
+    /// Dispatches through the same router as the protocol `read_resource`,
+    /// so tests pin the wire behaviour, not a parallel implementation.
     pub async fn read_resource_for_test(&self, uri: &str) -> Result<String, String> {
-        if uri == CURRENCIES_RESOURCE_URI {
-            let map = self
+        self.read_resource_body(uri).await
+    }
+
+    /// Internal router shared by `read_resource_for_test` and the MCP
+    /// `ServerHandler::read_resource` impl. Returns the JSON body as a
+    /// string (or a flat error message — the caller decides whether to
+    /// wrap it in an MCP `ErrorData::resource_not_found`).
+    async fn read_resource_body(&self, uri: &str) -> Result<String, String> {
+        // Concrete (non-template) resources first — these are exact matches.
+        match uri {
+            CURRENCIES_RESOURCE_URI => {
+                let map = self
+                    .service
+                    .get_currencies(&[])
+                    .await
+                    .map_err(|e| e.to_string())?;
+                return serde_json::to_string(&map).map_err(|e| e.to_string());
+            }
+            BUILDS_DISCRETIZE_URI => {
+                return self.read_catalog_listing("discretize").await;
+            }
+            BUILDS_METABATTLE_URI => {
+                return self.read_catalog_listing("metabattle").await;
+            }
+            BUILDS_SNOWCROWS_URI => {
+                return self.read_catalog_listing("snowcrows").await;
+            }
+            _ => {}
+        }
+
+        // Single-id templates. Order does not matter — the prefixes are disjoint.
+        if let Some(parsed) = parse_typed_id_uri(uri, SKILLS_PREFIX, SkillId::new) {
+            let id = parsed?;
+            let value = self
                 .service
-                .get_currencies(&[])
+                .get_skills_view(&[id], false)
                 .await
                 .map_err(|e| e.to_string())?;
-            serde_json::to_string_pretty(&map).map_err(|e| e.to_string())
-        } else {
-            Err(format!("resource_not_found: {uri}"))
+            return serde_json::to_string(&value).map_err(|e| e.to_string());
         }
+        if let Some(parsed) = parse_typed_id_uri(uri, TRAITS_PREFIX, TraitId::new) {
+            let id = parsed?;
+            let value = self
+                .service
+                .get_traits_view(&[id], false)
+                .await
+                .map_err(|e| e.to_string())?;
+            return serde_json::to_string(&value).map_err(|e| e.to_string());
+        }
+        if let Some(parsed) = parse_typed_id_uri(uri, SPECS_PREFIX, SpecializationId::new) {
+            let id = parsed?;
+            let value = self
+                .service
+                .get_specializations_view(&[id], false)
+                .await
+                .map_err(|e| e.to_string())?;
+            return serde_json::to_string(&value).map_err(|e| e.to_string());
+        }
+        if let Some(parsed) = parse_typed_id_uri(uri, ITEMS_PREFIX, ItemId::new) {
+            let id = parsed?;
+            let map = self
+                .service
+                .get_items(&[id])
+                .await
+                .map_err(|e| e.to_string())?;
+            return serde_json::to_string(&map).map_err(|e| e.to_string());
+        }
+
+        // Build template — last because its prefix `gw2://builds/` overlaps
+        // the catalog-listing URIs above; those exact matches consume their
+        // own paths first, so we only see per-build URIs here.
+        if let Some(parsed) = parse_build_uri(uri) {
+            let (source, slug) = parsed?;
+            let detail = self
+                .service
+                .get_catalog_build(source, slug)
+                .await
+                .map_err(|e| e.to_string())?;
+            return serde_json::to_string(&detail).map_err(|e| e.to_string());
+        }
+
+        Err(format!("resource_not_found: {uri}"))
+    }
+
+    async fn read_catalog_listing(&self, source: &str) -> Result<String, String> {
+        let summaries = self
+            .service
+            .list_catalog_builds(source, CatalogFilter::default())
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string(&summaries).map_err(|e| e.to_string())
+    }
+
+    /// List all the prompts the server publishes via `prompts/list`. Used
+    /// by integration tests to assert the prompt surface area without
+    /// driving the full stdio protocol.
+    #[must_use]
+    pub fn list_prompts_for_test() -> Vec<Prompt> {
+        build_prompts()
+    }
+
+    /// Render a prompt by name + args. Used by integration tests to pin
+    /// the rendered message contents. Mirrors `prompts/get` exactly: the
+    /// server handler is a thin wrapper over [`render_prompt`].
+    pub fn get_prompt_for_test(
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<GetPromptResult, String> {
+        let map = match args {
+            serde_json::Value::Object(m) => m,
+            serde_json::Value::Null => serde_json::Map::new(),
+            _ => return Err("prompt args must be a JSON object".to_owned()),
+        };
+        match render_prompt(name, &map) {
+            Ok(r) => Ok(r),
+            Err(PromptError::NotFound(n)) => Err(format!("unknown prompt: {n}")),
+            Err(PromptError::MissingArg { prompt, arg }) => {
+                Err(format!("prompt '{prompt}' missing required arg '{arg}'"))
+            }
+        }
+    }
+
+    /// List all resource templates published via `resources/templates/list`.
+    /// Used by integration tests.
+    #[must_use]
+    pub fn list_resource_templates_for_test() -> Vec<rmcp::model::ResourceTemplate> {
+        resource_templates()
+    }
+
+    /// List all concrete resources published via `resources/list`. Used by
+    /// integration tests.
+    #[must_use]
+    pub fn list_resources_for_test() -> Vec<rmcp::model::Resource> {
+        concrete_resources()
     }
 
     // -- tool dispatch --------------------------------------------------
@@ -438,11 +623,23 @@ impl std::fmt::Display for CallError {
 
 impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
+        // Capability surface:
+        // - tools/resources/prompts: all three are exercised. Resources cover
+        //   currencies + per-id GW2 references + curated catalogs; prompts
+        //   give clients turn-key slash commands for the common build
+        //   workflows.
+        // - sampling: NOT enabled. The host *is* the LLM in this topology,
+        //   so the server has no use for client-driven completions.
+        // - elicitation: NOT enabled. The only candidate prompt-time inputs
+        //   are GW2 API keys, and the MCP elicitation spec explicitly
+        //   forbids using it for sensitive material. Clients can prompt
+        //   the user themselves before invoking the auth'd tools.
         ServerInfo {
             protocol_version: rmcp::model::ProtocolVersion::default(),
             capabilities: ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
+                .enable_prompts()
                 .build(),
             server_info: Implementation {
                 name: "gw2-mcp".to_owned(),
@@ -511,16 +708,17 @@ impl ServerHandler for McpServer {
         _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        let mut raw = RawResource::new(CURRENCIES_RESOURCE_URI, "Guild Wars 2 Currencies");
-        raw.description = Some(
-            "Complete list of Guild Wars 2 currencies with metadata (name, description, icon, \
-             order)."
-                .to_owned(),
-        );
-        raw.mime_type = Some("application/json".to_owned());
-        Ok(ListResourcesResult::with_all_items(vec![Annotated::new(
-            raw, None,
-        )]))
+        Ok(ListResourcesResult::with_all_items(concrete_resources()))
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        Ok(ListResourceTemplatesResult::with_all_items(
+            resource_templates(),
+        ))
     }
 
     async fn read_resource(
@@ -528,22 +726,49 @@ impl ServerHandler for McpServer {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
-        if request.uri == CURRENCIES_RESOURCE_URI {
-            let map = self
-                .service
-                .get_currencies(&[])
-                .await
-                .map_err(|e| ErrorData::internal_error(format!("{e}"), None))?;
-            let body = serde_json::to_string_pretty(&map)
-                .map_err(|e| ErrorData::internal_error(format!("{e}"), None))?;
-            Ok(ReadResourceResult {
-                contents: vec![ResourceContents::text(body, request.uri)],
-            })
-        } else {
-            Err(ErrorData::resource_not_found(
-                format!("resource_not_found: {}", request.uri),
+        match self.read_resource_body(&request.uri).await {
+            Ok(body) => Ok(ReadResourceResult {
+                contents: vec![ResourceContents::TextResourceContents {
+                    uri: request.uri,
+                    mime_type: Some(RESOURCE_JSON_MIME.to_owned()),
+                    text: body,
+                    meta: None,
+                }],
+            }),
+            Err(msg) => {
+                if msg.starts_with("resource_not_found:") {
+                    Err(ErrorData::resource_not_found(msg, None))
+                } else {
+                    Err(ErrorData::internal_error(msg, None))
+                }
+            }
+        }
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        Ok(ListPromptsResult::with_all_items(build_prompts()))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, ErrorData> {
+        let args = request.arguments.unwrap_or_default();
+        match render_prompt(&request.name, &args) {
+            Ok(result) => Ok(result),
+            Err(PromptError::NotFound(name)) => Err(ErrorData::invalid_params(
+                format!("unknown prompt: {name}"),
                 None,
-            ))
+            )),
+            Err(PromptError::MissingArg { prompt, arg }) => Err(ErrorData::invalid_params(
+                format!("prompt '{prompt}' is missing required argument '{arg}'"),
+                None,
+            )),
         }
     }
 }
@@ -804,6 +1029,387 @@ fn read_only_closed_world(title: &str) -> ToolAnnotations {
         .idempotent(true)
         .destructive(false)
         .open_world(false)
+}
+
+// ---------------------------------------------------------------------------
+// Resources & resource templates
+// ---------------------------------------------------------------------------
+
+/// The non-template resources that show up in `resources/list`. These have
+/// fixed URIs that resolve straight to a service call — no parameters.
+fn concrete_resources() -> Vec<rmcp::model::Resource> {
+    let mut currencies = RawResource::new(CURRENCIES_RESOURCE_URI, "Guild Wars 2 Currencies");
+    currencies.description = Some(
+        "Complete list of Guild Wars 2 currencies with metadata (name, description, icon, order)."
+            .to_owned(),
+    );
+    currencies.mime_type = Some(RESOURCE_JSON_MIME.to_owned());
+
+    let mut discretize = RawResource::new(BUILDS_DISCRETIZE_URI, "Discretize Builds");
+    discretize.description = Some(
+        "Listing of curated fractal builds from Discretize (https://discretize.eu). Returns the \
+         same shape as `list_recommended_builds` with no filter."
+            .to_owned(),
+    );
+    discretize.mime_type = Some(RESOURCE_JSON_MIME.to_owned());
+
+    let mut metabattle = RawResource::new(BUILDS_METABATTLE_URI, "MetaBattle Builds");
+    metabattle.description = Some(
+        "Listing of curated builds from MetaBattle (https://metabattle.com), covering all \
+         gamemodes."
+            .to_owned(),
+    );
+    metabattle.mime_type = Some(RESOURCE_JSON_MIME.to_owned());
+
+    let mut snowcrows = RawResource::new(BUILDS_SNOWCROWS_URI, "Snow Crows Builds");
+    snowcrows.description = Some(
+        "Listing of curated raid/strike builds from Snow Crows (https://snowcrows.com).".to_owned(),
+    );
+    snowcrows.mime_type = Some(RESOURCE_JSON_MIME.to_owned());
+
+    vec![
+        Annotated::new(currencies, None),
+        Annotated::new(discretize, None),
+        Annotated::new(metabattle, None),
+        Annotated::new(snowcrows, None),
+    ]
+}
+
+/// RFC-6570 URI templates surfaced in `resources/templates/list`. Clients
+/// fill in the `{...}` segments before calling `resources/read`.
+fn resource_templates() -> Vec<rmcp::model::ResourceTemplate> {
+    fn template(
+        uri_template: &str,
+        name: &str,
+        description: &str,
+    ) -> rmcp::model::ResourceTemplate {
+        let raw = RawResourceTemplate {
+            uri_template: uri_template.to_owned(),
+            name: name.to_owned(),
+            title: None,
+            description: Some(description.to_owned()),
+            mime_type: Some(RESOURCE_JSON_MIME.to_owned()),
+            icons: None,
+        };
+        Annotated::new(raw, None)
+    }
+
+    vec![
+        template(
+            "gw2://skills/{id}",
+            "Skill",
+            "Single GW2 skill resolved by numeric API id. Returns the full /v2/skills entry \
+             (including facts[]).",
+        ),
+        template(
+            "gw2://traits/{id}",
+            "Trait",
+            "Single GW2 trait resolved by numeric API id. Returns the full /v2/traits entry.",
+        ),
+        template(
+            "gw2://specializations/{id}",
+            "Specialization",
+            "Single GW2 specialization (core or elite) resolved by numeric API id. Returns the \
+             full /v2/specializations entry.",
+        ),
+        template(
+            "gw2://items/{id}",
+            "Item",
+            "Single GW2 item (equipment, consumable, etc.) resolved by numeric API id. Returns \
+             the full /v2/items entry.",
+        ),
+        template(
+            "gw2://builds/{source}/{slug}",
+            "Curated Build",
+            "Single curated build from a registered source. `source` is one of `discretize`, \
+             `metabattle`, `snowcrows`. `slug` matches `list_recommended_builds`'s slug field — \
+             note that some sources use multi-segment slugs (discretize: \
+             `<profession>/<build>`; snowcrows: `<category>/<profession>/<build>`); the slug is \
+             taken literally from the URI suffix after `gw2://builds/<source>/`.",
+        ),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
+
+/// Slash commands surfaced via `prompts/list`. The body of each prompt is
+/// rendered server-side in [`render_prompt`] — keep the two in sync.
+fn build_prompts() -> Vec<Prompt> {
+    fn arg(name: &str, description: &str, required: bool) -> PromptArgument {
+        PromptArgument {
+            name: name.to_owned(),
+            title: None,
+            description: Some(description.to_owned()),
+            required: Some(required),
+        }
+    }
+
+    vec![
+        Prompt::new(
+            PROMPT_ANALYZE_CHARACTER,
+            Some(
+                "Fetch a character's build and equipment, resolve all IDs to names, and produce \
+                 a build summary.",
+            ),
+            Some(vec![
+                arg("character", "GW2 character name (case-sensitive).", true),
+                arg(
+                    "api_key",
+                    "GW2 API key with `account`, `characters`, and `builds` scopes. Generate at \
+                     https://account.arena.net/applications.",
+                    true,
+                ),
+            ]),
+        ),
+        Prompt::new(
+            PROMPT_COMPARE_TO_META,
+            Some(
+                "Compare a character's current build to curated meta builds for their profession.",
+            ),
+            Some(vec![
+                arg("character", "GW2 character name.", true),
+                arg(
+                    "api_key",
+                    "GW2 API key with `account`, `characters`, and `builds` scopes.",
+                    true,
+                ),
+                arg(
+                    "gamemode",
+                    "Optional. One of: `fractals`, `raids`, `open_world`, `pvp`, `wvw`. If \
+                     omitted the prompt asks the user.",
+                    false,
+                ),
+            ]),
+        ),
+        Prompt::new(
+            PROMPT_DECODE_AND_EXPLAIN,
+            Some("Decode a Guild Wars 2 build chat code and explain what the build does."),
+            Some(vec![arg(
+                "code",
+                "GW2 build chat code, including the surrounding `[& ... ]` brackets.",
+                true,
+            )]),
+        ),
+        Prompt::new(
+            PROMPT_RECOMMEND_BUILD,
+            Some("Recommend a curated meta build for a profession + gamemode and explain it."),
+            Some(vec![
+                arg(
+                    "profession",
+                    "One of the nine professions: `guardian`, `warrior`, `engineer`, `ranger`, \
+                     `thief`, `elementalist`, `mesmer`, `necromancer`, `revenant`.",
+                    true,
+                ),
+                arg(
+                    "gamemode",
+                    "One of: `fractals`, `raids`, `open_world`, `pvp`, `wvw`.",
+                    true,
+                ),
+                arg(
+                    "experience",
+                    "Optional. One of: `beginner`, `intermediate`, `expert`. Tunes the \
+                     explanation depth.",
+                    false,
+                ),
+            ]),
+        ),
+    ]
+}
+
+const PROMPT_ANALYZE_CHARACTER: &str = "analyze-character";
+const PROMPT_COMPARE_TO_META: &str = "compare-to-meta";
+const PROMPT_DECODE_AND_EXPLAIN: &str = "decode-and-explain";
+const PROMPT_RECOMMEND_BUILD: &str = "recommend-build";
+
+#[derive(Debug)]
+enum PromptError {
+    NotFound(String),
+    MissingArg {
+        prompt: &'static str,
+        arg: &'static str,
+    },
+}
+
+/// Render a prompt name + args into a `GetPromptResult`. Pure function: no
+/// I/O, no state — each prompt boils down to a templated user message that
+/// instructs the LLM which tools to call. Exposed at module scope so the
+/// integration tests can pin the rendered body without spinning up a full
+/// `McpServer`.
+fn require_arg(
+    args: &serde_json::Map<String, serde_json::Value>,
+    prompt: &'static str,
+    arg: &'static str,
+) -> Result<String, PromptError> {
+    args.get(arg)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .ok_or(PromptError::MissingArg { prompt, arg })
+}
+
+fn optional_arg(args: &serde_json::Map<String, serde_json::Value>, arg: &str) -> Option<String> {
+    args.get(arg)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+fn finish_prompt(description: &str, body: String) -> GetPromptResult {
+    GetPromptResult {
+        description: Some(description.to_owned()),
+        messages: vec![PromptMessage::new_text(PromptMessageRole::User, body)],
+    }
+}
+
+fn render_analyze_character(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let character = require_arg(args, PROMPT_ANALYZE_CHARACTER, "character")?;
+    let api_key = require_arg(args, PROMPT_ANALYZE_CHARACTER, "api_key")?;
+    let body = format!(
+        "You are analysing a Guild Wars 2 character build.\n\n\
+         Steps to follow:\n\n\
+         1. Use the `get_character_build` tool with `character=\"{character}\"` and \
+         `api_key=\"{api_key}\"`. The response now pre-resolves skill, trait, and \
+         specialization names — you do not need to call `get_skills` / `get_traits` \
+         / `get_specializations` again for those ids.\n\
+         2. For any equipment ids that come back unresolved (slot entries with `id` \
+         fields under `equipment`), use the `get_items` tool with the full list of \
+         ids in one call.\n\
+         3. Summarise the build: profession + elite spec, the role it plays, the \
+         gamemode it likely fits, rotation hints derived from the chosen skills, and \
+         gear quality (ascended vs exotic, sigils, runes, infusions).\n\
+         4. Call out anything missing or unusual (empty equipment slots, mismatched \
+         stat sets, unexpected utility-skill choices) so the user knows what to look \
+         at."
+    );
+    Ok(finish_prompt(
+        "Fetch a character's build and equipment, resolve all IDs to names, and produce a build \
+         summary.",
+        body,
+    ))
+}
+
+fn render_compare_to_meta(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let character = require_arg(args, PROMPT_COMPARE_TO_META, "character")?;
+    let api_key = require_arg(args, PROMPT_COMPARE_TO_META, "api_key")?;
+    let body = match optional_arg(args, "gamemode") {
+        Some(gm) => format!(
+            "You are comparing a Guild Wars 2 character to curated meta builds.\n\n\
+             Steps to follow:\n\n\
+             1. Call `get_character_build` with `character=\"{character}\"` and \
+             `api_key=\"{api_key}\"` to capture the current build (the response \
+             pre-resolves skill/trait/spec names).\n\
+             2. Pick the catalog source that fits `gamemode=\"{gm}\"`: \
+             `discretize` for fractals, `snowcrows` for raids/strikes, `metabattle` for \
+             anything else.\n\
+             3. Call `list_recommended_builds` with that source, the character's \
+             profession (lower-cased), and `gamemode=\"{gm}\"`. Pick the best match \
+             (highest rating if present, otherwise the closest role/elite-spec match).\n\
+             4. Call `get_recommended_build` with the chosen `source` and `slug` to get \
+             the canonical build details.\n\
+             5. Produce a gap analysis: traits + skills that differ, equipment / stat \
+             differences, sigils/runes, and any rotation steps the character can't \
+             execute with its current setup. Recommend the smallest set of changes that \
+             would close the gap."
+        ),
+        None => format!(
+            "You are comparing a Guild Wars 2 character to curated meta builds, but the \
+             gamemode was not provided.\n\n\
+             Step 1: Ask the user which gamemode they're targeting (one of `fractals`, \
+             `raids`, `open_world`, `pvp`, `wvw`) and wait for their answer before \
+             proceeding.\n\n\
+             Once the user responds, follow the standard flow:\n\n\
+             1. Call `get_character_build` with `character=\"{character}\"` and \
+             `api_key=\"{api_key}\"`.\n\
+             2. Pick the catalog source that fits the user's gamemode: `discretize` for \
+             fractals, `snowcrows` for raids/strikes, `metabattle` otherwise.\n\
+             3. Call `list_recommended_builds` with that source plus the profession and \
+             gamemode filters, then `get_recommended_build` with the best match's slug.\n\
+             4. Produce a gap analysis: traits + skills that differ, equipment / stat \
+             differences, and the smallest changes that would close the gap."
+        ),
+    };
+    Ok(finish_prompt(
+        "Compare a character's current build to curated meta builds for their profession.",
+        body,
+    ))
+}
+
+fn render_decode_and_explain(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let code = require_arg(args, PROMPT_DECODE_AND_EXPLAIN, "code")?;
+    let body = format!(
+        "You are explaining a Guild Wars 2 build chat code in plain English.\n\n\
+         Steps to follow:\n\n\
+         1. Call `decode_build_code` with `code=\"{code}\"` to extract the \
+         profession byte, specialization ids, trait choices, and palette skill ids \
+         (with their resolved api skill ids and profession name).\n\
+         2. Collect the resolved trait ids across all three specialization slots and \
+         pass them to `get_traits` in one call. Pass the resolved api skill ids to \
+         `get_skills` in one call. If the build references specialization ids you \
+         want descriptions for, pass them to `get_specializations`.\n\
+         3. Produce a plain-English explanation of what the build does: profession + \
+         elite spec (named, not numeric), the role it fills, key trait synergies, \
+         and what each skill in the bar contributes. Keep it readable for a player \
+         who has not seen this build before."
+    );
+    Ok(finish_prompt(
+        "Decode a Guild Wars 2 build chat code and explain what the build does.",
+        body,
+    ))
+}
+
+fn render_recommend_build(
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    let profession = require_arg(args, PROMPT_RECOMMEND_BUILD, "profession")?;
+    let gamemode = require_arg(args, PROMPT_RECOMMEND_BUILD, "gamemode")?;
+    let experience = optional_arg(args, "experience").unwrap_or_else(|| "intermediate".to_owned());
+    let source = match gamemode.as_str() {
+        "fractals" => "discretize",
+        "raids" | "strikes" => "snowcrows",
+        _ => "metabattle",
+    };
+    let body = format!(
+        "You are recommending a Guild Wars 2 meta build.\n\n\
+         Steps to follow:\n\n\
+         1. Call `list_recommended_builds` with `source=\"{source}\"`, \
+         `profession=\"{profession}\"`, and `gamemode=\"{gamemode}\"`. Pick the \
+         top-rated match (or the closest role match if the catalog doesn't carry \
+         ratings).\n\
+         2. Call `get_recommended_build` with the chosen `source` and `slug` to \
+         fetch the full build detail.\n\
+         3. Explain the build to a {experience} player. For `beginner`, lead with \
+         the role the build plays and avoid jargon; describe the rotation as a \
+         short, ordered list. For `intermediate`, include trait synergies and key \
+         boon outputs. For `expert`, include CC priorities, edge-case rotations, \
+         and the trade-offs vs adjacent builds in the same role.\n\
+         4. Always finish with the chat code (if the catalog provided one) and the \
+         source URL so the user can verify."
+    );
+    Ok(finish_prompt(
+        "Recommend a curated meta build for a profession + gamemode and explain it.",
+        body,
+    ))
+}
+
+fn render_prompt(
+    name: &str,
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult, PromptError> {
+    match name {
+        PROMPT_ANALYZE_CHARACTER => render_analyze_character(args),
+        PROMPT_COMPARE_TO_META => render_compare_to_meta(args),
+        PROMPT_DECODE_AND_EXPLAIN => render_decode_and_explain(args),
+        PROMPT_RECOMMEND_BUILD => render_recommend_build(args),
+        other => Err(PromptError::NotFound(other.to_owned())),
+    }
 }
 
 #[cfg(test)]
