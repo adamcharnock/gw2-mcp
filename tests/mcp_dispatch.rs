@@ -84,7 +84,7 @@ async fn end_to_end_wiki_search_returns_json_with_url_and_extract() {
         .dispatch_tool("wiki_search", json!({ "query": "Dragon Bash", "limit": 1 }))
         .await
         .unwrap();
-    let parsed: Value = serde_json::from_str(&result).unwrap();
+    let parsed: Value = result;
     let results = parsed["results"].as_array().unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0]["title"], "Dragon Bash");
@@ -128,7 +128,7 @@ async fn end_to_end_get_currencies_with_ids() {
         .dispatch_tool("get_currencies", json!({ "ids": [1] }))
         .await
         .unwrap();
-    let parsed: Value = serde_json::from_str(&result).unwrap();
+    let parsed: Value = result;
     assert_eq!(parsed["1"]["name"], "Coin");
 }
 
@@ -167,7 +167,7 @@ async fn end_to_end_get_wallet_with_valid_key_returns_json() {
         .dispatch_tool("get_wallet", json!({ "api_key": valid_api_key().expose() }))
         .await
         .unwrap();
-    let parsed: Value = serde_json::from_str(&result).unwrap();
+    let parsed: Value = result;
     assert_eq!(parsed["entries"][0]["value"], 12345);
     assert_eq!(parsed["total_currencies"], 1);
 }
@@ -222,7 +222,7 @@ async fn end_to_end_decode_build_code_returns_structured_json() {
         )
         .await
         .unwrap();
-    let parsed: Value = serde_json::from_str(&result).unwrap();
+    let parsed: Value = result;
     assert_eq!(parsed["profession"], 6);
     assert_eq!(
         parsed["skills"]["healing"]["terrestrial"]["palette_id"],
@@ -266,7 +266,7 @@ async fn end_to_end_list_build_sources_returns_registered_names() {
         .dispatch_tool("list_build_sources", json!({}))
         .await
         .unwrap();
-    let parsed: Value = serde_json::from_str(&result).unwrap();
+    let parsed: Value = result;
     assert!(
         parsed.as_array().unwrap().iter().any(|v| v == "discretize"),
         "list_build_sources must include `discretize` after registration; got {parsed}"
@@ -311,7 +311,7 @@ async fn end_to_end_list_recommended_builds_via_discretize() {
         )
         .await
         .unwrap();
-    let parsed: Value = serde_json::from_str(&result).unwrap();
+    let parsed: Value = result;
     let arr = parsed.as_array().unwrap();
     assert_eq!(arr.len(), 2, "expected exactly the two guardian builds");
     for v in arr {

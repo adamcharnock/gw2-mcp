@@ -988,7 +988,7 @@ pub fn wiki_page_url(title: &str) -> String {
 }
 
 /// Snapshot of a character's build + equipment tabs at a moment in time.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CharacterBuildSnapshot {
     pub character_name: String,
     pub build_tabs: Vec<serde_json::Value>,

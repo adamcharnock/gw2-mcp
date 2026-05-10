@@ -3,12 +3,13 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::currency::{Currency, CurrencyId};
 
 /// A single wallet line item: how much of one currency the account holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WalletEntry {
     pub id: CurrencyId,
     /// Quantity. Coin is in copper; other currencies use their natural unit.
@@ -19,7 +20,7 @@ pub struct WalletEntry {
 ///
 /// Uses `BTreeMap` so JSON output is stable across runs — useful for
 /// caching, snapshots, and tests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WalletInfo {
     pub entries: Vec<WalletEntry>,
     pub currencies: BTreeMap<CurrencyId, Currency>,

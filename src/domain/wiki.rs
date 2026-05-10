@@ -1,6 +1,7 @@
 //! Wiki search domain types.
 
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::error::DomainError;
@@ -77,7 +78,7 @@ impl Default for SearchLimit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SearchResult {
     pub title: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -92,7 +93,7 @@ pub struct SearchResult {
     pub word_count: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SearchResponse {
     pub query: String,
     pub results: Vec<SearchResult>,

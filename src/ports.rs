@@ -188,7 +188,9 @@ pub struct CatalogFilter {
 
 /// Lightweight summary returned from a catalog listing — enough for an
 /// LLM to pick which build to fetch in detail.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, schemars::JsonSchema,
+)]
 pub struct BuildSummary {
     pub slug: String,
     pub title: String,
@@ -206,7 +208,7 @@ pub struct BuildSummary {
 /// Detailed build view. We keep this loose (`details: serde_json::Value`)
 /// because each catalog's data is shaped differently and the LLM is the
 /// consumer — typing every variant would be premature.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct BuildDetail {
     pub summary: BuildSummary,
     pub details: serde_json::Value,

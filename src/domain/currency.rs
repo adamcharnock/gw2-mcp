@@ -1,11 +1,14 @@
 //! Currency types from the GW2 `/v2/currencies` endpoint.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::error::DomainError;
 
 /// A positive currency identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(transparent)]
 pub struct CurrencyId(u32);
 
@@ -35,7 +38,7 @@ impl std::fmt::Display for CurrencyId {
 ///
 /// Field order mirrors the GW2 API response so serde-deserialised values
 /// round-trip cleanly.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Currency {
     pub id: CurrencyId,
     pub name: String,

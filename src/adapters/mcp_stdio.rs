@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rmcp::model::{
     Annotated, CallToolRequestParams, CallToolResult, Content, Implementation, ListResourcesResult,
     ListToolsResult, RawResource, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
-    ServerCapabilities, ServerInfo, Tool,
+    ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
@@ -45,16 +45,18 @@ impl McpServer {
     }
 
     /// Exposes tool dispatch outside of the rmcp transport layer. Returns
-    /// the JSON string the MCP client would receive on success, or a
-    /// human-readable error message on failure.
+    /// the structured JSON value the MCP client would receive on success,
+    /// or a human-readable error message on failure.
     ///
     /// Used by integration tests to exercise tool wiring without driving
-    /// the stdio protocol end-to-end.
+    /// the stdio protocol end-to-end. The transport layer wraps this
+    /// straight into [`CallToolResult::structured`], which auto-fills the
+    /// text-content mirror per the MCP back-compat clause.
     pub async fn dispatch_tool(
         &self,
         name: &str,
         args: serde_json::Value,
-    ) -> Result<String, String> {
+    ) -> Result<serde_json::Value, String> {
         let outcome = match name {
             "wiki_search" => self.handle_wiki_search(&args).await,
             "get_wallet" => self.handle_get_wallet(&args).await,
@@ -89,7 +91,10 @@ impl McpServer {
 
     // -- tool dispatch --------------------------------------------------
 
-    async fn handle_wiki_search(&self, args: &serde_json::Value) -> Result<String, CallError> {
+    async fn handle_wiki_search(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
         let query_str = args
             .get("query")
             .and_then(|v| v.as_str())
@@ -113,10 +118,13 @@ impl McpServer {
             .search_wiki(&query, limit)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&response)?)
+        Ok(serde_json::to_value(&response)?)
     }
 
-    async fn handle_get_wallet(&self, args: &serde_json::Value) -> Result<String, CallError> {
+    async fn handle_get_wallet(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
         let raw_key = args
             .get("api_key")
             .and_then(|v| v.as_str())
@@ -127,20 +135,26 @@ impl McpServer {
             .get_wallet(&key)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&wallet)?)
+        Ok(serde_json::to_value(&wallet)?)
     }
 
-    async fn handle_get_currencies(&self, args: &serde_json::Value) -> Result<String, CallError> {
+    async fn handle_get_currencies(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
         let ids = parse_id_array(args, "ids", CurrencyId::new)?;
         let map = self
             .service
             .get_currencies(&ids)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&map)?)
+        Ok(serde_json::to_value(&map)?)
     }
 
-    async fn handle_get_skills(&self, args: &serde_json::Value) -> Result<String, CallError> {
+    async fn handle_get_skills(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
         let ids = parse_required_id_array(args, "ids", SkillId::new)?;
         let summary = parse_summary(args);
         let value = self
@@ -148,10 +162,13 @@ impl McpServer {
             .get_skills_view(&ids, summary)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&value)?)
+        Ok(value)
     }
 
-    async fn handle_get_traits(&self, args: &serde_json::Value) -> Result<String, CallError> {
+    async fn handle_get_traits(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
         let ids = parse_required_id_array(args, "ids", TraitId::new)?;
         let summary = parse_summary(args);
         let value = self
@@ -159,13 +176,13 @@ impl McpServer {
             .get_traits_view(&ids, summary)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&value)?)
+        Ok(value)
     }
 
     async fn handle_get_specializations(
         &self,
         args: &serde_json::Value,
-    ) -> Result<String, CallError> {
+    ) -> Result<serde_json::Value, CallError> {
         let ids = parse_required_id_array(args, "ids", SpecializationId::new)?;
         let summary = parse_summary(args);
         let value = self
@@ -173,23 +190,26 @@ impl McpServer {
             .get_specializations_view(&ids, summary)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&value)?)
+        Ok(value)
     }
 
-    async fn handle_get_items(&self, args: &serde_json::Value) -> Result<String, CallError> {
+    async fn handle_get_items(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
         let ids = parse_required_id_array(args, "ids", ItemId::new)?;
         let map = self
             .service
             .get_items(&ids)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&map)?)
+        Ok(serde_json::to_value(&map)?)
     }
 
     async fn handle_get_character_build(
         &self,
         args: &serde_json::Value,
-    ) -> Result<String, CallError> {
+    ) -> Result<serde_json::Value, CallError> {
         let raw_key = args
             .get("api_key")
             .and_then(|v| v.as_str())
@@ -206,13 +226,13 @@ impl McpServer {
             .get_character_build(&key, &name, tab)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&snap)?)
+        Ok(serde_json::to_value(&snap)?)
     }
 
     async fn handle_decode_build_code(
         &self,
         args: &serde_json::Value,
-    ) -> Result<String, CallError> {
+    ) -> Result<serde_json::Value, CallError> {
         let raw = args
             .get("code")
             .and_then(|v| v.as_str())
@@ -223,18 +243,18 @@ impl McpServer {
             .decode_build_code(&code)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&value)?)
+        Ok(value)
     }
 
-    fn handle_list_build_sources(&self) -> Result<String, CallError> {
+    fn handle_list_build_sources(&self) -> Result<serde_json::Value, CallError> {
         let names = self.service.list_catalogs();
-        Ok(serde_json::to_string_pretty(&names)?)
+        Ok(serde_json::to_value(&names)?)
     }
 
     async fn handle_list_recommended_builds(
         &self,
         args: &serde_json::Value,
-    ) -> Result<String, CallError> {
+    ) -> Result<serde_json::Value, CallError> {
         let source = args
             .get("source")
             .and_then(|v| v.as_str())
@@ -258,13 +278,13 @@ impl McpServer {
             .list_catalog_builds(source, filter)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&summaries)?)
+        Ok(serde_json::to_value(&summaries)?)
     }
 
     async fn handle_get_recommended_build(
         &self,
         args: &serde_json::Value,
-    ) -> Result<String, CallError> {
+    ) -> Result<serde_json::Value, CallError> {
         let source = args
             .get("source")
             .and_then(|v| v.as_str())
@@ -278,7 +298,7 @@ impl McpServer {
             .get_catalog_build(source, slug)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_string_pretty(&detail)?)
+        Ok(serde_json::to_value(&detail)?)
     }
 }
 
@@ -475,12 +495,13 @@ impl ServerHandler for McpServer {
         // Single dispatch path — `dispatch_tool` is also exercised by
         // integration tests, so the protocol handler can never drift out
         // of sync with the test harness.
+        //
+        // `CallToolResult::structured` populates both `structured_content`
+        // (for clients that consume the typed shape) and the text-content
+        // mirror (for back-compat with clients that only read text). No
+        // round-trip parse, no silent structure loss on malformed JSON.
         match self.dispatch_tool(&request.name, args).await {
-            Ok(text) => {
-                let mut result = CallToolResult::success(vec![Content::text(text.clone())]);
-                result.structured_content = serde_json::from_str(&text).ok();
-                Ok(result)
-            }
+            Ok(value) => Ok(CallToolResult::structured(value)),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }
@@ -676,62 +697,185 @@ fn build_tools() -> Vec<Tool> {
             "wiki_search",
             "Search the Guild Wars 2 wiki and return enriched results (with prose extracts).",
             wiki_search,
-        ),
+        )
+        .annotate(read_only_open_world("Search GW2 Wiki"))
+        .with_output_schema::<crate::domain::SearchResponse>(),
         Tool::new(
             "get_wallet",
             "Fetch the user's wallet, including currency metadata. Requires an API key.",
             get_wallet,
-        ),
+        )
+        .annotate(read_only_open_world("Get Wallet"))
+        .with_output_schema::<crate::domain::WalletInfo>(),
+        // get_currencies, get_skills, get_traits, get_specializations, and
+        // get_items all return `BTreeMap<TypedId, T>`. The wire shape is a JSON
+        // object keyed by stringified numeric ids — useful for the LLM but
+        // schemars 1.x emits a non-`object`-rooted schema for maps with
+        // non-string key types, which `Tool::with_output_schema` rejects per
+        // the MCP spec. Keeping the wire shape (and Tier 1's tests) wins;
+        // outputSchema is left off these five intentionally. See report.
         Tool::new(
             "get_currencies",
             "Fetch Guild Wars 2 currency metadata. Pass `ids` for specific currencies; omit to \
              fetch all.",
             get_currencies,
-        ),
+        )
+        .annotate(read_only_open_world("Get Currencies")),
         Tool::new(
             "get_skills",
             "Resolve GW2 skill ids (e.g. those returned by get_character_build) into name + description. Returns a compact summary by default; pass `summary=false` for the full payload (facts[], icon URLs, etc.).",
             by_required_ids_with_summary.clone(),
-        ),
+        )
+        .annotate(read_only_closed_world("Get Skills")),
         Tool::new(
             "get_traits",
             "Resolve GW2 trait ids into name + description. Returns a compact summary by default; pass `summary=false` for the full payload.",
             by_required_ids_with_summary.clone(),
-        ),
+        )
+        .annotate(read_only_closed_world("Get Traits")),
         Tool::new(
             "get_specializations",
             "Resolve GW2 specialization ids (core + elite) into name, profession, and minor/major trait ids. Pass `summary=false` for the full payload.",
             by_required_ids_with_summary,
-        ),
+        )
+        .annotate(read_only_closed_world("Get Specializations")),
         Tool::new(
             "get_items",
             "Resolve GW2 equipment / item ids (e.g. those returned by get_character_build) into name and details.",
             by_required_ids,
-        ),
+        )
+        .annotate(read_only_closed_world("Get Items")),
         Tool::new(
             "get_character_build",
             "Fetch a character's build + equipment, with skill/trait/specialization names pre-resolved. Defaults to the active tab; pass `tab=\"all\"` or a specific index for others. Requires an API key with 'builds' scope.",
             get_character_build,
-        ),
+        )
+        .annotate(read_only_open_world("Get Character Build"))
+        .with_output_schema::<crate::service::CharacterBuildSnapshot>(),
         Tool::new(
             "decode_build_code",
             "Decode a `[&Dw...]` build chat code into structured JSON. No auth required.",
             decode_build_code,
-        ),
+        )
+        .annotate(read_only_closed_world("Decode Build Chat Code")),
         Tool::new(
             "list_build_sources",
             "List the registered curated-build sources (Discretize, MetaBattle, Snow Crows, …).",
             empty_args,
-        ),
+        )
+        .annotate(read_only_closed_world("List Build Sources")),
+        // list_recommended_builds returns Vec<BuildSummary>. JSON Schema for
+        // an array root is valid in general, but `Tool::with_output_schema`
+        // enforces MCP's "outputSchema must be type=object" rule, so we'd
+        // have to wrap as `{items: [...]}` and break the wire shape (and
+        // Tier 1's tests). Skipped — the per-item shape is documented in
+        // `BuildSummary` and clients that care can derive the schema there.
         Tool::new(
             "list_recommended_builds",
             "List builds from a curated source. Returns lightweight summaries; use get_recommended_build for full details.",
             list_recommended,
-        ),
+        )
+        .annotate(read_only_open_world("List Recommended Builds")),
         Tool::new(
             "get_recommended_build",
             "Fetch full details for a specific curated build by source + slug.",
             get_recommended,
-        ),
+        )
+        .annotate(read_only_open_world("Get Recommended Build"))
+        .with_output_schema::<crate::ports::BuildDetail>(),
     ]
+}
+
+/// Builder for a `ToolAnnotations` describing a read-only, idempotent,
+/// non-destructive tool whose data crosses the network boundary (open world).
+fn read_only_open_world(title: &str) -> ToolAnnotations {
+    ToolAnnotations::with_title(title)
+        .read_only(true)
+        .idempotent(true)
+        .destructive(false)
+        .open_world(true)
+}
+
+/// Builder for a `ToolAnnotations` describing a read-only, idempotent,
+/// non-destructive tool whose dataset is finite and offline (closed world).
+fn read_only_closed_world(title: &str) -> ToolAnnotations {
+    ToolAnnotations::with_title(title)
+        .read_only(true)
+        .idempotent(true)
+        .destructive(false)
+        .open_world(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `with_output_schema::<T>()` panics if `T`'s schemars-generated schema
+    /// doesn't have root `type: "object"`. Make that failure show up at
+    /// `cargo test` instead of at server startup.
+    #[test]
+    fn build_tools_constructs_without_panicking() {
+        let tools = build_tools();
+        assert_eq!(tools.len(), 12, "tier-2 ships 12 tools");
+    }
+
+    #[test]
+    fn every_tool_has_annotations() {
+        for t in build_tools() {
+            let ann = t
+                .annotations
+                .as_ref()
+                .unwrap_or_else(|| panic!("tool {} missing annotations", t.name));
+            assert_eq!(
+                ann.read_only_hint,
+                Some(true),
+                "{}: every tool in this server is read-only",
+                t.name
+            );
+            assert_eq!(
+                ann.destructive_hint,
+                Some(false),
+                "{}: nothing in this server is destructive",
+                t.name
+            );
+            assert_eq!(
+                ann.idempotent_hint,
+                Some(true),
+                "{}: every tool is idempotent",
+                t.name
+            );
+            assert!(
+                ann.open_world_hint.is_some(),
+                "{}: openWorld must be set explicitly (default true would be wrong for offline tools)",
+                t.name
+            );
+            assert!(
+                ann.title.as_ref().is_some_and(|s| !s.is_empty()),
+                "{}: title must be set",
+                t.name
+            );
+        }
+    }
+
+    #[test]
+    fn typed_return_tools_publish_output_schema() {
+        let by_name: std::collections::BTreeMap<_, _> = build_tools()
+            .into_iter()
+            .map(|t| (t.name.clone(), t))
+            .collect();
+        for name in [
+            "wiki_search",
+            "get_wallet",
+            "get_character_build",
+            "get_recommended_build",
+        ] {
+            let t = by_name
+                .get(name)
+                .unwrap_or_else(|| panic!("missing tool {name}"));
+            assert!(
+                t.output_schema.is_some(),
+                "{name}: outputSchema must be declared"
+            );
+        }
+    }
 }
