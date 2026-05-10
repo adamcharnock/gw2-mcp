@@ -9,12 +9,11 @@ mod common;
 
 use std::sync::Arc;
 
-use gw2_mcp::adapters::mumble_link::{MumbleLink, StubMumbleLink};
-use gw2_mcp::adapters::{ChatrDecoder, McpServer, SqliteSearchIndex};
+use gw2_mcp::adapters::{ChatrDecoder, McpServer, SqliteSearchIndex, StubMumbleLink};
 use gw2_mcp::domain::{Achievement, AchievementId, Item, ItemId, Skill, SkillId};
 use gw2_mcp::indexing::{IndexingOpts, IndexingPipeline};
 use gw2_mcp::ports::{
-    BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, SearchIndex, Wiki,
+    BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, MumbleLink, SearchIndex, Wiki,
 };
 use gw2_mcp::service::Service;
 use serde_json::{Value, json};

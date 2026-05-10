@@ -11,10 +11,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use gw2_mcp::adapters::ChatrDecoder;
-use gw2_mcp::adapters::mumble_link::{
-    MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot, StubMumbleLink,
-};
+use gw2_mcp::adapters::{ChatrDecoder, StubMumbleLink};
 use gw2_mcp::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, BuildSlug,
     CharacterName, Currency, CurrencyId, Dailies, Item, ItemId, SearchLimit, SearchQuery,
@@ -23,7 +20,8 @@ use gw2_mcp::domain::{
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
     CatalogFilter, CatalogRegistry, Clock, Gw2Api, Gw2ApiError, MapData, MapDataError, MapId,
-    MapInfo, MapPoi, Wiki, WikiError,
+    MapInfo, MapPoi, MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot, Wiki,
+    WikiError,
 };
 
 /// Build a `Service` with the in-memory fakes and a real chatr decoder.

@@ -7,10 +7,11 @@ mod common;
 
 use std::sync::Arc;
 
-use gw2_mcp::adapters::mumble_link::{MumbleLink, StubMumbleLink};
 use gw2_mcp::adapters::{
-    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpWiki, McpServer, MemoryCache, SystemClock,
+    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpWiki, McpServer, MemoryCache, StubMumbleLink,
+    SystemClock,
 };
+use gw2_mcp::ports::MumbleLink;
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, Wiki,
 };

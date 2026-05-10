@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use gw2_mcp::adapters::mumble_link::{MumbleLink, probe_default};
+use gw2_mcp::adapters::probe_default;
 use gw2_mcp::adapters::{
     ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer,
     MemoryCache, MetaBattleCatalog, SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
@@ -14,8 +14,8 @@ use gw2_mcp::adapters::{
 use gw2_mcp::domain::ApiKey;
 use gw2_mcp::indexing::{IndexingOpts, IndexingPipeline};
 use gw2_mcp::ports::{
-    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, SearchIndex,
-    Wiki,
+    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, MumbleLink,
+    SearchIndex, Wiki,
 };
 use gw2_mcp::service::Service;
 use tracing_subscriber::EnvFilter;

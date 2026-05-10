@@ -26,10 +26,7 @@ pub use gw2_http::HttpGw2Api;
 pub use gw2_map::HttpMapData;
 pub use mcp_stdio::McpServer;
 pub use memory_cache::MemoryCache;
-pub use mumble_link::{
-    MUMBLE_HEADER_LEN, MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot,
-    StubMumbleLink, parse_header, probe_default,
-};
+pub use mumble_link::{MUMBLE_HEADER_LEN, StubMumbleLink, parse_header, probe_default};
 pub use sqlite_index::{INDEX_FILE_NAME, SqliteSearchIndex};
 pub use system_clock::SystemClock;
 pub use wiki_http::HttpWiki;

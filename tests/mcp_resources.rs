@@ -8,12 +8,12 @@ mod common;
 
 use std::sync::Arc;
 
-use gw2_mcp::adapters::mumble_link::{MumbleLink, StubMumbleLink};
-use gw2_mcp::adapters::{ChatrDecoder, McpServer};
+use gw2_mcp::adapters::{ChatrDecoder, McpServer, StubMumbleLink};
 use gw2_mcp::domain::{
     Currency, CurrencyId, Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait,
     TraitId,
 };
+use gw2_mcp::ports::MumbleLink;
 use gw2_mcp::ports::{BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, Wiki};
 use gw2_mcp::service::Service;
 use serde_json::Value;

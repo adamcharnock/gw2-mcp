@@ -10,9 +10,8 @@ mod common;
 use std::sync::Arc;
 
 use gw2_mcp::adapters::ChatrDecoder;
-use gw2_mcp::adapters::mumble_link::{MumbleError, MumbleLink};
 use gw2_mcp::domain::bearing::Bearing16;
-use gw2_mcp::ports::{Cache, Clock, Gw2Api, MapData, Wiki};
+use gw2_mcp::ports::{Cache, Clock, Gw2Api, MapData, MumbleError, MumbleLink, Wiki};
 use gw2_mcp::service::{LocationRef, NearbyFilter, Service, ServiceError};
 
 use crate::common::{

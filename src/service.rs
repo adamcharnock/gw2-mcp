@@ -12,7 +12,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::adapters::mumble_link::{MumbleError, MumbleLink};
 use crate::domain::BuildChatCode;
 use crate::domain::bearing::{Bearing16, bearing, distance_meters, distance_units};
 use crate::domain::{
@@ -23,8 +22,8 @@ use crate::domain::{
 use crate::ports::{
     AchievementRef, AchievementSearchFilter, BuildCodeDecoder, BuildCodeError, Cache, CacheError,
     Clock, Gw2Api, Gw2ApiError, IndexStatus, ItemRef, ItemSearchFilter, MapData, MapDataError,
-    MapId, MapInfo, MapPoi, SearchError, SearchIndex, SkillRef, SkillSearchFilter, SpecRef,
-    SpecSearchFilter, TraitRef, TraitSearchFilter, Wiki, WikiError,
+    MapId, MapInfo, MapPoi, MumbleError, MumbleLink, SearchError, SearchIndex, SkillRef,
+    SkillSearchFilter, SpecRef, SpecSearchFilter, TraitRef, TraitSearchFilter, Wiki, WikiError,
 };
 
 // Cache TTLs centralised so changes are atomic.

@@ -485,6 +485,120 @@ pub trait MapData: Send + Sync + 'static {
 }
 
 // ---------------------------------------------------------------------------
+// Mumble Link — live in-game state read from a memory-mapped region the GW2
+// client writes every frame. Per CLAUDE.rust.md the trait lives here; concrete
+// adapters (`StubMumbleLink`, file-backed `FileMumbleLink`, Windows-native
+// `WindowsMumbleLink`) live in `adapters/mumble_link.rs`.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum MumbleError {
+    /// The shared-memory region was found but contains no live game data
+    /// (`ui_tick == 0`), or the region itself wasn't found at all.
+    #[error(
+        "Mumble Link is not connected — start Guild Wars 2 on the same machine running this MCP \
+         server, log a character in, and try again. (Detail: {0})"
+    )]
+    NotConnected(String),
+
+    /// We're on a platform with no implementation. The error message
+    /// names the platform and gives the user something actionable.
+    #[error("Mumble Link is not supported in this configuration: {0}")]
+    Unsupported(String),
+
+    #[error("Mumble Link I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Mumble Link decode error: {0}")]
+    Decode(String),
+}
+
+/// Read-only port for the live Mumble Link state.
+pub trait MumbleLink: Send + Sync + 'static {
+    fn snapshot(&self) -> Result<MumbleSnapshot, MumbleError>;
+}
+
+/// What we hand back to the service layer. This is *not* the raw 5876-
+/// byte struct — only the fields we actually use, with the GW2 context
+/// block and identity JSON pre-parsed.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MumbleSnapshot {
+    /// Mumble protocol version (always 1 for GW2).
+    pub ui_version: u32,
+    /// Frame counter; if 0 the client isn't writing yet.
+    pub ui_tick: u32,
+    /// 3D world position in metres, Z-up.
+    pub avatar_position: [f32; 3],
+    /// Unit vector for the direction the avatar is facing.
+    pub avatar_front: [f32; 3],
+    /// 3D camera position in metres.
+    pub camera_position: [f32; 3],
+    /// Unit vector for the camera-look direction.
+    pub camera_front: [f32; 3],
+    /// Parsed `identity` JSON (character name, profession id, …).
+    pub identity: MumbleIdentity,
+    /// Parsed GW2-specific context block.
+    pub context: MumbleContext,
+}
+
+/// `identity` JSON shape published by GW2. Fields are left optional
+/// because Mumble Link's identity is a freeform string and the publisher
+/// has historically renamed keys across patches; we'd rather render
+/// `null` than reject a snapshot.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct MumbleIdentity {
+    #[serde(default)]
+    pub name: Option<String>,
+    /// 1..=9 — see profession byte → name map elsewhere.
+    #[serde(default)]
+    pub profession: Option<u8>,
+    /// Elite specialisation id (0 if none equipped).
+    #[serde(default)]
+    pub spec: Option<u32>,
+    /// Race id (1..=5 in current patches).
+    #[serde(default)]
+    pub race: Option<u8>,
+    #[serde(default)]
+    pub map_id: Option<u32>,
+    #[serde(default)]
+    pub world_id: Option<u64>,
+    #[serde(default)]
+    pub team_color_id: Option<u32>,
+    #[serde(default)]
+    pub commander: Option<bool>,
+    #[serde(default)]
+    pub fov: Option<f32>,
+    #[serde(default)]
+    pub uisz: Option<u8>,
+}
+
+/// GW2 binary `context` block — the only bit of "context" we care about.
+/// `player_x` and `player_y` are the **2D map coordinates** the LLM wants
+/// for navigation; they are *not* the same as the 3D position above.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MumbleContext {
+    pub server_address: [u8; 28],
+    pub map_id: u32,
+    pub map_type: u32,
+    pub shard_id: u32,
+    pub instance: u32,
+    pub build_id: u32,
+    pub ui_state: u32,
+    pub compass_width: u16,
+    pub compass_height: u16,
+    pub compass_rotation: f32,
+    /// 2D map x — the coord to use for navigation.
+    pub player_x: f32,
+    /// 2D map y — the coord to use for navigation.
+    pub player_y: f32,
+    pub map_center_x: f32,
+    pub map_center_y: f32,
+    pub map_scale: f32,
+    pub process_id: u32,
+    pub mount_index: u8,
+}
+
+// ---------------------------------------------------------------------------
 // Search index (Tier 6C) — on-disk fuzzy name search across the GW2 reference
 // corpus (skills/traits/specializations/items/achievements). Decoupled from
 // the GW2 API port so the index can be backed by SQLite, an in-process
