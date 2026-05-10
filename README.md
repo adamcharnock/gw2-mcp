@@ -85,6 +85,28 @@ Or with the Docker image:
 }
 ```
 
+### Docker image
+
+Published to **GitHub Container Registry** on every push to `main` and on
+`vX.Y.Z` tags:
+
+- Image: `ghcr.io/adamcharnock/gw2-mcp`
+- Architectures: `linux/amd64`, `linux/arm64` (Apple Silicon native)
+- Base: distroless `cc-debian12:nonroot` (~25 MB, runs as non-root, no shell)
+- Provenance + SBOM attestations are published alongside each manifest
+
+Available tags:
+
+| Tag                      | When                                    |
+|--------------------------|-----------------------------------------|
+| `latest`                 | Latest push to `main`                   |
+| `main`                   | Latest push to `main`                   |
+| `X.Y.Z`, `X.Y`           | Pushed when a `vX.Y.Z` git tag lands    |
+| `sha-<short>`            | Every commit (use this for hard pinning) |
+
+For production deployments, prefer pinning to a `vX.Y.Z` or `sha-<short>` tag
+rather than `latest`.
+
 ## Tools
 
 | Tool                    | Required args     | Optional args                                       | Notes |
