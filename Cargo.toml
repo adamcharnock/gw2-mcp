@@ -71,6 +71,13 @@ bytemuck = { version = "1", features = ["derive"] }
 # Cross-platform memory mapping for /dev/shm/MumbleLink (Linux + Wine on macOS).
 memmap2 = "0.9"
 
+# On-disk search index (Tier 6C). `bundled` statically links SQLite — keeps
+# the distroless container self-contained with no system dep, and means CI
+# doesn't have to install libsqlite3-dev. FTS5 is compiled in by default.
+rusqlite = { version = "0.37", features = ["bundled"] }
+# OS-standard cache directory resolution.
+directories = "5"
+
 # Windows-only shared-memory access for the MumbleLink named-mapping. Behind a
 # target_os = "windows" cfg so non-Windows builds don't pull it in.
 [target.'cfg(target_os = "windows")'.dependencies]

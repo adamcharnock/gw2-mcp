@@ -25,6 +25,9 @@ pub enum DomainError {
     #[error("item id must be positive (got {got})")]
     ItemIdInvalid { got: i64 },
 
+    #[error("achievement id must be positive (got {got})")]
+    AchievementIdInvalid { got: i64 },
+
     #[error("character name must be 1..32 chars (got {got_len})")]
     CharacterNameInvalid { got_len: usize },
 

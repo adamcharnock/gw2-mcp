@@ -135,6 +135,12 @@ rather than `latest`.
 | `get_directions`        | `from`, `to`      | —                                                   | Bearing (16-point compass) + distance between two points. Each accepts `{coords:[x,y]}`, `{poi_name, map_id}`, or `{here:true}`. |
 | `find_nearby`           | —                 | `filter` (waypoint/poi/vista/hero_point/task/any), `around`, `limit` | Closest POIs to a point (defaults to player's location). |
 | `describe_facing`       | —                 | —                                                   | Plain-English description of which way the player is facing + nearest landmark in that direction. |
+| `search_skills`         | `query` (≥2)      | `limit` (≤50), `profession`, `slot`, `weapon_type`  | Fuzzy name search over the local skills index. |
+| `search_traits`         | `query` (≥2)      | `limit`, `specialization`, `tier`                   | Fuzzy name search over the local traits index. |
+| `search_specializations`| `query` (≥2)      | `limit`, `profession`, `elite`                      | Fuzzy name search over the local specializations index. |
+| `search_items`          | `query` (≥2)      | `limit`, `type`, `rarity`, `min_level`, `max_level`, `weight_class` | Fuzzy name search over the local items index. **Opt-in** — only populated when started with `--with-items`. |
+| `search_achievements`   | `query` (≥2)      | `limit`, `type`                                     | Fuzzy name search over the local achievements index. |
+| `get_index_status`      | —                 | —                                                   | Per-kind row counts, last-refreshed timestamps, build number stamped on the index. |
 
 ### Build-source coverage
 
@@ -157,7 +163,7 @@ region the game writes every frame.
 |------|-----------|--------|
 | Windows | Named file mapping `MumbleLink` via `OpenFileMappingW` | Compiled but unverified — feedback welcome |
 | Linux / Steam Proton | `/dev/shm/MumbleLink` (tmpfs) | Compiled; verified path is correct |
-| macOS (CrossOver / Whisky) | Probes `~/Library/Application Support/CrossOver/Bottles/*/dosdevices/MumbleLink` and Whisky equivalents | Best-effort; macOS Wine prefixes vary by version |
+| macOS (CrossOver / Whisky) | Probes `~/Library/Application Support/CrossOver/Bottles/*/dosdevices/MumbleLink` and Whisky equivalents | **Does not work** — Wine on macOS keeps named-shm writes private to wineserver and they never propagate to the backing file. A future in-bottle UDP-loopback helper (Burrito-pattern) is the planned workaround. |
 | macOS (Parallels VM) | Not reachable from the host | Use the Windows side directly |
 | Docker / headless | Not applicable | Pass `--no-mumble-link` to silence the auto-probe |
 
@@ -172,6 +178,50 @@ GW2 map coordinates use a Y-down convention (Y grows southward, like screen
 coords). The `bearing` math handles the inversion internally; literal coords
 passed to `get_directions` should match what `/v2/continents/.../maps/{id}`
 returns. Distances are reported in raw GW2 units (~1 inch each) and metres.
+
+## Search index
+
+The `search_*` tools are backed by an on-disk SQLite index (FTS5 with
+diacritic-folded `unicode61` tokeniser). On first launch the server
+spawns a background task that enumerates every skill / trait /
+specialization / achievement via the GW2 API and populates the index.
+Subsequent searches are fully local — no upstream calls.
+
+**Cache location** (override with `--cache-dir <path>` or
+`GW2_CACHE_DIR=...`):
+
+| OS      | Default path                                                |
+|---------|-------------------------------------------------------------|
+| macOS   | `~/Library/Caches/net.adamcharnock.gw2-mcp/index.sqlite`    |
+| Linux   | `~/.cache/gw2-mcp/index.sqlite`                             |
+| Windows | `%LOCALAPPDATA%\adamcharnock\gw2-mcp\cache\index.sqlite`    |
+
+**Population time** on first launch (over a typical home connection):
+- Skills: ~30 s
+- Traits + specializations + achievements: ~30 s combined
+- **Items (opt-in via `--with-items`)**: ~5 minutes — ~85k entries.
+
+**Disk usage**:
+- Without items: ~5–10 MB
+- With items: ~50 MB
+
+**Cache invalidation**: the indexer stamps each refresh with the GW2
+build number returned by `/v2/build`. On startup it asks the API for the
+current build; if it matches the stamp, no refresh runs. Game patches
+(which always bump the build number) trigger a fresh re-index. Force a
+full rebuild any time with `--rebuild-index`.
+
+**CLI flags**:
+- `--cache-dir <path>` — override the cache directory.
+- `--no-search-index` — disable entirely; `search_*` tools return a
+  `SearchDisabled` error. Useful in ephemeral / read-only environments.
+- `--with-items` — include items in the background pass (off by
+  default).
+- `--rebuild-index` — force a full re-index on startup.
+
+While the index is still populating, `search_*` calls return a typed
+"still indexing" error so the LLM can switch to `get_*` (which works
+with explicit ids) or retry shortly.
 
 ## Getting a GW2 API key
 

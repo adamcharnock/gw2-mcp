@@ -2,21 +2,27 @@
 //! it over MCP/stdio. This is the *only* place that picks adapters — every
 //! other module sees only ports.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
 use gw2_mcp::adapters::mumble_link::{MumbleLink, probe_default};
 use gw2_mcp::adapters::{
-    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpMapData, HttpWiki, McpServer, MemoryCache,
-    MetaBattleCatalog, SnowCrowsCatalog, SystemClock,
+    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer,
+    MemoryCache, MetaBattleCatalog, SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
 };
 use gw2_mcp::domain::ApiKey;
+use gw2_mcp::indexing::{IndexingOpts, IndexingPipeline};
 use gw2_mcp::ports::{
-    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, Wiki,
+    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, SearchIndex,
+    Wiki,
 };
 use gw2_mcp::service::Service;
 use tracing_subscriber::EnvFilter;
 
+// Cli boolean flags are clap-style on/off switches; they don't represent
+// state transitions and refactoring to an enum buys nothing.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
 #[command(name = "gw2-mcp", version, about = "Guild Wars 2 MCP server (stdio).")]
 struct Cli {
@@ -48,6 +54,32 @@ struct Cli {
     /// working.
     #[arg(long, default_value_t = false)]
     no_mumble_link: bool,
+
+    /// Override the cache directory for the on-disk search index. By
+    /// default the OS-standard cache dir is used (e.g.
+    /// `~/Library/Caches/net.adamcharnock.gw2-mcp/` on macOS or
+    /// `~/.cache/gw2-mcp/` on Linux). The actual `SQLite` file is named
+    /// `index.sqlite` inside this directory.
+    #[arg(long, env = "GW2_CACHE_DIR")]
+    cache_dir: Option<PathBuf>,
+
+    /// Disable the on-disk search index entirely. The `search_*` tools will
+    /// return a "search disabled" error. Useful for ephemeral / read-only
+    /// environments where you don't want to write to disk.
+    #[arg(long, env = "GW2_NO_SEARCH_INDEX", default_value_t = false)]
+    no_search_index: bool,
+
+    /// Include items in the background indexing pass. Heavy: ~85k entries,
+    /// ~5 minutes of API calls, ~50 MB on disk. Off by default; opt in
+    /// when you actually want item search.
+    #[arg(long, env = "GW2_WITH_ITEMS", default_value_t = false)]
+    with_items: bool,
+
+    /// Force a full re-index on startup even when the cached build number
+    /// matches the live `/v2/build`. Useful after schema changes or to
+    /// rebuild a corrupt index.
+    #[arg(long, env = "GW2_REBUILD_INDEX", default_value_t = false)]
+    rebuild_index: bool,
 }
 
 #[tokio::main]
@@ -118,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
     let maps: Arc<dyn MapData> = Arc::new(HttpMapData::new()?);
 
     let mut service = Service::new(
-        gw2,
+        gw2.clone(),
         wiki,
         cache,
         clock,
@@ -130,10 +162,57 @@ async fn main() -> anyhow::Result<()> {
     if let Some(k) = default_api_key {
         service = service.with_default_api_key(k);
     }
+
+    // Wire the on-disk search index unless the user opted out. Failing to
+    // open is logged and the server continues without search — the binary
+    // remains useful for non-search tools (get_*, wiki, catalogs).
+    let search_enabled = !cli.no_search_index;
+    if search_enabled {
+        match resolve_index_path(cli.cache_dir.as_deref()) {
+            Ok(path) => match SqliteSearchIndex::open(&path) {
+                Ok(idx_concrete) => {
+                    tracing::info!(path = %path.display(), "search index opened");
+                    let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
+                    service = service.with_search_index(idx.clone());
+                    let pipeline = IndexingPipeline::new(
+                        gw2.clone(),
+                        idx,
+                        IndexingOpts {
+                            include_items: cli.with_items,
+                            force_rebuild: cli.rebuild_index,
+                        },
+                    );
+                    let _handle = pipeline.spawn_background();
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, path = %path.display(), "failed to open search index; running without it");
+                }
+            },
+            Err(e) => {
+                tracing::warn!(error = %e, "could not resolve cache directory; running without search index");
+            }
+        }
+    } else {
+        tracing::info!("--no-search-index set; search tools will return SearchDisabled");
+    }
+
     let server = McpServer::new(service);
 
     tracing::info!("starting gw2-mcp server (stdio)");
     server.serve_stdio().await?;
     tracing::info!("gw2-mcp server exited cleanly");
     Ok(())
+}
+
+/// Resolve the on-disk path of the search index file from the optional
+/// `--cache-dir` override. Falls back to the OS-standard cache directory
+/// reported by the `directories` crate. Returns an error only when neither
+/// is available (rare — would mean `$HOME` is unset on a Unix system).
+fn resolve_index_path(override_dir: Option<&std::path::Path>) -> anyhow::Result<PathBuf> {
+    if let Some(dir) = override_dir {
+        return Ok(dir.join(INDEX_FILE_NAME));
+    }
+    let proj = directories::ProjectDirs::from("net", "adamcharnock", "gw2-mcp")
+        .ok_or_else(|| anyhow::anyhow!("no OS cache directory available"))?;
+    Ok(proj.cache_dir().join(INDEX_FILE_NAME))
 }

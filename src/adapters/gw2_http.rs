@@ -9,9 +9,9 @@ use serde::Deserialize;
 
 use crate::adapters::error_body::truncate_error_body;
 use crate::domain::{
-    Account, AccountAchievement, AccountMastery, ApiKey, CharacterName, Currency, CurrencyId,
-    Dailies, Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,
-    WalletEntry,
+    Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, CharacterName,
+    Currency, CurrencyId, Dailies, Item, ItemId, Skill, SkillId, Specialization, SpecializationId,
+    Trait, TraitId, WalletEntry,
 };
 use crate::ports::{Gw2Api, Gw2ApiError};
 
@@ -140,6 +140,55 @@ impl Gw2Api for HttpGw2Api {
         self.fetch_by_ids("items", ids, |i: Item| (i.id, i)).await
     }
 
+    async fn fetch_achievements(
+        &self,
+        ids: &[AchievementId],
+    ) -> Result<BTreeMap<AchievementId, Achievement>, Gw2ApiError> {
+        self.fetch_by_ids("achievements", ids, |a: Achievement| (a.id, a))
+            .await
+    }
+
+    async fn fetch_all_skill_ids(&self) -> Result<Vec<SkillId>, Gw2ApiError> {
+        self.fetch_id_list("skills", SkillId::new).await
+    }
+
+    async fn fetch_all_trait_ids(&self) -> Result<Vec<TraitId>, Gw2ApiError> {
+        self.fetch_id_list("traits", TraitId::new).await
+    }
+
+    async fn fetch_all_specialization_ids(&self) -> Result<Vec<SpecializationId>, Gw2ApiError> {
+        self.fetch_id_list("specializations", SpecializationId::new)
+            .await
+    }
+
+    async fn fetch_all_item_ids(&self) -> Result<Vec<ItemId>, Gw2ApiError> {
+        self.fetch_id_list("items", ItemId::new).await
+    }
+
+    async fn fetch_all_achievement_ids(&self) -> Result<Vec<AchievementId>, Gw2ApiError> {
+        self.fetch_id_list("achievements", AchievementId::new).await
+    }
+
+    async fn fetch_build(&self) -> Result<u32, Gw2ApiError> {
+        #[derive(Deserialize)]
+        struct Wire {
+            id: u32,
+        }
+        let url = format!("{}/build", self.base_url);
+        let req = self
+            .client
+            .get(&url)
+            .build()
+            .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        let resp = self.send_request(req).await?;
+        let resp = check_status(resp).await?;
+        let wire: Wire = resp
+            .json()
+            .await
+            .map_err(|e| Gw2ApiError::Decode(e.to_string()))?;
+        Ok(wire.id)
+    }
+
     async fn fetch_buildtabs(
         &self,
         key: &ApiKey,
@@ -224,6 +273,31 @@ impl Gw2Api for HttpGw2Api {
 }
 
 impl HttpGw2Api {
+    /// Generic helper for `/v2/<endpoint>` with no `?ids=` parameter — the
+    /// GW2 v2 convention is that omitting `ids` returns the full id list as
+    /// a JSON array of integers. Used by the Tier-6C indexer to enumerate
+    /// every entity before chunked fetching.
+    async fn fetch_id_list<Id, F>(&self, endpoint: &str, ctor: F) -> Result<Vec<Id>, Gw2ApiError>
+    where
+        F: Fn(i64) -> Result<Id, crate::domain::DomainError>,
+    {
+        let url = format!("{}/{endpoint}", self.base_url);
+        let req = self
+            .client
+            .get(&url)
+            .build()
+            .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        let resp = self.send_request(req).await?;
+        let resp = check_status(resp).await?;
+        let raw: Vec<i64> = resp
+            .json()
+            .await
+            .map_err(|e| Gw2ApiError::Decode(e.to_string()))?;
+        raw.into_iter()
+            .map(|id| ctor(id).map_err(|e| Gw2ApiError::Decode(format!("{endpoint} id {id}: {e}"))))
+            .collect()
+    }
+
     /// Generic helper for `/v2/<endpoint>?ids=…`. Chunks at the GW2 200-id limit.
     async fn fetch_by_ids<Id, T, K, F>(
         &self,

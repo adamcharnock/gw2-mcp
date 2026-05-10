@@ -6,7 +6,9 @@
 mod common;
 
 use gw2_mcp::adapters::HttpGw2Api;
-use gw2_mcp::domain::{CharacterName, CurrencyId, ItemId, SkillId, SpecializationId, TraitId};
+use gw2_mcp::domain::{
+    AchievementId, CharacterName, CurrencyId, ItemId, SkillId, SpecializationId, TraitId,
+};
 use gw2_mcp::ports::{Gw2Api, Gw2ApiError};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -507,6 +509,79 @@ async fn fetch_500_with_html_body_truncates_response() {
         }
         other => panic!("expected Upstream, got {other:?}"),
     }
+}
+
+// -----------------------------------------------------------------------
+// Tier 6C: build number + bulk id list + achievements
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn fetch_build_returns_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/build"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": 123_456})))
+        .mount(&server)
+        .await;
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    assert_eq!(api.fetch_build().await.unwrap(), 123_456);
+}
+
+#[tokio::test]
+async fn fetch_all_skill_ids_decodes_array() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/skills"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([9137, 9138, 9139])))
+        .mount(&server)
+        .await;
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let ids = api.fetch_all_skill_ids().await.unwrap();
+    assert_eq!(ids.len(), 3);
+    assert_eq!(ids[0], SkillId::new(9137).unwrap());
+}
+
+#[tokio::test]
+async fn fetch_all_achievement_ids_decodes_array() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/achievements"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([1840, 283])))
+        .mount(&server)
+        .await;
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let ids = api.fetch_all_achievement_ids().await.unwrap();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids[0], AchievementId::new(1840).unwrap());
+}
+
+#[tokio::test]
+async fn fetch_achievements_round_trips_payload() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/achievements"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "id": 1840,
+                "name": "Daily Completionist",
+                "description": "Complete 3 daily achievements.",
+                "requirement": "Complete 3 daily achievements.",
+                "type": "Default",
+                "tiers": [{"count": 1, "points": 10}],
+                "flags": ["Daily"]
+            }
+        ])))
+        .mount(&server)
+        .await;
+    let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
+    let map = api
+        .fetch_achievements(&[AchievementId::new(1840).unwrap()])
+        .await
+        .unwrap();
+    let a = &map[&AchievementId::new(1840).unwrap()];
+    assert_eq!(a.name, "Daily Completionist");
+    assert!(a.extra.contains_key("tiers"));
+    assert!(a.extra.contains_key("requirement"));
 }
 
 #[tokio::test]

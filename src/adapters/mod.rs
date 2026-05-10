@@ -14,6 +14,7 @@ pub mod gw2_map;
 pub mod mcp_stdio;
 pub mod memory_cache;
 pub mod mumble_link;
+pub mod sqlite_index;
 pub mod system_clock;
 pub mod wiki_http;
 
@@ -29,5 +30,6 @@ pub use mumble_link::{
     MUMBLE_HEADER_LEN, MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot,
     StubMumbleLink, parse_header, probe_default,
 };
+pub use sqlite_index::{INDEX_FILE_NAME, SqliteSearchIndex};
 pub use system_clock::SystemClock;
 pub use wiki_http::HttpWiki;

@@ -21,8 +21,10 @@ use crate::domain::{
     Specialization, SpecializationId, Trait, TraitId, WalletEntry, WalletInfo,
 };
 use crate::ports::{
-    BuildCodeDecoder, BuildCodeError, Cache, CacheError, Clock, Gw2Api, Gw2ApiError, MapData,
-    MapDataError, MapId, MapInfo, MapPoi, Wiki, WikiError,
+    AchievementRef, AchievementSearchFilter, BuildCodeDecoder, BuildCodeError, Cache, CacheError,
+    Clock, Gw2Api, Gw2ApiError, IndexStatus, ItemRef, ItemSearchFilter, MapData, MapDataError,
+    MapId, MapInfo, MapPoi, SearchError, SearchIndex, SkillRef, SkillSearchFilter, SpecRef,
+    SpecSearchFilter, TraitRef, TraitSearchFilter, Wiki, WikiError,
 };
 
 // Cache TTLs centralised so changes are atomic.
@@ -74,6 +76,19 @@ pub enum ServiceError {
          POIs on this map."
     )]
     NoSuchPoi { map_id: MapId, name: String },
+
+    #[error("{0}")]
+    Search(#[from] SearchError),
+
+    /// The server was started with `--no-search-index`, so the search tools
+    /// have no backing store at all. Distinct from [`SearchError::NotIndexed`]
+    /// (which means "still populating") so the LLM gets a different
+    /// recovery hint.
+    #[error(
+        "search index is disabled on this server (started with --no-search-index). Use the typed \
+         get_* tools with explicit ids."
+    )]
+    SearchDisabled,
 }
 
 /// Which build/equipment tab(s) to project from a character snapshot.
@@ -122,6 +137,10 @@ pub struct Service {
     mumble: Arc<dyn MumbleLink>,
     /// GW2 map / POI client.
     maps: Arc<dyn MapData>,
+    /// Optional on-disk search index. `None` when started with
+    /// `--no-search-index`, in which case the `search_*` methods all return
+    /// [`ServiceError::SearchDisabled`].
+    search_index: Option<Arc<dyn SearchIndex>>,
 }
 
 impl Service {
@@ -150,6 +169,7 @@ impl Service {
             default_api_key: None,
             mumble,
             maps,
+            search_index: None,
         }
     }
 
@@ -159,6 +179,75 @@ impl Service {
     pub fn with_default_api_key(mut self, key: ApiKey) -> Self {
         self.default_api_key = Some(key);
         self
+    }
+
+    /// Wire a search index in. `None` = `--no-search-index` mode.
+    #[must_use]
+    pub fn with_search_index(mut self, idx: Arc<dyn SearchIndex>) -> Self {
+        self.search_index = Some(idx);
+        self
+    }
+
+    fn search_index(&self) -> Result<&Arc<dyn SearchIndex>, ServiceError> {
+        self.search_index
+            .as_ref()
+            .ok_or(ServiceError::SearchDisabled)
+    }
+
+    /// Run a fuzzy name search across the indexed skills corpus.
+    pub async fn search_skills(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: SkillSearchFilter,
+    ) -> Result<Vec<SkillRef>, ServiceError> {
+        Ok(self.search_index()?.search_skills(q, limit, filter).await?)
+    }
+
+    pub async fn search_traits(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: TraitSearchFilter,
+    ) -> Result<Vec<TraitRef>, ServiceError> {
+        Ok(self.search_index()?.search_traits(q, limit, filter).await?)
+    }
+
+    pub async fn search_specializations(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: SpecSearchFilter,
+    ) -> Result<Vec<SpecRef>, ServiceError> {
+        Ok(self
+            .search_index()?
+            .search_specializations(q, limit, filter)
+            .await?)
+    }
+
+    pub async fn search_items(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: ItemSearchFilter,
+    ) -> Result<Vec<ItemRef>, ServiceError> {
+        Ok(self.search_index()?.search_items(q, limit, filter).await?)
+    }
+
+    pub async fn search_achievements(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: AchievementSearchFilter,
+    ) -> Result<Vec<AchievementRef>, ServiceError> {
+        Ok(self
+            .search_index()?
+            .search_achievements(q, limit, filter)
+            .await?)
+    }
+
+    pub async fn get_index_status(&self) -> Result<IndexStatus, ServiceError> {
+        Ok(self.search_index()?.index_status().await?)
     }
 
     /// Returns the server-default API key, if one was wired in.
