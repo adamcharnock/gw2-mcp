@@ -1,0 +1,80 @@
+# mise configuration for gw2-mcp
+#
+# Pinned toolchain so every contributor (and CI) builds against the same
+# Rust release. Run `mise install` after cloning, then `mise run <task>`.
+
+[tools]
+rust = { version = "1.91", profile = "default" }
+"cargo:cargo-audit" = "latest"
+"cargo:cargo-llvm-cov" = "latest"
+gitleaks = "latest"
+lefthook = "latest"
+
+[env]
+RUST_BACKTRACE = 1
+
+[tasks.install-hooks]
+description = "Install git hooks via lefthook"
+run = "lefthook install"
+
+[tasks.build]
+description = "Build the binary (debug)"
+run = "cargo build"
+
+[tasks.release]
+description = "Build the binary (release, optimized)"
+run = "cargo build --release"
+
+[tasks.run]
+description = "Run the MCP server"
+run = "cargo run -- $@"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test --all-targets"
+
+[tasks.test-unit]
+description = "Run only unit tests (skip integration tests)"
+run = "cargo test --lib"
+
+[tasks.test-integration]
+description = "Run only integration tests"
+run = "cargo test --tests"
+
+[tasks.fmt]
+description = "Format code with rustfmt"
+run = "cargo fmt --all"
+
+[tasks.fmt-check]
+description = "Verify formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.clippy]
+description = "Run clippy linter (warnings as errors)"
+run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks.audit]
+description = "Audit dependencies for known vulnerabilities"
+run = "cargo audit"
+
+[tasks.coverage]
+description = "Generate code coverage report (HTML + text)"
+run = """
+mkdir -p coverage
+cargo llvm-cov --html --output-dir coverage/html
+cargo llvm-cov report --summary-only
+echo ""
+echo "HTML coverage report: coverage/html/index.html"
+"""
+
+[tasks.check-all]
+description = "Run fmt-check, clippy, and tests"
+run = """
+mise run fmt-check
+mise run clippy
+mise run test
+"""
+
+[tasks.clean]
+description = "Remove build artefacts"
+run = "cargo clean"

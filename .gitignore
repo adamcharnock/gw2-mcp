@@ -1,37 +1,21 @@
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
 
-# Test binary, built with `go test -c`
-*.test
+# Coverage
+/coverage
+*.profraw
+lcov.info
 
-# Output of the go coverage tool, specifically when used with LiteIDE
-*.out
-
-# Dependency directories
-vendor/
-
-# Go workspace file
-go.work
-
-# Build artifacts
-bin/
-dist/
-build/
-
-# Coverage reports
-coverage.out
-coverage.html
-
-# IDE files
+# Editors / IDE
 *.swp
 *.swo
 *~
+.idea/
+.vscode/
 
-# OS generated files
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -44,29 +28,19 @@ Thumbs.db
 *.log
 logs/
 
-# Environment files
+# Env / secrets — never commit
 .env
 .env.local
 .env.*.local
-
-# API keys and secrets (never commit these!)
 api_keys.txt
 secrets.json
 *.key
 *.pem
 
-# Temp directories
+# Temp
 tmp/
 temp/
-
-# Local configuration
-config.local.json
-config.local.yaml
 
 # Backup files
 *.bak
 *.backup
-
-# Profiling data
-*.prof
-*.pprof

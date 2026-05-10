@@ -1,210 +1,112 @@
-# GW2 MCP Server
+# gw2-mcp
 
-[![Add MCP Server gw2-mcp to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg#gh-light-mode-only)](https://lmstudio.ai/install-mcp?name=gw2-mcp&config=eyJjb21tYW5kIjoiZG9ja2VyIiwiYXJncyI6WyJydW4iLCItLXJtIiwiLWkiLCJhbHl4cGluay9ndzItbWNwOnYxIl19#gh-light-mode-only)
-[![Add MCP Server gw2-mcp to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-dark.svg#gh-dark-mode-only)](https://lmstudio.ai/install-mcp?name=gw2-mcp&config=eyJjb21tYW5kIjoiZG9ja2VyIiwiYXJncyI6WyJydW4iLCItLXJtIiwiLWkiLCJhbHl4cGluay9ndzItbWNwOnYxIl19#gh-dark-mode-only)
-
-A Model Context Provider (MCP) server for Guild Wars 2 that bridges Large Language Models (LLMs) with Guild Wars 2 data sources.
+Model Context Protocol (MCP) server that exposes Guild Wars 2 wiki search,
+wallet, and currency data to LLM clients (Claude Desktop, LM Studio, Cursor,
+etc.). Written in Rust, single binary, stdio transport.
 
 ## Features
 
-- **Wiki Search**: Search and retrieve content from the Guild Wars 2 wiki
-- **Wallet Information**: Access user wallet and currency data via GW2 API
-- **Smart Caching**: Efficient caching with appropriate TTL for static and dynamic data
-- **Rate Limiting**: Respectful API usage with built-in rate limiting
-- **Extensible Architecture**: Modular design for easy feature additions
+- **Wiki search** — search the GW2 wiki, with prose extracts auto-fetched per hit.
+- **Wallet** — read an account's wallet (requires a GW2 API key with `wallet` scope).
+- **Currencies** — full or filtered currency metadata.
+- **Smart caching** — long TTL for static data (currencies, wiki), short TTL for wallet.
 
-## Requirements
+## Architecture
 
-- Go 1.24 or higher
-- Guild Wars 2 API key (for wallet functionality)
+Hexagonal:
 
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/AlyxPink/gw2-mcp.git
-cd gw2-mcp
+```
+src/
+  domain/      Pure types and validation (no IO).
+  ports.rs     Trait definitions: Cache, Clock, Gw2Api, Wiki.
+  service.rs   Orchestration. Knows ports, never adapters.
+  adapters/    Concrete impls: HTTP, in-memory cache, system clock, MCP/stdio.
+  main.rs      CLI wiring — the only place that picks adapters.
+tests/         Integration tests (wiremock for HTTP, in-memory fakes for service).
 ```
 
-2. Install dependencies:
-```bash
-go mod tidy
-```
+The service depends only on traits, so adding a new transport (HTTP/SSE,
+daemon mode) is a one-file change in `adapters/`.
 
-3. Build the server:
-```bash
-go build -o gw2-mcp ./cmd/server
-```
+## Quick start
 
-## Usage
-
-### Running the Server
-
-[![Add MCP Server gw2-mcp to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg#gh-light-mode-only)](https://lmstudio.ai/install-mcp?name=gw2-mcp&config=eyJjb21tYW5kIjoiZG9ja2VyIiwiYXJncyI6WyJydW4iLCItLXJtIiwiLWkiLCJhbHl4cGluay9ndzItbWNwOnYxIl19#gh-light-mode-only)
-[![Add MCP Server gw2-mcp to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-dark.svg#gh-dark-mode-only)](https://lmstudio.ai/install-mcp?name=gw2-mcp&config=eyJjb21tYW5kIjoiZG9ja2VyIiwiYXJncyI6WyJydW4iLCItLXJtIiwiLWkiLCJhbHl4cGluay9ndzItbWNwOnYxIl19#gh-dark-mode-only)
-
-The MCP server communicates via stdio (standard input/output):
+Requires [mise](https://mise.jdx.dev) (or Rust 1.91+ directly).
 
 ```bash
-./gw2-mcp
+mise install              # install pinned Rust toolchain + tools
+mise run install-hooks    # install git hooks (lefthook)
+mise run build            # cargo build
+mise run test             # cargo test --all-targets
+mise run check-all        # fmt-check + clippy + test
 ```
 
-You can configure Claude Desktop, LM Studio, or other LLM tools to interact with the server using this configuration:
+Run the server (it speaks MCP over stdio):
+
+```bash
+mise run run
+```
+
+## MCP client config
+
 ```json
 {
   "mcpServers": {
     "gw2-mcp": {
-      "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "alyxpink/gw2-mcp:v1"
-      ]
+      "command": "/path/to/gw2-mcp"
     }
   }
 }
 ```
 
-### MCP Tools
+Or with the Docker image:
 
-The server provides the following tools for LLM interaction:
-
-#### 1. Wiki Search (`wiki_search`)
-
-Search the Guild Wars 2 wiki for information.
-
-**Parameters:**
-- `query` (required): Search query string
-- `limit` (optional): Maximum number of results (default: 5)
-
-**Example:**
 ```json
 {
-  "tool": "wiki_search",
-  "arguments": {
-    "query": "Dragon Bash",
-    "limit": 3
+  "mcpServers": {
+    "gw2-mcp": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "ghcr.io/adamcharnock/gw2-mcp:latest"]
+    }
   }
 }
 ```
 
-#### 2. Get Wallet (`get_wallet`)
+## Tools
 
-Retrieve user's wallet information including all currencies.
+| Tool             | Required args | Optional args |
+|------------------|---------------|---------------|
+| `wiki_search`    | `query`       | `limit` (1–50, default 5) |
+| `get_wallet`     | `api_key`     | — |
+| `get_currencies` | —             | `ids` (array of ids; omit for all) |
 
-**Parameters:**
-- `api_key` (required): Guild Wars 2 API key with account scope
+Resource: `gw2://currencies` — full currency list as JSON.
 
-**Example:**
-```json
-{
-  "tool": "get_wallet",
-  "arguments": {
-    "api_key": "YOUR_GW2_API_KEY"
-  }
-}
-```
+## Getting a GW2 API key
 
-#### 3. Get Currencies (`get_currencies`)
-
-Get information about Guild Wars 2 currencies.
-
-**Parameters:**
-- `ids` (optional): Array of specific currency IDs to fetch
-
-**Example:**
-```json
-{
-  "tool": "get_currencies",
-  "arguments": {
-    "ids": [1, 2, 3]
-  }
-}
-```
-
-### MCP Resources
-
-The server provides the following resources:
-
-#### Currency List (`gw2://currencies`)
-
-Complete list of all Guild Wars 2 currencies with metadata.
-
-## API Key Setup
-
-To use wallet functionality, you need a Guild Wars 2 API key:
-
-1. Visit [Guild Wars 2 API Key Management](https://account.arena.net/applications)
-2. Create a new API key with the following permissions:
-   - `account` - Required for wallet access
-   - `wallet` - Required for currency information
-3. Copy the generated API key
-
-**Security Note:** API keys are hashed before caching for security. Never share your API key.
-
-## Caching Strategy
-
-The server implements intelligent caching:
-
-- **Static Data** (currencies, wiki content): Cached for 24 hours to 1 year
-- **Dynamic Data** (wallet balances): Cached for 5 minutes
-- **Search Results**: Cached for 24 hours
-
-## Architecture
-
-The project follows Clean Architecture principles:
-
-```
-internal/
-├── server/          # MCP server implementation
-├── cache/           # Caching layer
-├── gw2api/          # GW2 API client
-└── wiki/            # Wiki API client
-```
+1. https://account.arena.net/applications
+2. Create a key with `account` and `wallet` permissions.
+3. Pass it to the `get_wallet` tool. The key is hashed before caching; the raw
+   value never reaches the cache or logs.
 
 ## Development
 
-### Code Standards
+| Command             | What it does |
+|---------------------|--------------|
+| `mise run fmt`      | `cargo fmt --all` |
+| `mise run clippy`   | `cargo clippy --all-targets --all-features -- -D warnings` |
+| `mise run test`     | `cargo test --all-targets` |
+| `mise run audit`    | `cargo audit` |
+| `mise run coverage` | HTML + text coverage via `cargo-llvm-cov` |
+| `mise run check-all` | fmt-check + clippy + test |
 
-- Format code with `gofumpt`
-- Lint with `golangci-lint`
-- Write unit tests for core functionality
-- Follow conventional commit messages
+Pre-commit hooks (via lefthook) gate on: rejecting unsigned commits, gitleaks,
+`cargo fmt`, `cargo clippy -D warnings`, and `cargo test`.
 
-### Running Tests
+## Logging
 
-```bash
-go test ./...
-```
-
-### Linting
-
-```bash
-golangci-lint run
-```
-
-### Formatting
-
-```bash
-gofumpt -w .
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Run linting and formatting
-6. Submit a pull request
+Logs go to **stderr only** — stdout is reserved for the MCP protocol.
+Set `RUST_LOG` to control verbosity (e.g. `RUST_LOG=gw2_mcp=debug`).
 
 ## License
 
-GNU Affero General Public License v3.0 - see LICENSE file for details.
-
-## Acknowledgments
-
-- [Guild Wars 2 API](https://wiki.guildwars2.com/wiki/API:Main) for providing comprehensive game data
-- [Guild Wars 2 Wiki](https://wiki.guildwars2.com/) for extensive game documentation
-- [MCP Go](https://github.com/mark3labs/mcp-go) for the MCP implementation framework
+GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).

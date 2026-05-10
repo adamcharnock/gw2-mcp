@@ -1,0 +1,62 @@
+# Git hooks for gw2-mcp.
+# Adapted from lithus/monorepo lefthook.yml — keeps the same signing rules
+# and adds Rust-specific format/lint hooks.
+#
+# Bootstrap on a fresh clone:
+#   mise install && mise run install-hooks
+
+commit-msg:
+  commands:
+    no-co-authored-by:
+      run: |
+        if grep -qi "^Co-Authored-By:" "{1}"; then
+          echo "ERROR: Co-Authored-By trailers are not allowed in commit messages."
+          echo "Please remove the Co-Authored-By line and try again."
+          exit 1
+        fi
+
+post-commit:
+  commands:
+    verify-signature:
+      run: |
+        # G = good, U = good but unknown validity (no allowed_signers)
+        status=$(git log --pretty=format:'%G?' -1 HEAD)
+        if [ "$status" != "G" ] && [ "$status" != "U" ]; then
+          echo "ERROR: Commit is not signed. Please amend with: git commit --amend -S"
+          exit 1
+        fi
+
+pre-push:
+  commands:
+    verify-signatures:
+      run: |
+        upstream=$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null) || exit 0
+        range="${upstream}..HEAD"
+        unsigned=$(git log --pretty=format:'%H %G? %s' "$range" 2>/dev/null | grep -E '^[a-f0-9]+ N ' || true)
+        if [ -n "$unsigned" ]; then
+          echo "ERROR: Unsigned commits found:"
+          echo "$unsigned" | while IFS=' ' read -r hash status msg; do
+            echo "  $hash $msg"
+          done
+          echo ""
+          echo "Sign commits with: git rebase --exec 'git commit --amend --no-edit -S' $upstream"
+          exit 1
+        fi
+
+pre-commit:
+  commands:
+    gitleaks:
+      run: mise x -- gitleaks protect --staged --no-banner --redact
+
+    format-rust:
+      glob: "*.rs"
+      run: mise run fmt
+      stage_fixed: true
+
+    clippy-rust:
+      glob: "*.rs"
+      run: mise run clippy
+
+    test-rust:
+      glob: "*.rs"
+      run: mise run test

@@ -1,0 +1,87 @@
+[package]
+name = "gw2-mcp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Guild Wars 2 Model Context Protocol (MCP) server"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/adamcharnock/gw2-mcp"
+readme = "README.md"
+keywords = ["mcp", "guildwars2", "gw2", "llm"]
+categories = ["command-line-utilities", "api-bindings"]
+
+[lib]
+name = "gw2_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gw2-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "io-std", "sync", "time"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# MCP server
+rmcp = { version = "0.14", features = ["server", "transport-io", "macros"] }
+schemars = { version = "1.1", features = ["chrono04"] }
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+url = "2.5"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Errors / logging
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Domain primitives
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+sha2 = "0.10"
+hex = "0.4"
+
+# Cache
+moka = { version = "0.12", features = ["future"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+wiremock = "0.6"
+tempfile = "3"
+rstest = "0.26"
+serde_json = "1"
+pretty_assertions = "1.4"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+
+# Strict lints (enforced via `cargo clippy -- -D warnings` in CI/lefthook)
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pragmatic opt-outs
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+needless_pass_by_value = "allow"

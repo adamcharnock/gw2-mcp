@@ -1,46 +1,37 @@
-# Build stage
-FROM golang:1.24-alpine AS builder
+# syntax=docker/dockerfile:1.6
+#
+# Multi-stage build using cargo-chef to cache dependency compilation.
+# Final image is distroless (~25MB) and runs as a non-root user.
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
-
-# Set working directory
+FROM rust:1.91-slim AS chef
+RUN cargo install cargo-chef --locked
 WORKDIR /app
 
-# Copy go mod files
-COPY go.mod go.sum ./
+FROM chef AS planner
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY tests ./tests
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Download dependencies
-RUN go mod download
+FROM chef AS builder
+# Cache dependency compilation in a separate layer.
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# Copy source code
-COPY . .
+# Now build the actual binary.
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo build --release --bin gw2-mcp \
+    && strip target/release/gw2-mcp
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o gw2-mcp .
+# Runtime image — distroless, non-root, no shell.
+FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+COPY --from=builder /app/target/release/gw2-mcp /usr/local/bin/gw2-mcp
 
-# Final stage
-FROM scratch
+LABEL org.opencontainers.image.title="gw2-mcp"
+LABEL org.opencontainers.image.description="Guild Wars 2 MCP server"
+LABEL org.opencontainers.image.source="https://github.com/adamcharnock/gw2-mcp"
+LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
-# Copy ca-certificates from builder
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-
-# Copy timezone data
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-
-# Copy the binary
-COPY --from=builder /app/gw2-mcp /gw2-mcp
-
-# Set the timezone
-ENV TZ=UTC
-
-# Expose port (though MCP typically uses stdio)
-EXPOSE 8080
-
-# Add labels
-LABEL maintainer="AlyxPink"
-LABEL description="Guild Wars 2 Model Context Provider Server"
-LABEL version="1.0.0"
-
-# Run the binary
-ENTRYPOINT ["/gw2-mcp"]
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/gw2-mcp"]
