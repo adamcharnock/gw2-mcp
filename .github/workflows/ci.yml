@@ -131,10 +131,65 @@ jobs:
         run: |
           echo '' | docker run --rm -i gw2-mcp:ci --version
 
+  # Build the full release matrix on every PR / main push, *without*
+  # uploading. The actual release artefacts are produced by release.yml
+  # when a vX.Y.Z tag is pushed; this job exists so cross-compile breakage
+  # (e.g. chatr's openssl-sys link on aarch64-linux) shows up in PRs
+  # rather than the first time someone cuts a release.
+  cross-build:
+    name: cross build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            cross: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-cross-build
+          cache-on-failure: true
+      # For aarch64-unknown-linux-gnu we use `cross` because the GHA
+      # ubuntu runner doesn't ship the arm64 sysroot + libssl. `cross`
+      # spins up a Docker image with both. Other targets build natively.
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin gw2-mcp
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --locked --target ${{ matrix.target }} --bin gw2-mcp
+
   ci-success:
     name: CI success
     runs-on: ubuntu-latest
-    needs: [fmt, clippy, test, audit, coverage, docker]
+    needs: [fmt, clippy, test, audit, coverage, docker, cross-build]
     if: always()
     steps:
       - name: Verify all jobs succeeded
@@ -144,7 +199,8 @@ jobs:
             || [ "${{ needs.test.result }}" != "success" ] \
             || [ "${{ needs.audit.result }}" != "success" ] \
             || [ "${{ needs.coverage.result }}" != "success" ] \
-            || [ "${{ needs.docker.result }}" != "success" ]; then
+            || [ "${{ needs.docker.result }}" != "success" ] \
+            || [ "${{ needs.cross-build.result }}" != "success" ]; then
             echo "One or more jobs failed."
             exit 1
           fi

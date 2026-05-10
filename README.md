@@ -60,6 +60,43 @@ cp .env.example .env
 `.env` is gitignored. The example file documents every variable the binary
 understands.
 
+## Install
+
+> **Why native binaries?** The Mumble Link navigation tools
+> (`get_my_location`, `find_nearby`, `describe_facing`, `get_directions`)
+> read live in-game state from a shared-memory region the GW2 client
+> writes every frame. That only works when the MCP server runs on the
+> **same host** as the game — Docker containers can't see the host's
+> shared memory. The pre-built binaries are therefore the recommended
+> way to run gw2-mcp; the Docker image is retained for headless / API-
+> only deployments where Mumble Link doesn't matter.
+
+Download the binary for your platform from the latest
+[GitHub Release](https://github.com/adamcharnock/gw2-mcp/releases/latest):
+
+| OS                | Architecture           | Archive                                                   |
+|-------------------|------------------------|-----------------------------------------------------------|
+| Linux             | x86_64                 | `gw2-mcp-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`          |
+| Linux             | aarch64 (arm64 / Pi)   | `gw2-mcp-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz`         |
+| Windows           | x86_64                 | `gw2-mcp-vX.Y.Z-x86_64-pc-windows-msvc.zip`               |
+| macOS             | aarch64 (Apple Silicon)| `gw2-mcp-vX.Y.Z-aarch64-apple-darwin.tar.gz`              |
+| macOS             | x86_64 (Intel)         | `gw2-mcp-vX.Y.Z-x86_64-apple-darwin.tar.gz`               |
+
+Each archive contains a single `gw2-mcp` (or `gw2-mcp.exe`) binary plus a
+sibling `.sha256` checksum. On Linux / macOS:
+
+```bash
+tar -xzf gw2-mcp-vX.Y.Z-<triple>.tar.gz
+./gw2-mcp --version
+```
+
+On macOS, the first run may be blocked by Gatekeeper — clear the
+quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine ./gw2-mcp
+```
+
 ## MCP client config
 
 ```json
@@ -72,7 +109,7 @@ understands.
 }
 ```
 
-Or with the Docker image:
+Or with the Docker image (no Mumble Link — see note above):
 
 ```json
 {
@@ -85,10 +122,11 @@ Or with the Docker image:
 }
 ```
 
-### Docker image
+### Docker image (secondary)
 
-Published to **GitHub Container Registry** on every push to `main` and on
-`vX.Y.Z` tags:
+For headless / containerised deployments where the Mumble Link
+navigation tools aren't needed, an image is published to **GitHub
+Container Registry** on every push to `main` and on `vX.Y.Z` tags:
 
 - Image: `ghcr.io/adamcharnock/gw2-mcp`
 - Architectures: `linux/amd64`, `linux/arm64` (Apple Silicon native)

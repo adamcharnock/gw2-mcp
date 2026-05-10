@@ -1,0 +1,138 @@
+name: Release
+
+# Builds cross-compiled native binaries for every supported target and
+# attaches them to a GitHub Release. This is the *primary* distribution
+# channel for gw2-mcp — Docker (see publish.yml) is retained as a secondary
+# option, but the headline Mumble Link feature only works when the binary
+# runs on the same host as the GW2 client, so users overwhelmingly want
+# a native binary.
+#
+# Triggers:
+#   - tag push (vX.Y.Z): build full matrix, upload tar.gz / .zip artefacts to
+#                        the GitHub Release for that tag, sha256 alongside.
+#
+# For per-commit cross-compile sanity checks (no upload), see the
+# `cross-build` job in ci.yml.
+#
+# Design notes (see commit message for full rationale):
+#   - Native runners are used wherever GitHub provides them: macos-latest
+#     (arm64), macos-13 (x86_64), windows-latest, ubuntu-latest. Only
+#     aarch64-unknown-linux-gnu is genuinely cross-compiled; taiki-e's
+#     action transparently uses `cross` for that target.
+#   - chatr (transitive reqwest 0.11) requires openssl-sys; `cross`'s
+#     stock aarch64-unknown-linux-gnu image already has libssl-dev. The
+#     ubuntu-latest runner has libssl-dev preinstalled. Windows MSVC and
+#     macOS provide system OpenSSL substitutes.
+#   - x86_64-unknown-linux-musl is intentionally excluded for now: musl
+#     + openssl-sys requires either vendoring or a custom cross image,
+#     and the GNU build covers the same Linux user base anyway.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.1.0). Must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned via .mise.toml — keep in sync.
+  RUST_TOOLCHAIN: "1.91"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 — native build on ubuntu-latest. libssl-dev is
+          # preinstalled on GitHub-hosted ubuntu runners, so chatr's
+          # openssl-sys link succeeds without extra steps.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            build-tool: cargo
+
+          # Linux aarch64 — actual cross-compile from Linux x86_64. We
+          # explicitly use `cross`, which spins up a target-matched Docker
+          # image with libssl-dev for the arm64 sysroot preinstalled.
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            build-tool: cross
+
+          # Windows x86_64 — native build on windows-latest, MSVC toolchain.
+          # rustls is the default TLS backend for our reqwest 0.12; chatr's
+          # transitive reqwest 0.11 uses Windows SChannel via native-tls and
+          # does not need OpenSSL on this target.
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            build-tool: cargo
+
+          # macOS Apple Silicon — native build on macos-latest (which is
+          # arm64 since GHA's October 2024 image refresh).
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            build-tool: cargo
+
+          # macOS Intel — native build on macos-15-intel (the current
+          # GHA-hosted x86_64 macOS runner; `macos-13` was retired
+          # in late 2025). Cheap to include; covers Intel Mac users
+          # who play GW2 via CrossOver / Parallels.
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            build-tool: cargo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+
+      # taiki-e/upload-rust-binary-action does the heavy lifting:
+      #   - builds with --release --locked --target <triple>
+      #   - strips the binary
+      #   - tars / zips it with a stable naming convention
+      #     (gw2-mcp-<tag>-<triple>.{tar.gz,zip})
+      #   - computes sha256 sidecars
+      #   - uploads everything to the GitHub Release for the pushed tag
+      #   - if the target is anything other than the host's native triple,
+      #     transparently switches to `cross` (for aarch64-linux only here)
+      - name: Build & upload binary
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: gw2-mcp
+          target: ${{ matrix.target }}
+          archive: gw2-mcp-$tag-$target
+          tar: unix
+          zip: windows
+          checksum: sha256
+          locked: true
+          # `cargo` for native targets, `cross` for aarch64-linux. Explicit
+          # so behaviour is deterministic across runner image refreshes.
+          build-tool: ${{ matrix.build-tool }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # If the workflow was triggered via workflow_dispatch, fall back
+          # to the user-supplied tag (the action defaults to GITHUB_REF).
+          ref: refs/tags/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
