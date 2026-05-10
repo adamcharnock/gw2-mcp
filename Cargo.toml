@@ -66,6 +66,13 @@ clap = { version = "4", features = ["derive", "env"] }
 httpdate = "1"
 rand = "0.8"
 
+# On-disk search index (Tier 6C). `bundled` statically links SQLite — keeps
+# the distroless container self-contained with no system dep, and means CI
+# doesn't have to install libsqlite3-dev. FTS5 is compiled in by default.
+rusqlite = { version = "0.37", features = ["bundled"] }
+# OS-standard cache directory resolution.
+directories = "5"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 wiremock = "0.6"

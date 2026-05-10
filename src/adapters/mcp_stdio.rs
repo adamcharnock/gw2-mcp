@@ -20,7 +20,10 @@ use crate::domain::{
     ApiKey, BuildChatCode, BuildSlug, CharacterName, CurrencyId, ItemId, SearchLimit, SearchQuery,
     SkillId, SpecializationId, TraitId,
 };
-use crate::ports::CatalogFilter;
+use crate::ports::{
+    AchievementSearchFilter, CatalogFilter, ItemSearchFilter, SkillSearchFilter, SpecSearchFilter,
+    TraitSearchFilter,
+};
 use crate::service::{Service, TabSelector};
 
 /// Server runbook — what good clients put in the system prompt and what
@@ -137,6 +140,12 @@ impl McpServer {
             "list_catalog_sources" => self.handle_list_catalog_sources(),
             "list_catalog_builds" => self.handle_list_catalog_builds(&args).await,
             "get_catalog_build" => self.handle_get_catalog_build(&args).await,
+            "search_skills" => self.handle_search_skills(&args).await,
+            "search_traits" => self.handle_search_traits(&args).await,
+            "search_specializations" => self.handle_search_specializations(&args).await,
+            "search_items" => self.handle_search_items(&args).await,
+            "search_achievements" => self.handle_search_achievements(&args).await,
+            "get_index_status" => self.handle_get_index_status().await,
             "get_info" => Ok(serde_json::Value::String(SERVER_RUNBOOK.to_owned())),
             other => return Err(format!("unknown tool: {other}")),
         };
@@ -555,6 +564,153 @@ impl McpServer {
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&detail)?)
     }
+
+    // -- search tools (Tier 6C) ---------------------------------------
+
+    async fn handle_search_skills(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let query = parse_search_query(args)?;
+        let limit = parse_search_limit(args);
+        let filter = SkillSearchFilter {
+            profession: parse_optional_str(args, "profession"),
+            slot: parse_optional_str(args, "slot"),
+            weapon_type: parse_optional_str(args, "weapon_type"),
+        };
+        let results = self
+            .service
+            .search_skills(&query, limit, filter)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&results)?)
+    }
+
+    async fn handle_search_traits(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let query = parse_search_query(args)?;
+        let limit = parse_search_limit(args);
+        let filter = TraitSearchFilter {
+            specialization: parse_optional_u32(args, "specialization"),
+            tier: parse_optional_u32(args, "tier"),
+        };
+        let results = self
+            .service
+            .search_traits(&query, limit, filter)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&results)?)
+    }
+
+    async fn handle_search_specializations(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let query = parse_search_query(args)?;
+        let limit = parse_search_limit(args);
+        let filter = SpecSearchFilter {
+            profession: parse_optional_str(args, "profession"),
+            elite: args.get("elite").and_then(serde_json::Value::as_bool),
+        };
+        let results = self
+            .service
+            .search_specializations(&query, limit, filter)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&results)?)
+    }
+
+    async fn handle_search_items(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let query = parse_search_query(args)?;
+        let limit = parse_search_limit(args);
+        let filter = ItemSearchFilter {
+            item_type: parse_optional_str(args, "type"),
+            rarity: parse_optional_str(args, "rarity"),
+            min_level: parse_optional_u32(args, "min_level"),
+            max_level: parse_optional_u32(args, "max_level"),
+            weight_class: parse_optional_str(args, "weight_class"),
+        };
+        let results = self
+            .service
+            .search_items(&query, limit, filter)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&results)?)
+    }
+
+    async fn handle_search_achievements(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let query = parse_search_query(args)?;
+        let limit = parse_search_limit(args);
+        let filter = AchievementSearchFilter {
+            achievement_type: parse_optional_str(args, "type"),
+        };
+        let results = self
+            .service
+            .search_achievements(&query, limit, filter)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&results)?)
+    }
+
+    async fn handle_get_index_status(&self) -> Result<serde_json::Value, CallError> {
+        let status = self
+            .service
+            .get_index_status()
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&status)?)
+    }
+}
+
+const SEARCH_DEFAULT_LIMIT: u32 = 10;
+const SEARCH_MAX_LIMIT: u32 = 50;
+const SEARCH_MIN_QUERY_LEN: usize = 2;
+
+fn parse_search_query(args: &serde_json::Value) -> Result<String, CallError> {
+    let raw = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or(CallError::MissingArg("query"))?;
+    let trimmed = raw.trim();
+    if trimmed.chars().count() < SEARCH_MIN_QUERY_LEN {
+        return Err(CallError::BadArg {
+            name: "query",
+            expected: "at least 2 characters",
+        });
+    }
+    Ok(trimmed.to_owned())
+}
+
+fn parse_search_limit(args: &serde_json::Value) -> u32 {
+    args.get("limit")
+        .and_then(serde_json::Value::as_u64)
+        .map_or(SEARCH_DEFAULT_LIMIT, |n| {
+            u32::try_from(n)
+                .unwrap_or(SEARCH_MAX_LIMIT)
+                .min(SEARCH_MAX_LIMIT)
+        })
+        .max(1)
+}
+
+fn parse_optional_str(args: &serde_json::Value, name: &str) -> Option<String> {
+    args.get(name)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+fn parse_optional_u32(args: &serde_json::Value, name: &str) -> Option<u32> {
+    args.get(name)
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
 }
 
 const DEFAULT_PAGE_SIZE: u32 = 25;
@@ -1111,6 +1267,98 @@ fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    // ----- Tier 6C search-tool schemas -----
+    // Common base used by all search_* tools — query + limit. Per-entity
+    // schemas extend this with kind-specific filter properties.
+    let search_skills_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Fuzzy name search over the local skills index. Returns lightweight refs (id, name, snippet); use get_skills with the returned ids for the full payload.",
+        "properties": {
+            "query": {
+                "type": "string",
+                "minLength": 2,
+                "description": "Free-form search text. Tokenised with diacritic-folding; the last token is prefix-matched (\"wra\" finds \"Wrack\")."
+            },
+            "limit": {
+                "type": "integer", "minimum": 1, "maximum": 50, "default": 10,
+                "description": "Maximum results to return."
+            },
+            "profession": {
+                "type": "string",
+                "description": "Restrict to a specific profession (e.g. \"Mesmer\", \"Guardian\"). Case-sensitive — pass the canonical capitalised form GW2 uses."
+            },
+            "slot": {
+                "type": "string",
+                "description": "Skill slot, e.g. \"Heal\", \"Elite\", \"Weapon_1\", \"Profession_3\"."
+            },
+            "weapon_type": {
+                "type": "string",
+                "description": "Weapon name when filtering weapon skills (e.g. \"Greatsword\", \"Sword\")."
+            }
+        },
+        "required": ["query"]
+    }))
+    .expect("valid schema literal");
+
+    let search_traits_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Fuzzy name search over the local traits index. Returns lightweight refs; use get_traits for full details.",
+        "properties": {
+            "query": { "type": "string", "minLength": 2 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+            "specialization": { "type": "integer", "minimum": 1, "description": "Specialization id to scope results to." },
+            "tier": { "type": "integer", "minimum": 1, "maximum": 3, "description": "1=Adept, 2=Master, 3=Grandmaster." }
+        },
+        "required": ["query"]
+    }))
+    .expect("valid schema literal");
+
+    let search_specs_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Fuzzy name search over the local specializations index.",
+        "properties": {
+            "query": { "type": "string", "minLength": 2 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+            "profession": { "type": "string" },
+            "elite": { "type": "boolean", "description": "true → only elite specs; false → only core; omit → both." }
+        },
+        "required": ["query"]
+    }))
+    .expect("valid schema literal");
+
+    let search_items_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Fuzzy name search over the local items index. Available only when the server was started with --with-items (off by default; opt-in due to ~50MB disk usage).",
+        "properties": {
+            "query": { "type": "string", "minLength": 2 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+            "type": { "type": "string", "description": "Item top-level type (e.g. \"Weapon\", \"Armor\", \"Trinket\", \"Consumable\")." },
+            "rarity": { "type": "string", "description": "\"Junk\" | \"Basic\" | \"Fine\" | \"Masterwork\" | \"Rare\" | \"Exotic\" | \"Ascended\" | \"Legendary\"." },
+            "min_level": { "type": "integer", "minimum": 0, "maximum": 80 },
+            "max_level": { "type": "integer", "minimum": 0, "maximum": 80 },
+            "weight_class": { "type": "string", "description": "Armor weight class: \"Light\" | \"Medium\" | \"Heavy\"." }
+        },
+        "required": ["query"]
+    }))
+    .expect("valid schema literal");
+
+    let search_achievements_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Fuzzy name + requirement search over the local achievements index.",
+        "properties": {
+            "query": { "type": "string", "minLength": 2 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+            "type": { "type": "string", "description": "Achievement type, e.g. \"Daily\", \"Bonus\", \"WorldBoss\"." }
+        },
+        "required": ["query"]
+    }))
+    .expect("valid schema literal");
+
     vec![
         Tool::new(
             "wiki_search",
@@ -1203,9 +1451,47 @@ fn build_tools() -> Vec<Tool> {
         Tool::new(
             "get_info",
             "Return the server's usage runbook — how to choose tools, recipe per question type, gotchas, and the prompt + resource catalogue. Identical to the `instructions` field returned in MCP `initialize`; offered as a tool because some clients drop or truncate that field.",
-            empty_args,
+            empty_args.clone(),
         )
         .annotate(read_only_closed_world("About this server")),
+        // -- Tier 6C: local fuzzy search over the cached corpus.
+        Tool::new(
+            "search_skills",
+            "Fuzzy-search the local skills index by name. Returns lightweight refs (id, name, description snippet, slot, professions). Use the returned ids with get_skills for the full payload. Backed by an on-disk SQLite/FTS5 index that populates in the background on startup.",
+            search_skills_schema,
+        )
+        .annotate(read_only_closed_world("Search Skills")),
+        Tool::new(
+            "search_traits",
+            "Fuzzy-search the local traits index by name. Returns lightweight refs; use get_traits with the ids for full details. Filter by specialization id or tier (1=Adept, 2=Master, 3=Grandmaster).",
+            search_traits_schema,
+        )
+        .annotate(read_only_closed_world("Search Traits")),
+        Tool::new(
+            "search_specializations",
+            "Fuzzy-search the local specializations (core + elite) index by name. Filter by profession or `elite=true/false`.",
+            search_specs_schema,
+        )
+        .annotate(read_only_closed_world("Search Specializations")),
+        Tool::new(
+            "search_items",
+            "Fuzzy-search the local items index by name. Only available when the server was started with --with-items (opt-in due to ~5min initial population + ~50MB disk). If items aren't indexed, the response will say so.",
+            search_items_schema,
+        )
+        .annotate(read_only_closed_world("Search Items")),
+        Tool::new(
+            "search_achievements",
+            "Fuzzy-search the local achievements index by name + requirement text. Filter by achievement type (e.g. \"Daily\", \"WorldBoss\").",
+            search_achievements_schema,
+        )
+        .annotate(read_only_closed_world("Search Achievements")),
+        Tool::new(
+            "get_index_status",
+            "Inspect the search index: per-kind row counts, last-refreshed timestamps, current GW2 build number stamped into the index. Useful when search results return \"still indexing\" — tells you progress.",
+            empty_args.clone(),
+        )
+        .annotate(read_only_closed_world("Search Index Status"))
+        .with_output_schema::<crate::ports::IndexStatus>(),
     ]
 }
 
@@ -1622,8 +1908,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            13,
-            "tier-5 ships 13 tools (12 functional + get_info)"
+            19,
+            "tier-6c adds 6 search tools (search_*, get_index_status) on top of tier-5's 13"
         );
     }
 

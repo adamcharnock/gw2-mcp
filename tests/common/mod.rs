@@ -13,8 +13,9 @@ use chrono::{DateTime, Utc};
 
 use gw2_mcp::adapters::ChatrDecoder;
 use gw2_mcp::domain::{
-    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
-    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    Achievement, AchievementId, ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item,
+    ItemId, SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization,
+    SpecializationId, Trait, TraitId, WalletEntry,
 };
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
@@ -248,6 +249,8 @@ pub struct FakeGw2Api {
     pub trait_calls: Mutex<usize>,
     pub spec_calls: Mutex<usize>,
     pub item_calls: Mutex<usize>,
+    pub achievement_calls: Mutex<usize>,
+    pub build_calls: Mutex<usize>,
     pub buildtab_calls: Mutex<usize>,
     pub equipmenttab_calls: Mutex<usize>,
     pub wallet_response: Mutex<Result<Vec<WalletEntry>, Gw2ApiError>>,
@@ -256,6 +259,8 @@ pub struct FakeGw2Api {
     pub traits: Mutex<BTreeMap<TraitId, Trait>>,
     pub specs: Mutex<BTreeMap<SpecializationId, Specialization>>,
     pub items: Mutex<BTreeMap<ItemId, Item>>,
+    pub achievements: Mutex<BTreeMap<AchievementId, Achievement>>,
+    pub build_number: Mutex<u32>,
     pub buildtabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
     pub equipmenttabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
 }
@@ -269,6 +274,8 @@ impl FakeGw2Api {
             trait_calls: Mutex::new(0),
             spec_calls: Mutex::new(0),
             item_calls: Mutex::new(0),
+            achievement_calls: Mutex::new(0),
+            build_calls: Mutex::new(0),
             buildtab_calls: Mutex::new(0),
             equipmenttab_calls: Mutex::new(0),
             wallet_response: Mutex::new(Ok(Vec::new())),
@@ -277,9 +284,27 @@ impl FakeGw2Api {
             traits: Mutex::new(BTreeMap::new()),
             specs: Mutex::new(BTreeMap::new()),
             items: Mutex::new(BTreeMap::new()),
+            achievements: Mutex::new(BTreeMap::new()),
+            build_number: Mutex::new(123_456),
             buildtabs: Mutex::new(BTreeMap::new()),
             equipmenttabs: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    pub fn add_achievement(&self, a: Achievement) {
+        self.achievements.lock().unwrap().insert(a.id, a);
+    }
+
+    pub fn set_build_number(&self, n: u32) {
+        *self.build_number.lock().unwrap() = n;
+    }
+
+    pub fn build_calls(&self) -> usize {
+        *self.build_calls.lock().unwrap()
+    }
+
+    pub fn achievement_calls(&self) -> usize {
+        *self.achievement_calls.lock().unwrap()
     }
 
     pub fn set_wallet(&self, entries: Vec<WalletEntry>) {
@@ -403,6 +428,43 @@ impl Gw2Api for FakeGw2Api {
             .iter()
             .filter_map(|id| store.get(id).map(|i| (*id, i.clone())))
             .collect())
+    }
+
+    async fn fetch_achievements(
+        &self,
+        ids: &[AchievementId],
+    ) -> Result<BTreeMap<AchievementId, Achievement>, Gw2ApiError> {
+        *self.achievement_calls.lock().unwrap() += 1;
+        let store = self.achievements.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|a| (*id, a.clone())))
+            .collect())
+    }
+
+    async fn fetch_all_skill_ids(&self) -> Result<Vec<SkillId>, Gw2ApiError> {
+        Ok(self.skills.lock().unwrap().keys().copied().collect())
+    }
+
+    async fn fetch_all_trait_ids(&self) -> Result<Vec<TraitId>, Gw2ApiError> {
+        Ok(self.traits.lock().unwrap().keys().copied().collect())
+    }
+
+    async fn fetch_all_specialization_ids(&self) -> Result<Vec<SpecializationId>, Gw2ApiError> {
+        Ok(self.specs.lock().unwrap().keys().copied().collect())
+    }
+
+    async fn fetch_all_item_ids(&self) -> Result<Vec<ItemId>, Gw2ApiError> {
+        Ok(self.items.lock().unwrap().keys().copied().collect())
+    }
+
+    async fn fetch_all_achievement_ids(&self) -> Result<Vec<AchievementId>, Gw2ApiError> {
+        Ok(self.achievements.lock().unwrap().keys().copied().collect())
+    }
+
+    async fn fetch_build(&self) -> Result<u32, Gw2ApiError> {
+        *self.build_calls.lock().unwrap() += 1;
+        Ok(*self.build_number.lock().unwrap())
     }
 
     async fn fetch_buildtabs(

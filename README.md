@@ -102,6 +102,12 @@ Or with the Docker image:
 | `list_catalog_builds`   | `source`          | `profession`, `gamemode`, `page_size` (≤100), `cursor` | Browse a curated source. Cursor-based pagination; pass back `next_cursor`. |
 | `get_catalog_build`     | `source`, `slug`  | —                                                   | Fetch full details for a curated build. |
 | `get_info`              | —                 | —                                                   | Returns the server's usage runbook (same as `initialize.instructions`). |
+| `search_skills`         | `query` (≥2)      | `limit` (≤50), `profession`, `slot`, `weapon_type`  | Fuzzy name search over the local skills index. |
+| `search_traits`         | `query` (≥2)      | `limit`, `specialization`, `tier`                   | Fuzzy name search over the local traits index. |
+| `search_specializations`| `query` (≥2)      | `limit`, `profession`, `elite`                      | Fuzzy name search over the local specializations index. |
+| `search_items`          | `query` (≥2)      | `limit`, `type`, `rarity`, `min_level`, `max_level`, `weight_class` | Fuzzy name search over the local items index. **Opt-in** — only populated when started with `--with-items`. |
+| `search_achievements`   | `query` (≥2)      | `limit`, `type`                                     | Fuzzy name search over the local achievements index. |
+| `get_index_status`      | —                 | —                                                   | Per-kind row counts, last-refreshed timestamps, build number stamped on the index. |
 
 ### Build-source coverage
 
@@ -112,6 +118,58 @@ Or with the Docker image:
 | `snowcrows`  | Raids/strikes meta      | On-demand HTML scrape (no bulk listing — respects `ai-train=no`); slug shape `<category>/<profession>/<build-slug>` |
 
 Resource: `gw2://currencies` — full currency list as JSON.
+
+## Search index
+
+The `search_*` tools are backed by an on-disk SQLite index (FTS5 with
+diacritic-folded `unicode61` tokeniser). On first launch the server
+spawns a background task that enumerates every skill / trait /
+specialization / achievement via the GW2 API and populates the index.
+Subsequent searches are fully local — no upstream calls.
+
+**Cache location** (override with `--cache-dir <path>` or
+`GW2_CACHE_DIR=...`):
+
+| OS      | Default path                                                |
+|---------|-------------------------------------------------------------|
+| macOS   | `~/Library/Caches/net.adamcharnock.gw2-mcp/index.sqlite`    |
+| Linux   | `~/.cache/gw2-mcp/index.sqlite`                             |
+| Windows | `%LOCALAPPDATA%\adamcharnock\gw2-mcp\cache\index.sqlite`    |
+
+**Population time** on first launch (over a typical home connection):
+- Skills: ~30 s
+- Traits + specializations + achievements: ~30 s combined
+- **Items (opt-in via `--with-items`)**: ~5 minutes — ~85k entries.
+
+**Disk usage**:
+- Without items: ~5–10 MB
+- With items: ~50 MB
+
+**Cache invalidation**: the indexer stamps each refresh with the GW2
+build number returned by `/v2/build`. On startup it asks the API for the
+current build; if it matches the stamp, no refresh runs. Game patches
+(which always bump the build number) trigger a fresh re-index. Force a
+full rebuild any time with `--rebuild-index`.
+
+**CLI flags**:
+- `--cache-dir <path>` — override the cache directory.
+- `--no-search-index` — disable entirely; `search_*` tools return a
+  `SearchDisabled` error. Useful in ephemeral / read-only environments.
+- `--with-items` — include items in the background pass (off by
+  default).
+- `--rebuild-index` — force a full re-index on startup.
+
+**Docker note**: bind-mount a host directory into the container so the
+index survives across restarts, e.g.
+
+```bash
+docker run --rm -v "$HOME/.cache/gw2-mcp:/cache" \
+  -e GW2_CACHE_DIR=/cache gw2-mcp
+```
+
+While the index is still populating, `search_*` calls return a typed
+"still indexing" error so the LLM can switch to `get_*` (which works
+with explicit ids) or retry shortly.
 
 ## Getting a GW2 API key
 

@@ -13,8 +13,9 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::domain::{
-    ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
-    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    Achievement, AchievementId, ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item,
+    ItemId, SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization,
+    SpecializationId, Trait, TraitId, WalletEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -158,6 +159,32 @@ pub trait Gw2Api: Send + Sync + 'static {
 
     /// `/v2/items?ids=…`
     async fn fetch_items(&self, ids: &[ItemId]) -> Result<BTreeMap<ItemId, Item>, Gw2ApiError>;
+
+    /// `/v2/achievements?ids=…`
+    async fn fetch_achievements(
+        &self,
+        ids: &[AchievementId],
+    ) -> Result<BTreeMap<AchievementId, Achievement>, Gw2ApiError>;
+
+    /// `/v2/skills` (no `?ids=`) returns the full id list. Used by the
+    /// Tier-6C indexer to enumerate every skill before chunked fetching.
+    async fn fetch_all_skill_ids(&self) -> Result<Vec<SkillId>, Gw2ApiError>;
+
+    /// `/v2/traits` — full id list.
+    async fn fetch_all_trait_ids(&self) -> Result<Vec<TraitId>, Gw2ApiError>;
+
+    /// `/v2/specializations` — full id list.
+    async fn fetch_all_specialization_ids(&self) -> Result<Vec<SpecializationId>, Gw2ApiError>;
+
+    /// `/v2/items` — full id list. **Heavy**: ~85k entries, ~1MB response.
+    async fn fetch_all_item_ids(&self) -> Result<Vec<ItemId>, Gw2ApiError>;
+
+    /// `/v2/achievements` — full id list.
+    async fn fetch_all_achievement_ids(&self) -> Result<Vec<AchievementId>, Gw2ApiError>;
+
+    /// `/v2/build` — current game build number. One cheap call; used by the
+    /// indexer to detect game patches and trigger re-indexing.
+    async fn fetch_build(&self) -> Result<u32, Gw2ApiError>;
 
     /// `/v2/characters/:name/buildtabs?tabs=all` — requires `builds` scope.
     /// Returned as raw JSON values (variants too rich to be worth typing).
@@ -341,4 +368,242 @@ pub trait Wiki: Send + Sync + 'static {
 
     /// Returns the leading prose extract for a page. Empty string if missing.
     async fn fetch_extract(&self, title: &str) -> Result<String, WikiError>;
+}
+
+// ---------------------------------------------------------------------------
+// Search index (Tier 6C) — on-disk fuzzy name search across the GW2 reference
+// corpus (skills/traits/specializations/items/achievements). Decoupled from
+// the GW2 API port so the index can be backed by SQLite, an in-process
+// in-memory store (for tests), or a future Tantivy/Meilisearch process.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum SearchError {
+    /// The requested entity kind has no rows yet — happens when the
+    /// background indexer hasn't finished populating, or when items are
+    /// disabled (`--with-items` is opt-in).
+    #[error(
+        "the {kind} index is still populating, or has not been built yet. Try again shortly, or \
+         use the typed get_* tool with explicit ids."
+    )]
+    NotIndexed { kind: &'static str },
+
+    /// A refresh is in flight — a writer is mutating the index. We surface
+    /// this as a typed error rather than blocking the search call so the
+    /// caller can decide whether to back off.
+    #[error("the search index is being refreshed; retry in a few seconds")]
+    IndexLocked,
+
+    #[error("search storage error: {0}")]
+    Storage(String),
+
+    #[error("search internal error: {0}")]
+    Internal(String),
+}
+
+/// Lightweight result row for skill searches. Carries enough for the LLM to
+/// identify the hit + decide whether to round-trip via `get_skills` for the
+/// full payload. `raw_json` is *not* included — that's what `get_skills` is
+/// for.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SkillRef {
+    pub id: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub professions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon_type: Option<String>,
+    /// FTS5 BM25 rank. Lower is better (negated by `SQLite` to make ORDER BY
+    /// `rank` ASC return best-first). Returned for diagnostics — clients can
+    /// ignore.
+    #[serde(default)]
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct TraitRef {
+    pub id: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Specialization id this trait belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specialization: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<String>,
+    #[serde(default)]
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SpecRef {
+    pub id: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profession: Option<String>,
+    #[serde(default)]
+    pub elite: bool,
+    #[serde(default)]
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ItemRef {
+    pub id: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rarity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight_class: Option<String>,
+    #[serde(default)]
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct AchievementRef {
+    pub id: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirement: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub achievement_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<u32>,
+    #[serde(default)]
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SkillSearchFilter {
+    pub profession: Option<String>,
+    pub slot: Option<String>,
+    pub weapon_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TraitSearchFilter {
+    pub specialization: Option<u32>,
+    pub tier: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SpecSearchFilter {
+    pub profession: Option<String>,
+    pub elite: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ItemSearchFilter {
+    pub item_type: Option<String>,
+    pub rarity: Option<String>,
+    pub min_level: Option<u32>,
+    pub max_level: Option<u32>,
+    pub weight_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AchievementSearchFilter {
+    pub achievement_type: Option<String>,
+}
+
+/// Status of one entity kind in the index — used by `get_index_status` to
+/// expose "still populating" state to MCP callers.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct KindStatus {
+    /// Stable identifier: `"skills"`, `"traits"`, `"specializations"`,
+    /// `"items"`, `"achievements"`.
+    pub name: String,
+    /// Total ids reported by `/v2/<kind>` (the upstream count we'd like to
+    /// reach). Zero if unknown.
+    pub total: u32,
+    /// Rows currently present in the index.
+    pub indexed: u32,
+    /// Unix timestamp (seconds) of the last successful refresh, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_refreshed_at: Option<i64>,
+    /// GW2 build number this kind was indexed against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct IndexStatus {
+    pub kinds: Vec<KindStatus>,
+}
+
+/// Local search index over the GW2 reference corpus. Implementations are
+/// free to choose any backing store (`SQLite` + FTS5, in-memory, future
+/// Tantivy/Meilisearch); the service only sees this trait.
+#[async_trait]
+pub trait SearchIndex: Send + Sync + 'static {
+    async fn search_skills(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: SkillSearchFilter,
+    ) -> Result<Vec<SkillRef>, SearchError>;
+
+    async fn search_traits(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: TraitSearchFilter,
+    ) -> Result<Vec<TraitRef>, SearchError>;
+
+    async fn search_specializations(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: SpecSearchFilter,
+    ) -> Result<Vec<SpecRef>, SearchError>;
+
+    async fn search_items(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: ItemSearchFilter,
+    ) -> Result<Vec<ItemRef>, SearchError>;
+
+    async fn search_achievements(
+        &self,
+        q: &str,
+        limit: u32,
+        filter: AchievementSearchFilter,
+    ) -> Result<Vec<AchievementRef>, SearchError>;
+
+    async fn upsert_skills(&self, skills: &[Skill], build: u32) -> Result<(), SearchError>;
+    async fn upsert_traits(&self, traits: &[Trait], build: u32) -> Result<(), SearchError>;
+    async fn upsert_specializations(
+        &self,
+        specs: &[Specialization],
+        build: u32,
+    ) -> Result<(), SearchError>;
+    async fn upsert_items(&self, items: &[Item], build: u32) -> Result<(), SearchError>;
+    async fn upsert_achievements(
+        &self,
+        achievements: &[Achievement],
+        build: u32,
+    ) -> Result<(), SearchError>;
+
+    /// The build number stamped into the index meta table at the end of the
+    /// last full refresh. `None` means the index has never finished a full
+    /// refresh — the indexer should populate.
+    async fn build_number(&self) -> Result<Option<u32>, SearchError>;
+    async fn set_build_number(&self, build: u32) -> Result<(), SearchError>;
+
+    async fn index_status(&self) -> Result<IndexStatus, SearchError>;
 }

@@ -10,5 +10,6 @@
 
 pub mod adapters;
 pub mod domain;
+pub mod indexing;
 pub mod ports;
 pub mod service;
