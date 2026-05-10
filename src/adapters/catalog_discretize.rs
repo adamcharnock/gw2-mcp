@@ -222,7 +222,7 @@ fn build_summary_from_path(path: &str) -> Option<BuildSummary> {
     Some(BuildSummary {
         slug: format!("{profession}/{slug_part}"),
         // List view doesn't fetch each file — title/role come from the slug;
-        // get_recommended_build returns the rich version.
+        // get_catalog_build returns the rich version.
         title: humanise_slug(slug_part),
         profession: capitalise(profession),
         elite_spec: None,

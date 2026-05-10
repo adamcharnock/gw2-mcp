@@ -96,8 +96,8 @@ fn compare_to_meta_with_gamemode_picks_correct_source_per_mode() {
         body.contains("discretize"),
         "fractals -> discretize: {body}"
     );
-    assert!(body.contains("list_recommended_builds"));
-    assert!(body.contains("get_recommended_build"));
+    assert!(body.contains("list_catalog_builds"));
+    assert!(body.contains("get_catalog_build"));
 
     // raids -> snowcrows
     let body = match &McpServer::get_prompt_for_test(
@@ -203,7 +203,7 @@ fn recommend_build_picks_source_from_gamemode_and_tunes_for_experience() {
         body.contains("expert"),
         "must thread experience into the tone: {body}"
     );
-    assert!(body.contains("get_recommended_build"));
+    assert!(body.contains("get_catalog_build"));
 }
 
 #[test]

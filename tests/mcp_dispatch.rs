@@ -254,7 +254,7 @@ async fn end_to_end_get_skills_requires_ids() {
 }
 
 #[tokio::test]
-async fn end_to_end_list_build_sources_returns_registered_names() {
+async fn end_to_end_list_catalog_sources_returns_registered_names() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/repos/discretize/discretize-guides/git/trees/master"))
@@ -263,32 +263,29 @@ async fn end_to_end_list_build_sources_returns_registered_names() {
         .await;
     let mcp = build_server_with_discretize(server.uri(), "http://unused.invalid".to_owned());
     let result = mcp
-        .dispatch_tool("list_build_sources", json!({}))
+        .dispatch_tool("list_catalog_sources", json!({}))
         .await
         .unwrap();
     let parsed: Value = result;
     assert!(
         parsed.as_array().unwrap().iter().any(|v| v == "discretize"),
-        "list_build_sources must include `discretize` after registration; got {parsed}"
+        "list_catalog_sources must include `discretize` after registration; got {parsed}"
     );
 }
 
 #[tokio::test]
-async fn end_to_end_list_recommended_builds_unknown_source_errors() {
+async fn end_to_end_list_catalog_builds_unknown_source_errors() {
     let server = MockServer::start().await;
     let mcp = build_server(server.uri(), format!("{}/", server.uri()));
     let err = mcp
-        .dispatch_tool(
-            "list_recommended_builds",
-            json!({"source": "no-such-source"}),
-        )
+        .dispatch_tool("list_catalog_builds", json!({"source": "no-such-source"}))
         .await
         .unwrap_err();
     assert!(err.contains("no such build source"), "got: {err}");
 }
 
 #[tokio::test]
-async fn end_to_end_list_recommended_builds_via_discretize() {
+async fn end_to_end_list_catalog_builds_via_discretize() {
     let server = MockServer::start().await;
     // Stripped tree fixture so we don't depend on the full one in this crate.
     let small_tree = r#"{"tree":[
@@ -306,17 +303,194 @@ async fn end_to_end_list_recommended_builds_via_discretize() {
     let mcp = build_server_with_discretize(server.uri(), "http://unused.invalid".to_owned());
     let result = mcp
         .dispatch_tool(
-            "list_recommended_builds",
+            "list_catalog_builds",
             json!({"source": "discretize", "profession": "guardian"}),
         )
         .await
         .unwrap();
     let parsed: Value = result;
-    let arr = parsed.as_array().unwrap();
+    let arr = parsed["items"].as_array().unwrap();
     assert_eq!(arr.len(), 2, "expected exactly the two guardian builds");
     for v in arr {
         assert_eq!(v["profession"], "Guardian");
     }
+    // Two items < default page_size (25) → no next page.
+    assert!(
+        parsed["next_cursor"].is_null(),
+        "fewer items than page_size must yield null next_cursor; got {parsed}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Catalog pagination — the cursor format is opaque to clients but its
+// contract isn't: page over a known set, last page returns null next_cursor,
+// bad cursors are rejected, filter mismatches are rejected, and page_size
+// > 100 is silently clamped.
+// ---------------------------------------------------------------------------
+
+/// Spin up a Discretize-backed server with enough builds in the upstream
+/// fixture to exercise multi-page pagination.
+async fn build_server_with_seven_discretize_builds() -> McpServer {
+    let server = MockServer::start().await;
+    let tree = r#"{"tree":[
+        {"path":"builds/guardian/a/index.md","type":"blob"},
+        {"path":"builds/guardian/b/index.md","type":"blob"},
+        {"path":"builds/guardian/c/index.md","type":"blob"},
+        {"path":"builds/guardian/d/index.md","type":"blob"},
+        {"path":"builds/guardian/e/index.md","type":"blob"},
+        {"path":"builds/guardian/f/index.md","type":"blob"},
+        {"path":"builds/guardian/g/index.md","type":"blob"}
+    ]}"#;
+    Mock::given(method("GET"))
+        .and(path("/repos/discretize/discretize-guides/git/trees/master"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(tree))
+        .mount(&server)
+        .await;
+    // Leak the wiremock server so the mock outlives this fn — the McpServer
+    // we return only holds its URI string. The test process exits soon after,
+    // so leaking is fine and avoids a Box<MockServer> in the helper return.
+    let mcp = build_server_with_discretize(server.uri(), "http://unused.invalid".to_owned());
+    Box::leak(Box::new(server));
+    mcp
+}
+
+#[tokio::test]
+async fn pagination_round_trip_walks_all_pages() {
+    let mcp = build_server_with_seven_discretize_builds().await;
+
+    // Page 1 — page_size 3, expect 3 items + cursor.
+    let p1 = mcp
+        .dispatch_tool(
+            "list_catalog_builds",
+            json!({"source": "discretize", "profession": "guardian", "page_size": 3}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(p1["items"].as_array().unwrap().len(), 3);
+    let c1 = p1["next_cursor"].as_str().unwrap().to_owned();
+
+    // Page 2 — same page_size, use cursor. 3 more items + cursor.
+    let p2 = mcp
+        .dispatch_tool(
+            "list_catalog_builds",
+            json!({
+                "source": "discretize",
+                "profession": "guardian",
+                "page_size": 3,
+                "cursor": c1,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(p2["items"].as_array().unwrap().len(), 3);
+    let c2 = p2["next_cursor"].as_str().unwrap().to_owned();
+
+    // Page 3 — last page, 1 item + null cursor.
+    let p3 = mcp
+        .dispatch_tool(
+            "list_catalog_builds",
+            json!({
+                "source": "discretize",
+                "profession": "guardian",
+                "page_size": 3,
+                "cursor": c2,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(p3["items"].as_array().unwrap().len(), 1);
+    assert!(
+        p3["next_cursor"].is_null(),
+        "last page must yield null next_cursor; got {p3}"
+    );
+}
+
+#[tokio::test]
+async fn pagination_rejects_malformed_cursor() {
+    let mcp = build_server_with_seven_discretize_builds().await;
+    let err = mcp
+        .dispatch_tool(
+            "list_catalog_builds",
+            json!({"source": "discretize", "cursor": "not-base64!@#$"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_lowercase().contains("cursor"),
+        "should mention the bad cursor: {err}"
+    );
+}
+
+#[tokio::test]
+async fn pagination_rejects_cursor_minted_with_different_filter() {
+    let mcp = build_server_with_seven_discretize_builds().await;
+
+    // Mint a cursor against the (discretize, guardian, *) filter set.
+    let p1 = mcp
+        .dispatch_tool(
+            "list_catalog_builds",
+            json!({"source": "discretize", "profession": "guardian", "page_size": 3}),
+        )
+        .await
+        .unwrap();
+    let c = p1["next_cursor"].as_str().unwrap().to_owned();
+
+    // Reuse it without the profession filter — must reject.
+    let err = mcp
+        .dispatch_tool(
+            "list_catalog_builds",
+            json!({"source": "discretize", "cursor": c}),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_lowercase().contains("cursor")
+            && (err.to_lowercase().contains("filter") || err.to_lowercase().contains("different")),
+        "should explain filter mismatch: {err}"
+    );
+}
+
+#[tokio::test]
+async fn pagination_clamps_page_size_above_100() {
+    let mcp = build_server_with_seven_discretize_builds().await;
+    // page_size=10000 — should be clamped to 100, all 7 fit, no next cursor.
+    let p = mcp
+        .dispatch_tool(
+            "list_catalog_builds",
+            json!({"source": "discretize", "profession": "guardian", "page_size": 10000}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(p["items"].as_array().unwrap().len(), 7);
+    assert!(
+        p["next_cursor"].is_null(),
+        "all items returned → null next_cursor; got {p}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_info — the runbook tool. Returns a non-empty string identical to the
+// `instructions` field of `initialize` (DRY check).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn get_info_returns_a_substantial_runbook_string() {
+    let server = MockServer::start().await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let result = mcp.dispatch_tool("get_info", json!({})).await.unwrap();
+    let s = result.as_str().expect("get_info must return a string");
+    // Substantive runbook — should be at least a few hundred chars and
+    // mention the catalog tools and the API key flow.
+    assert!(
+        s.len() > 500,
+        "runbook should be substantial; got {} chars",
+        s.len()
+    );
+    assert!(s.contains("get_character_build"));
+    assert!(s.contains("decode_build_code"));
+    assert!(s.contains("list_catalog_builds"));
+    assert!(s.contains("get_catalog_build"));
+    assert!(s.contains("https://account.arena.net/applications"));
 }
 
 #[tokio::test]
@@ -486,7 +660,7 @@ async fn error_ux_unknown_build_source_lists_what_is_available_implicitly() {
     let server = MockServer::start().await;
     let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
     let err = mcp
-        .dispatch_tool("list_recommended_builds", json!({"source": "totally-fake"}))
+        .dispatch_tool("list_catalog_builds", json!({"source": "totally-fake"}))
         .await
         .unwrap_err();
     assert!(

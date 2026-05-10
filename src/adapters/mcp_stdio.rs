@@ -23,6 +23,14 @@ use crate::domain::{
 use crate::ports::CatalogFilter;
 use crate::service::{Service, TabSelector};
 
+/// Server runbook — what good clients put in the system prompt and what
+/// `get_info` returns verbatim. Keep both call sites pointing here so the
+/// surface stays single-source.
+///
+/// Plain markdown, ~600-1200 words, written for an LLM that has not
+/// previously seen GW2.
+const SERVER_RUNBOOK: &str = include_str!("../../assets/runbook.md");
+
 const CURRENCIES_RESOURCE_URI: &str = "gw2://currencies";
 const BUILDS_DISCRETIZE_URI: &str = "gw2://builds/discretize";
 const BUILDS_METABATTLE_URI: &str = "gw2://builds/metabattle";
@@ -126,9 +134,10 @@ impl McpServer {
             "get_items" => self.handle_get_items(&args).await,
             "get_character_build" => self.handle_get_character_build(&args).await,
             "decode_build_code" => self.handle_decode_build_code(&args).await,
-            "list_build_sources" => self.handle_list_build_sources(),
-            "list_recommended_builds" => self.handle_list_recommended_builds(&args).await,
-            "get_recommended_build" => self.handle_get_recommended_build(&args).await,
+            "list_catalog_sources" => self.handle_list_catalog_sources(),
+            "list_catalog_builds" => self.handle_list_catalog_builds(&args).await,
+            "get_catalog_build" => self.handle_get_catalog_build(&args).await,
+            "get_info" => Ok(serde_json::Value::String(SERVER_RUNBOOK.to_owned())),
             other => return Err(format!("unknown tool: {other}")),
         };
         outcome.map_err(|e| e.to_string())
@@ -441,12 +450,12 @@ impl McpServer {
         Ok(value)
     }
 
-    fn handle_list_build_sources(&self) -> Result<serde_json::Value, CallError> {
+    fn handle_list_catalog_sources(&self) -> Result<serde_json::Value, CallError> {
         let names = self.service.list_catalogs();
         Ok(serde_json::to_value(&names)?)
     }
 
-    async fn handle_list_recommended_builds(
+    async fn handle_list_catalog_builds(
         &self,
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
@@ -463,20 +472,70 @@ impl McpServer {
                 .get("gamemode")
                 .and_then(|v| v.as_str())
                 .map(str::to_owned),
-            limit: args
-                .get("limit")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|n| u32::try_from(n).ok()),
+            // `limit` is intentionally not threaded into CatalogFilter on the
+            // MCP layer any more — pagination supersedes it. Internally the
+            // service still honours it (some tests pass a filter directly),
+            // but the MCP tool only exposes `cursor` + `page_size`.
+            limit: None,
         };
+
+        // Page size: default 25, clamp to 100 (silently — clients should not
+        // pay for guessing wrong, the server picks a safe ceiling).
+        let page_size = args
+            .get("page_size")
+            .and_then(serde_json::Value::as_u64)
+            .map_or(DEFAULT_PAGE_SIZE, |n| {
+                u32::try_from(n).unwrap_or(MAX_PAGE_SIZE).min(MAX_PAGE_SIZE)
+            })
+            .max(1);
+
+        let filter_hash = catalog_filter_hash(source, &filter);
+        let offset = match args.get("cursor").and_then(|v| v.as_str()) {
+            None => 0u32,
+            Some(c) => {
+                let decoded = decode_cursor(c).map_err(|reason| CallError::BadCursor { reason })?;
+                if decoded.filter_hash != filter_hash {
+                    return Err(CallError::BadCursor {
+                        reason: "cursor was minted with different (source, profession, gamemode) — \
+                             restart pagination from the beginning",
+                    });
+                }
+                decoded.offset
+            }
+        };
+
         let summaries = self
             .service
             .list_catalog_builds(source, filter)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_value(&summaries)?)
+
+        let total = u32::try_from(summaries.len()).unwrap_or(u32::MAX);
+        let start = offset.min(total) as usize;
+        let end = (offset.saturating_add(page_size)).min(total) as usize;
+        let items: Vec<_> = summaries
+            .into_iter()
+            .skip(start)
+            .take(end - start)
+            .collect();
+
+        let next_offset = u32::try_from(end).unwrap_or(u32::MAX);
+        let next_cursor = if next_offset < total {
+            Some(encode_cursor(&CursorPayload {
+                filter_hash,
+                offset: next_offset,
+            }))
+        } else {
+            None
+        };
+
+        Ok(serde_json::json!({
+            "items": items,
+            "next_cursor": next_cursor,
+        }))
     }
 
-    async fn handle_get_recommended_build(
+    async fn handle_get_catalog_build(
         &self,
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
@@ -496,6 +555,51 @@ impl McpServer {
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&detail)?)
     }
+}
+
+const DEFAULT_PAGE_SIZE: u32 = 25;
+const MAX_PAGE_SIZE: u32 = 100;
+
+/// Opaque cursor payload — base64(json). Format kept tiny so cursors stay
+/// short on the wire and are easy to debug by hand-decoding when something
+/// goes wrong in the field.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+struct CursorPayload {
+    /// SHA-256 (first 16 hex chars) of the canonical (source, profession,
+    /// gamemode) triple. A cursor minted with one filter set is rejected if
+    /// the filter changes mid-paginate; that prevents "page 2 of a different
+    /// listing than page 1" surprises.
+    #[serde(rename = "h")]
+    filter_hash: String,
+    /// Zero-based offset into the (cached, deterministic) listing.
+    #[serde(rename = "o")]
+    offset: u32,
+}
+
+fn catalog_filter_hash(source: &str, filter: &CatalogFilter) -> String {
+    use sha2::{Digest, Sha256};
+    let prof = filter.profession.as_deref().unwrap_or("*");
+    let mode = filter.gamemode.as_deref().unwrap_or("*");
+    // Limit is deliberately excluded from the hash because MCP-layer
+    // pagination no longer exposes it; `CatalogFilter::limit` is always None
+    // when minted by `handle_list_catalog_builds`.
+    let canon = format!("{source}|{prof}|{mode}");
+    let digest = Sha256::digest(canon.as_bytes());
+    hex::encode(&digest[..8])
+}
+
+fn encode_cursor(payload: &CursorPayload) -> String {
+    use base64::Engine as _;
+    let json = serde_json::to_vec(payload).expect("cursor payload always serialises");
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)
+}
+
+fn decode_cursor(raw: &str) -> Result<CursorPayload, &'static str> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(raw)
+        .map_err(|_| "cursor is not valid base64url")?;
+    serde_json::from_slice::<CursorPayload>(&bytes).map_err(|_| "cursor payload is malformed")
 }
 
 /// Parse an optional array of positive ints into typed ids.
@@ -603,6 +707,12 @@ enum CallError {
         name: &'static str,
         expected: &'static str,
     },
+    /// Pagination cursor was rejected — either malformed base64 / json, or
+    /// minted with a different filter set than the request now has. The
+    /// payload is opaque to callers, so the message must be self-explanatory.
+    BadCursor {
+        reason: &'static str,
+    },
     /// No API key resolved from arg or service default.
     NoApiKey,
     Domain(crate::domain::DomainError),
@@ -622,6 +732,9 @@ impl std::fmt::Display for CallError {
             Self::MissingArg(name) => write!(f, "missing required argument '{name}'"),
             Self::BadArg { name, expected } => {
                 write!(f, "argument '{name}' has wrong type, expected {expected}")
+            }
+            Self::BadCursor { reason } => {
+                write!(f, "invalid pagination cursor: {reason}")
             }
             Self::NoApiKey => write!(
                 f,
@@ -665,28 +778,10 @@ impl ServerHandler for McpServer {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
                 ..Default::default()
             },
-            instructions: Some(
-                "Guild Wars 2 MCP server.\n\
-                 \n\
-                 Read-only / no-auth tools:\n\
-                 - wiki_search — search the GW2 wiki, returns enriched results with prose extracts.\n\
-                 - get_currencies — currency metadata. Pass `ids` for specific currencies, omit for all.\n\
-                 - get_skills / get_traits / get_specializations — resolve API ids (returned by\n\
-                   get_character_build) into name + description + facts. `ids` is required.\n\
-                 - decode_build_code — decode a `[&Dw…]` build chat code into structured JSON\n\
-                   (profession, specs, traits, skill palette ids, pets/legends).\n\
-                 - list_build_sources / list_recommended_builds / get_recommended_build — browse\n\
-                   curated builds from Discretize (fractals), MetaBattle (all gamemodes), or Snow\n\
-                   Crows (raids/strikes; on-demand only — pass slug `<category>/<profession>/<build>`).\n\
-                 \n\
-                 Authed tools (need a GW2 API key from https://account.arena.net/applications):\n\
-                 - get_wallet — wallet contents + currency metadata (scopes: account, wallet).\n\
-                 - get_character_build — every build/equipment tab for a character\n\
-                   (scopes: account, characters, builds).\n\
-                 \n\
-                 Resource: gw2://currencies — full currency list as JSON."
-                    .to_owned(),
-            ),
+            // Single source of truth — same string is returned verbatim by
+            // the `get_info` tool for clients that drop or truncate
+            // `initialize.instructions`.
+            instructions: Some(SERVER_RUNBOOK.to_owned()),
         }
     }
 
@@ -792,11 +887,23 @@ impl ServerHandler for McpServer {
     }
 }
 
+/// API-key regex: GW2 keys are 5 hyphen-separated hex blocks of widths
+/// 8-4-4-4-20 repeated twice — total 72 chars. Mirrors `ApiKey::new`'s
+/// validation. Used in tool input schemas so clients can reject obvious
+/// typos before a round-trip.
+const API_KEY_PATTERN: &str = "^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{20}-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{20}$";
+
+/// Chat-code regex: `[&` + base64 (URL-safe and standard alphabets both
+/// accepted in the wild) + optional `=` padding + `]`. Loose intentionally —
+/// strict validation lives in `BuildChatCode::new`.
+const CHAT_CODE_PATTERN: &str = "^\\[&[A-Za-z0-9+/]+=*\\]$";
+
 #[allow(clippy::too_many_lines)] // Each tool needs its own schema literal; refactoring into a
 // table-driven form would obscure them more than help.
 fn build_tools() -> Vec<Tool> {
     let wiki_search: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
+        "additionalProperties": false,
         "properties": {
             "query": {
                 "type": "string",
@@ -807,6 +914,7 @@ fn build_tools() -> Vec<Tool> {
                 "minimum": 1,
                 "maximum": 50,
                 "default": 5,
+                "examples": [5, 10],
                 "description": "Maximum results to return."
             }
         },
@@ -815,25 +923,34 @@ fn build_tools() -> Vec<Tool> {
     .expect("valid schema literal");
     let get_wallet: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
+        "additionalProperties": false,
         "properties": {
             "api_key": {
                 "type": ["string", "null"],
                 "default": null,
+                "format": "password",
+                "writeOnly": true,
+                "pattern": API_KEY_PATTERN,
                 "description": "GW2 API key with 'account' and 'wallet' scopes. \
                                 Generate at https://account.arena.net/applications. \
                                 Optional — falls back to the server-configured key \
-                                (GW2_API_KEY env var) if omitted."
+                                (GW2_API_KEY env var) if omitted. Format: \
+                                72-char hex with hyphens (8-4-4-4-20-8-4-4-4-20)."
             }
         }
     }))
     .expect("valid schema literal");
     let get_currencies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
+        "additionalProperties": false,
         "properties": {
             "ids": {
                 "type": "array",
                 "items": { "type": "integer", "minimum": 1 },
-                "description": "Specific currency ids. Omit (or pass empty) to fetch all."
+                "maxItems": 200,
+                "uniqueItems": true,
+                "description": "Specific currency ids. Omit (or pass empty) to fetch all. \
+                                Max 200 ids per call (matches the GW2 API's per-request cap)."
             }
         }
     }))
@@ -842,12 +959,15 @@ fn build_tools() -> Vec<Tool> {
     let by_required_ids_with_summary: rmcp::model::JsonObject =
         serde_json::from_value(serde_json::json!({
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "ids": {
                     "type": "array",
                     "items": { "type": "integer", "minimum": 1 },
                     "minItems": 1,
-                    "description": "Ids to fetch. Required — there are 1000s of entries; pass only what you need."
+                    "maxItems": 200,
+                    "uniqueItems": true,
+                    "description": "Ids to fetch. Required — there are 1000s of entries; pass only what you need. Max 200 per call (GW2 API cap)."
                 },
                 "summary": {
                     "type": "boolean",
@@ -861,12 +981,15 @@ fn build_tools() -> Vec<Tool> {
 
     let by_required_ids: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
+        "additionalProperties": false,
         "properties": {
             "ids": {
                 "type": "array",
                 "items": { "type": "integer", "minimum": 1 },
                 "minItems": 1,
-                "description": "Ids to fetch. Required — there are 1000s of entries; pass only what you need."
+                "maxItems": 200,
+                "uniqueItems": true,
+                "description": "Ids to fetch. Required — there are 1000s of entries; pass only what you need. Max 200 per call (GW2 API cap)."
             }
         },
         "required": ["ids"]
@@ -876,10 +999,14 @@ fn build_tools() -> Vec<Tool> {
     let get_character_build: rmcp::model::JsonObject =
         serde_json::from_value(serde_json::json!({
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "api_key": {
                     "type": ["string", "null"],
                     "default": null,
+                    "format": "password",
+                    "writeOnly": true,
+                    "pattern": API_KEY_PATTERN,
                     "description": "GW2 API key with 'account' + 'characters' + 'builds' scopes. Optional — falls back to the server-configured key (GW2_API_KEY env var) if omitted."
                 },
                 "character": { "type": "string", "description": "Character name (case-sensitive)." },
@@ -895,20 +1022,29 @@ fn build_tools() -> Vec<Tool> {
 
     let decode_build_code: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
+        "additionalProperties": false,
         "properties": {
             "code": {
                 "type": "string",
-                "description": "Build chat code, e.g. `[&DQ...=]`. Decoded into structured JSON (profession, specs, traits, palette skill ids, pets/legends)."
+                "pattern": CHAT_CODE_PATTERN,
+                "examples": ["[&DQEQPyo6GzkmDyYPihJIAUgBLQH+ALkBtRI3AQAAAAAAAAAAAAAAAAAAAAACMgAjAAA=]"],
+                "description": "Build chat code, e.g. `[&DQ...=]`. Decoded into structured JSON (profession, specs, palette skill ids with resolved API ids, traits with resolved trait ids, pets/legends, profession_name)."
             }
         },
         "required": ["code"]
     }))
     .expect("valid schema literal");
 
-    let list_recommended: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+    let list_catalog_builds: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
+        "additionalProperties": false,
+        "description": "Browse a curated build source. Use list_catalog_sources to discover sources first. Pagination is cursor-based: pass `next_cursor` from the previous response to continue.",
         "properties": {
-            "source": { "type": "string", "description": "Source name from list_build_sources (e.g. discretize, metabattle, snowcrows)." },
+            "source": {
+                "type": "string",
+                "examples": ["discretize", "metabattle", "snowcrows"],
+                "description": "Source name from list_catalog_sources (e.g. discretize, metabattle, snowcrows)."
+            },
             "profession": {
                 "type": "string",
                 "enum": [
@@ -920,18 +1056,34 @@ fn build_tools() -> Vec<Tool> {
             "gamemode": {
                 "type": "string",
                 "enum": ["fractals", "raids", "strikes", "open_world", "wvw", "pvp"],
-                "description": "Optional game-mode filter. Available values depend on the source: discretize → fractals only; snowcrows → raids/strikes; metabattle → all."
+                "description": "Optional game-mode filter. Source coverage: `discretize` → fractals only; `snowcrows` → raids/strikes; `metabattle` → everything else (WvW, PvP, open-world; some fractals as secondary)."
             },
-            "limit": { "type": "integer", "minimum": 1, "description": "Cap on number of results." }
+            "page_size": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 25,
+                "examples": [25, 50],
+                "description": "Items per page. Default 25, max 100 (silently clamped). Page size must stay constant across the pagination — the cursor binds to (source, profession, gamemode), not page_size."
+            },
+            "cursor": {
+                "type": "string",
+                "description": "Opaque pagination cursor from a previous response's `next_cursor` field. Omit to start at the beginning. Cursors are bound to the (source, profession, gamemode) triple — changing any of them mid-paginate raises an error."
+            }
         },
         "required": ["source"]
     }))
     .expect("valid schema literal");
 
-    let get_recommended: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+    let get_catalog_build: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
+        "additionalProperties": false,
         "properties": {
-            "source": { "type": "string", "description": "Source name." },
+            "source": {
+                "type": "string",
+                "examples": ["discretize", "metabattle", "snowcrows"],
+                "description": "Source name (matches list_catalog_sources)."
+            },
             "slug": {
                 "type": "string",
                 // Mirrors `BuildSlug` validation: lower-case alphanumeric +
@@ -940,16 +1092,24 @@ fn build_tools() -> Vec<Tool> {
                 // that would explode `url::Url::parse`.
                 "pattern": "^[a-z0-9_\\-/]+$",
                 "maxLength": 256,
-                "description": "Build slug from list_recommended_builds. Must match `^[a-z0-9_\\-/]+$` (lowercase alphanumeric, hyphen, underscore, slash); ≤ 256 chars; no `..` segments."
+                "examples": [
+                    "guardian/power-dragonhunter",
+                    "raids/guardian/heal-firebrand",
+                    "guardian/power_dragonhunter"
+                ],
+                "description": "Build slug from list_catalog_builds. Format varies per source: discretize uses `<profession>/<build>`, metabattle uses `<profession>/<build>` (slugified), snowcrows uses `<category>/<profession>/<build>`. Always pass the literal slug returned by list_catalog_builds. Must match `^[a-z0-9_\\-/]+$`; ≤ 256 chars; no `..` segments."
             }
         },
         "required": ["source", "slug"]
     }))
     .expect("valid schema literal");
 
-    let empty_args: rmcp::model::JsonObject =
-        serde_json::from_value(serde_json::json!({ "type": "object" }))
-            .expect("valid schema literal");
+    let empty_args: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+    }))
+    .expect("valid schema literal");
 
     vec![
         Tool::new(
@@ -1018,30 +1178,34 @@ fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_closed_world("Decode Build Chat Code")),
         Tool::new(
-            "list_build_sources",
-            "List the registered curated-build sources (Discretize, MetaBattle, Snow Crows, …).",
+            "list_catalog_sources",
+            "List the registered curated-build catalog sources (Discretize, MetaBattle, Snow Crows, …).",
+            empty_args.clone(),
+        )
+        .annotate(read_only_closed_world("List Catalog Sources")),
+        // list_catalog_builds returns `{items: [...], next_cursor: ...}`.
+        // outputSchema would be a thin wrapper around `Vec<BuildSummary>`;
+        // schemars-emitting it for the wrapper buys us little vs the cost of
+        // duplicating the cursor shape, so it's left off intentionally.
+        Tool::new(
+            "list_catalog_builds",
+            "List builds from a curated catalog source. Returns lightweight summaries plus an opaque pagination cursor — pass `next_cursor` back as `cursor` to continue. Use get_catalog_build for the full per-build details.",
+            list_catalog_builds,
+        )
+        .annotate(read_only_open_world("List Catalog Builds")),
+        Tool::new(
+            "get_catalog_build",
+            "Fetch full details for a specific curated build by source + slug.",
+            get_catalog_build,
+        )
+        .annotate(read_only_open_world("Get Catalog Build"))
+        .with_output_schema::<crate::ports::BuildDetail>(),
+        Tool::new(
+            "get_info",
+            "Return the server's usage runbook — how to choose tools, recipe per question type, gotchas, and the prompt + resource catalogue. Identical to the `instructions` field returned in MCP `initialize`; offered as a tool because some clients drop or truncate that field.",
             empty_args,
         )
-        .annotate(read_only_closed_world("List Build Sources")),
-        // list_recommended_builds returns Vec<BuildSummary>. JSON Schema for
-        // an array root is valid in general, but `Tool::with_output_schema`
-        // enforces MCP's "outputSchema must be type=object" rule, so we'd
-        // have to wrap as `{items: [...]}` and break the wire shape (and
-        // Tier 1's tests). Skipped — the per-item shape is documented in
-        // `BuildSummary` and clients that care can derive the schema there.
-        Tool::new(
-            "list_recommended_builds",
-            "List builds from a curated source. Returns lightweight summaries; use get_recommended_build for full details.",
-            list_recommended,
-        )
-        .annotate(read_only_open_world("List Recommended Builds")),
-        Tool::new(
-            "get_recommended_build",
-            "Fetch full details for a specific curated build by source + slug.",
-            get_recommended,
-        )
-        .annotate(read_only_open_world("Get Recommended Build"))
-        .with_output_schema::<crate::ports::BuildDetail>(),
+        .annotate(read_only_closed_world("About this server")),
     ]
 }
 
@@ -1082,7 +1246,7 @@ fn concrete_resources() -> Vec<rmcp::model::Resource> {
     let mut discretize = RawResource::new(BUILDS_DISCRETIZE_URI, "Discretize Builds");
     discretize.description = Some(
         "Listing of curated fractal builds from Discretize (https://discretize.eu). Returns the \
-         same shape as `list_recommended_builds` with no filter."
+         same shape as `list_catalog_builds` with no filter."
             .to_owned(),
     );
     discretize.mime_type = Some(RESOURCE_JSON_MIME.to_owned());
@@ -1156,7 +1320,7 @@ fn resource_templates() -> Vec<rmcp::model::ResourceTemplate> {
             "gw2://builds/{source}/{slug}",
             "Curated Build",
             "Single curated build from a registered source. `source` is one of `discretize`, \
-             `metabattle`, `snowcrows`. `slug` matches `list_recommended_builds`'s slug field — \
+             `metabattle`, `snowcrows`. `slug` matches `list_catalog_builds`'s slug field — \
              note that some sources use multi-segment slugs (discretize: \
              `<profession>/<build>`; snowcrows: `<category>/<profession>/<build>`); the slug is \
              taken literally from the URI suffix after `gw2://builds/<source>/`.",
@@ -1341,10 +1505,10 @@ fn render_compare_to_meta(
              2. Pick the catalog source that fits `gamemode=\"{gm}\"`: \
              `discretize` for fractals, `snowcrows` for raids/strikes, `metabattle` for \
              anything else.\n\
-             3. Call `list_recommended_builds` with that source, the character's \
+             3. Call `list_catalog_builds` with that source, the character's \
              profession (lower-cased), and `gamemode=\"{gm}\"`. Pick the best match \
              (highest rating if present, otherwise the closest role/elite-spec match).\n\
-             4. Call `get_recommended_build` with the chosen `source` and `slug` to get \
+             4. Call `get_catalog_build` with the chosen `source` and `slug` to get \
              the canonical build details.\n\
              5. Produce a gap analysis: traits + skills that differ, equipment / stat \
              differences, sigils/runes, and any rotation steps the character can't \
@@ -1362,8 +1526,8 @@ fn render_compare_to_meta(
              `api_key=\"{api_key}\"`.\n\
              2. Pick the catalog source that fits the user's gamemode: `discretize` for \
              fractals, `snowcrows` for raids/strikes, `metabattle` otherwise.\n\
-             3. Call `list_recommended_builds` with that source plus the profession and \
-             gamemode filters, then `get_recommended_build` with the best match's slug.\n\
+             3. Call `list_catalog_builds` with that source plus the profession and \
+             gamemode filters, then `get_catalog_build` with the best match's slug.\n\
              4. Produce a gap analysis: traits + skills that differ, equipment / stat \
              differences, and the smallest changes that would close the gap."
         ),
@@ -1413,11 +1577,11 @@ fn render_recommend_build(
     let body = format!(
         "You are recommending a Guild Wars 2 meta build.\n\n\
          Steps to follow:\n\n\
-         1. Call `list_recommended_builds` with `source=\"{source}\"`, \
+         1. Call `list_catalog_builds` with `source=\"{source}\"`, \
          `profession=\"{profession}\"`, and `gamemode=\"{gamemode}\"`. Pick the \
          top-rated match (or the closest role match if the catalog doesn't carry \
          ratings).\n\
-         2. Call `get_recommended_build` with the chosen `source` and `slug` to \
+         2. Call `get_catalog_build` with the chosen `source` and `slug` to \
          fetch the full build detail.\n\
          3. Explain the build to a {experience} player. For `beginner`, lead with \
          the role the build plays and avoid jargon; describe the rotation as a \
@@ -1456,7 +1620,11 @@ mod tests {
     #[test]
     fn build_tools_constructs_without_panicking() {
         let tools = build_tools();
-        assert_eq!(tools.len(), 12, "tier-2 ships 12 tools");
+        assert_eq!(
+            tools.len(),
+            13,
+            "tier-5 ships 13 tools (12 functional + get_info)"
+        );
     }
 
     #[test]
@@ -1498,6 +1666,41 @@ mod tests {
     }
 
     #[test]
+    fn server_runbook_constant_is_substantial_and_mentions_key_tools() {
+        // Sanity check on the runbook constant — both `instructions` and
+        // `get_info` ride on this. If someone empties or shrinks the file
+        // accidentally, this catches it before MCP clients see a stub.
+        assert!(SERVER_RUNBOOK.len() > 500, "runbook is too short");
+        for token in [
+            "get_character_build",
+            "decode_build_code",
+            "list_catalog_builds",
+            "get_catalog_build",
+            "wiki_search",
+            "get_wallet",
+            "https://account.arena.net/applications",
+        ] {
+            assert!(
+                SERVER_RUNBOOK.contains(token),
+                "runbook missing key token `{token}`"
+            );
+        }
+    }
+
+    #[test]
+    fn get_info_tool_input_schema_takes_no_args() {
+        let tools = build_tools();
+        let info = tools
+            .iter()
+            .find(|t| t.name == "get_info")
+            .expect("get_info tool present");
+        let schema_value = serde_json::to_value(&*info.input_schema).unwrap();
+        // No required fields and no additional ones either — strict empty.
+        assert_eq!(schema_value["type"], "object");
+        assert_eq!(schema_value["additionalProperties"], false);
+    }
+
+    #[test]
     fn typed_return_tools_publish_output_schema() {
         let by_name: std::collections::BTreeMap<_, _> = build_tools()
             .into_iter()
@@ -1507,7 +1710,7 @@ mod tests {
             "wiki_search",
             "get_wallet",
             "get_character_build",
-            "get_recommended_build",
+            "get_catalog_build",
         ] {
             let t = by_name
                 .get(name)

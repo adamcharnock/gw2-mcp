@@ -87,19 +87,21 @@ Or with the Docker image:
 
 ## Tools
 
-| Tool                      | Required args              | Optional args                              | Notes |
-|---------------------------|----------------------------|--------------------------------------------|-------|
-| `wiki_search`             | `query`                    | `limit` (1–50, default 5)                  | GW2 wiki search with prose extracts. |
-| `get_wallet`              | —                          | `api_key` (falls back to `GW2_API_KEY`)    | Account wallet + currency metadata. |
-| `get_currencies`          | —                          | `ids` (array; omit for all)                | Currency definitions. |
-| `get_skills`              | `ids` (array)              | —                                          | Resolve skill ids to name + description + facts. |
-| `get_traits`              | `ids` (array)              | —                                          | Resolve trait ids. |
-| `get_specializations`     | `ids` (array)              | —                                          | Resolve specialization ids (core + elite). |
-| `get_character_build`     | `character`                | `api_key` (falls back to `GW2_API_KEY`)    | Full per-tab build + equipment for a character (needs `builds` scope). |
-| `decode_build_code`       | `code` (`[&Dw…]`)          | —                                          | Decode any build chat code into structured JSON. No auth. |
-| `list_build_sources`      | —                          | —                                          | Lists registered curated-build sources. |
-| `list_recommended_builds` | `source`                   | `profession`, `gamemode`, `limit`          | Browse a curated source. |
-| `get_recommended_build`   | `source`, `slug`           | —                                          | Fetch full details for a curated build. |
+| Tool                    | Required args     | Optional args                                       | Notes |
+|-------------------------|-------------------|-----------------------------------------------------|-------|
+| `wiki_search`           | `query`           | `limit` (1–50, default 5)                           | GW2 wiki search with prose extracts. |
+| `get_wallet`            | —                 | `api_key` (falls back to `GW2_API_KEY`)             | Account wallet + currency metadata. |
+| `get_currencies`        | —                 | `ids` (array, max 200; omit for all)                | Currency definitions. |
+| `get_skills`            | `ids` (array)     | `summary` (default true)                            | Resolve skill ids to name + description (+ facts when `summary=false`). Max 200 ids/call. |
+| `get_traits`            | `ids` (array)     | `summary` (default true)                            | Resolve trait ids. Max 200 ids/call. |
+| `get_specializations`   | `ids` (array)     | `summary` (default true)                            | Resolve specialization ids (core + elite). Max 200 ids/call. |
+| `get_items`             | `ids` (array)     | —                                                   | Resolve item / equipment ids. Max 200 ids/call. |
+| `get_character_build`   | `character`       | `api_key`, `tab` ("active"/"all"/index)             | Full per-tab build + equipment for a character with names pre-resolved (needs `builds` scope). |
+| `decode_build_code`     | `code` (`[&...]`) | —                                                   | Decode a build chat code into structured JSON. Resolved palette → API skill ids and trait positions → trait ids. No auth. |
+| `list_catalog_sources`  | —                 | —                                                   | Lists registered curated-build catalog sources. |
+| `list_catalog_builds`   | `source`          | `profession`, `gamemode`, `page_size` (≤100), `cursor` | Browse a curated source. Cursor-based pagination; pass back `next_cursor`. |
+| `get_catalog_build`     | `source`, `slug`  | —                                                   | Fetch full details for a curated build. |
+| `get_info`              | —                 | —                                                   | Returns the server's usage runbook (same as `initialize.instructions`). |
 
 ### Build-source coverage
 
