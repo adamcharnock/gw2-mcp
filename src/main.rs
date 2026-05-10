@@ -5,8 +5,11 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use gw2_mcp::adapters::{HttpGw2Api, HttpWiki, McpServer, MemoryCache, SystemClock};
-use gw2_mcp::ports::{Cache, Clock, Gw2Api, Wiki};
+use gw2_mcp::adapters::{
+    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpWiki, McpServer, MemoryCache,
+    MetaBattleCatalog, SnowCrowsCatalog, SystemClock,
+};
+use gw2_mcp::ports::{BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, Wiki};
 use gw2_mcp::service::Service;
 use tracing_subscriber::EnvFilter;
 
@@ -49,7 +52,19 @@ async fn main() -> anyhow::Result<()> {
         None => Arc::new(HttpWiki::new()?),
     };
 
-    let service = Service::new(gw2, wiki, cache, clock);
+    let build_decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
+
+    let discretize: Arc<dyn BuildCatalog> = Arc::new(DiscretizeCatalog::new()?);
+    let metabattle: Arc<dyn BuildCatalog> = Arc::new(MetaBattleCatalog::new()?);
+    let snowcrows: Arc<dyn BuildCatalog> = Arc::new(SnowCrowsCatalog::new()?);
+    let catalogs = Arc::new(
+        CatalogRegistry::new()
+            .with(discretize)
+            .with(metabattle)
+            .with(snowcrows),
+    );
+
+    let service = Service::new(gw2, wiki, cache, clock, build_decoder, catalogs);
     let server = McpServer::new(service);
 
     tracing::info!("starting gw2-mcp server (stdio)");

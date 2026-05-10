@@ -4,12 +4,20 @@
 //! external concern (HTTP client, in-memory cache, system clock). Swapping
 //! providers should be a one-file change.
 
+pub mod build_code_chatr;
+pub mod catalog_discretize;
+pub mod catalog_metabattle;
+pub mod catalog_snowcrows;
 pub mod gw2_http;
 pub mod mcp_stdio;
 pub mod memory_cache;
 pub mod system_clock;
 pub mod wiki_http;
 
+pub use build_code_chatr::ChatrDecoder;
+pub use catalog_discretize::DiscretizeCatalog;
+pub use catalog_metabattle::MetaBattleCatalog;
+pub use catalog_snowcrows::SnowCrowsCatalog;
 pub use gw2_http::HttpGw2Api;
 pub use mcp_stdio::McpServer;
 pub use memory_cache::MemoryCache;

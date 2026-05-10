@@ -3,13 +3,19 @@
 //! boundaries and can be constructed in tests without any setup.
 
 pub mod api_key;
+pub mod build_code;
+pub mod character;
 pub mod currency;
 pub mod error;
+pub mod reference;
 pub mod wallet;
 pub mod wiki;
 
 pub use api_key::ApiKey;
+pub use build_code::BuildChatCode;
+pub use character::CharacterName;
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
+pub use reference::{Skill, SkillId, Specialization, SpecializationId, Trait, TraitId};
 pub use wallet::{WalletEntry, WalletInfo};
 pub use wiki::{SearchLimit, SearchQuery, SearchResponse, SearchResult};

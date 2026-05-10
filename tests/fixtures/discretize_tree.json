@@ -1,0 +1,3036 @@
+{
+  "sha": "68aa26738454c9d100486ac9f9338078233745a6",
+  "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/68aa26738454c9d100486ac9f9338078233745a6",
+  "tree": [
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "35824c374e1464c5711f4d784bf73967af53329d",
+      "size": 693,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/35824c374e1464c5711f4d784bf73967af53329d"
+    },
+    {
+      "path": "builds",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "49f0283d5077ee4533a1a39943aef458a4395c17",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/49f0283d5077ee4533a1a39943aef458a4395c17"
+    },
+    {
+      "path": "builds/elementalist",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4760a31686ed2e711d05c921c70dc9446fbef667",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/4760a31686ed2e711d05c921c70dc9446fbef667"
+    },
+    {
+      "path": "builds/elementalist/condi-weaver",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1c126216aa963f80dc56427aa1cc4b61531b107a",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/1c126216aa963f80dc56427aa1cc4b61531b107a"
+    },
+    {
+      "path": "builds/elementalist/condi-weaver/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8c1c18e8a81dfa2cc42c74b632f32b1984001670",
+      "size": 26626,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8c1c18e8a81dfa2cc42c74b632f32b1984001670"
+    },
+    {
+      "path": "builds/elementalist/power-catalyst",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "6d45e86f8bc824c3b06f97006fc7752adc999ac1",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/6d45e86f8bc824c3b06f97006fc7752adc999ac1"
+    },
+    {
+      "path": "builds/elementalist/power-catalyst/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "74c085e80af3f567eba893e80ae5a98a773c0f97",
+      "size": 33745,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/74c085e80af3f567eba893e80ae5a98a773c0f97"
+    },
+    {
+      "path": "builds/elementalist/power-tempest",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "f3f8c37d18f629de30671e7e9969623ae33acdf1",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/f3f8c37d18f629de30671e7e9969623ae33acdf1"
+    },
+    {
+      "path": "builds/elementalist/power-tempest/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c0aa6454d17092f06183b3df3a08519c5dfca343",
+      "size": 14859,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c0aa6454d17092f06183b3df3a08519c5dfca343"
+    },
+    {
+      "path": "builds/elementalist/power-weaver",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "6b08887acf5bd5bbdd92eca5ac39227a75e660e3",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/6b08887acf5bd5bbdd92eca5ac39227a75e660e3"
+    },
+    {
+      "path": "builds/elementalist/power-weaver/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d9af7b2d6a697cb2ba6d870c3ca23e5d8ef8067a",
+      "size": 45253,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d9af7b2d6a697cb2ba6d870c3ca23e5d8ef8067a"
+    },
+    {
+      "path": "builds/engineer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "0f6cb9f24cc1619ef901c5c5faa279f6dc222e42",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/0f6cb9f24cc1619ef901c5c5faa279f6dc222e42"
+    },
+    {
+      "path": "builds/engineer/condi-holosmith",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "db428ff1b8a0ae1844ef5cdfe064d1de98bf5e26",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/db428ff1b8a0ae1844ef5cdfe064d1de98bf5e26"
+    },
+    {
+      "path": "builds/engineer/condi-holosmith/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "93cbab7a1a5ee4eb08e52ae616b0d6c5146ecc6b",
+      "size": 14746,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/93cbab7a1a5ee4eb08e52ae616b0d6c5146ecc6b"
+    },
+    {
+      "path": "builds/engineer/heal-mechanist",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "26759239b7e1d60e974ae1dbc910e2d300af9b1e",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/26759239b7e1d60e974ae1dbc910e2d300af9b1e"
+    },
+    {
+      "path": "builds/engineer/heal-mechanist/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "481399f7e6879accf631431a77afe41a8897d475",
+      "size": 22939,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/481399f7e6879accf631431a77afe41a8897d475"
+    },
+    {
+      "path": "builds/engineer/power-holosmith",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "cf747712a0d7cf30e8787ada2bfaadce60d70392",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/cf747712a0d7cf30e8787ada2bfaadce60d70392"
+    },
+    {
+      "path": "builds/engineer/power-holosmith/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7fcf8e03e0d65ebf502a723f143238dd79296ab5",
+      "size": 22768,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7fcf8e03e0d65ebf502a723f143238dd79296ab5"
+    },
+    {
+      "path": "builds/engineer/power-mechanist",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "9db05dd1db54966f87d7f4173c4ca3832079ce43",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/9db05dd1db54966f87d7f4173c4ca3832079ce43"
+    },
+    {
+      "path": "builds/engineer/power-mechanist/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c3e567221fc341f5f6e92859aa3834064ccd4ee7",
+      "size": 18665,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c3e567221fc341f5f6e92859aa3834064ccd4ee7"
+    },
+    {
+      "path": "builds/engineer/power-scrapper",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "8fe2a71d2a23f6b328940c39988fafb6d15bd1b2",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/8fe2a71d2a23f6b328940c39988fafb6d15bd1b2"
+    },
+    {
+      "path": "builds/engineer/power-scrapper/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a292dbed32b1185cc2aec05fca4515d1808f55be",
+      "size": 25537,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a292dbed32b1185cc2aec05fca4515d1808f55be"
+    },
+    {
+      "path": "builds/guardian",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "216a5718c62fb85b9ad7246685403e4f37a52b34",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/216a5718c62fb85b9ad7246685403e4f37a52b34"
+    },
+    {
+      "path": "builds/guardian/celestial-firebrand",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "40ab651fa41b9329bf12e02bb9afe7d9fbc2a4c2",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/40ab651fa41b9329bf12e02bb9afe7d9fbc2a4c2"
+    },
+    {
+      "path": "builds/guardian/celestial-firebrand/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c5dd5185bbd75c358810d3858bde4fadd60d40a5",
+      "size": 27822,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c5dd5185bbd75c358810d3858bde4fadd60d40a5"
+    },
+    {
+      "path": "builds/guardian/condi-firebrand",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "f94ebe96df01ec8686087bd337c4b43ef313cde0",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/f94ebe96df01ec8686087bd337c4b43ef313cde0"
+    },
+    {
+      "path": "builds/guardian/condi-firebrand/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "283adbdad9be79fab41b4a4838ca0894a7a98f82",
+      "size": 35234,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/283adbdad9be79fab41b4a4838ca0894a7a98f82"
+    },
+    {
+      "path": "builds/guardian/condi-willbender",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "d31ddec8a4f1394ce6ca891035fdcc18438713a0",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/d31ddec8a4f1394ce6ca891035fdcc18438713a0"
+    },
+    {
+      "path": "builds/guardian/condi-willbender/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b5b73f41d51c7fdc79977a1ae10442e7288f3615",
+      "size": 21222,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b5b73f41d51c7fdc79977a1ae10442e7288f3615"
+    },
+    {
+      "path": "builds/guardian/gluttony-willbender",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "5a1554cff5e49455a36c5ed28486eca5357c9df6",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/5a1554cff5e49455a36c5ed28486eca5357c9df6"
+    },
+    {
+      "path": "builds/guardian/gluttony-willbender/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "620a9398fba6950eeae90f7d15341417a5145a55",
+      "size": 19559,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/620a9398fba6950eeae90f7d15341417a5145a55"
+    },
+    {
+      "path": "builds/guardian/heal-firebrand",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "cc2dbc00c50ecef1622393ed920c23d4225af3b1",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/cc2dbc00c50ecef1622393ed920c23d4225af3b1"
+    },
+    {
+      "path": "builds/guardian/heal-firebrand/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7579c4021515fc964d9849dac237e31e8aa98c79",
+      "size": 34569,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7579c4021515fc964d9849dac237e31e8aa98c79"
+    },
+    {
+      "path": "builds/guardian/healadin",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "081d2fb33d5d18d92e642bd43b4a6e53a3db5469",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/081d2fb33d5d18d92e642bd43b4a6e53a3db5469"
+    },
+    {
+      "path": "builds/guardian/healadin/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "06fb34b31a1c5353eac4d8a80c483351f9db1e11",
+      "size": 16842,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/06fb34b31a1c5353eac4d8a80c483351f9db1e11"
+    },
+    {
+      "path": "builds/guardian/power-dragonhunter",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "d2fbd27057c3c06c0f4db567e02113a618114bc3",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/d2fbd27057c3c06c0f4db567e02113a618114bc3"
+    },
+    {
+      "path": "builds/guardian/power-dragonhunter/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "53606b1d6e4d5558b8df476e18b2937658bb358c",
+      "size": 37722,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/53606b1d6e4d5558b8df476e18b2937658bb358c"
+    },
+    {
+      "path": "builds/guardian/power-firebrand",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3f5efe79548ebc263bd37ce26e2fecba50bccc19",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/3f5efe79548ebc263bd37ce26e2fecba50bccc19"
+    },
+    {
+      "path": "builds/guardian/power-firebrand/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "602aa4f55b633e226dccb3a1d9fad49d56b2ad26",
+      "size": 12119,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/602aa4f55b633e226dccb3a1d9fad49d56b2ad26"
+    },
+    {
+      "path": "builds/guardian/power-willbender",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e6f88e94e7e4589cfaa0cbe70823d60b1220cf79",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/e6f88e94e7e4589cfaa0cbe70823d60b1220cf79"
+    },
+    {
+      "path": "builds/guardian/power-willbender/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "893f081b4658d81968830f143d42c1ad89990096",
+      "size": 18786,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/893f081b4658d81968830f143d42c1ad89990096"
+    },
+    {
+      "path": "builds/mesmer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "bf016fd98c96771d11db5cd82fcbe1cbda1bc9c9",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/bf016fd98c96771d11db5cd82fcbe1cbda1bc9c9"
+    },
+    {
+      "path": "builds/mesmer/condi-mirage",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3929812e3b739b805eec1d85455d2a181fa41828",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/3929812e3b739b805eec1d85455d2a181fa41828"
+    },
+    {
+      "path": "builds/mesmer/condi-mirage/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "89815f57e864e7023facb947eba0fab3e93c850e",
+      "size": 8925,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/89815f57e864e7023facb947eba0fab3e93c850e"
+    },
+    {
+      "path": "builds/mesmer/condi-virtuoso",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "31e72023f805cfcfd81f9a76a0d0e5b06e2d34cf",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/31e72023f805cfcfd81f9a76a0d0e5b06e2d34cf"
+    },
+    {
+      "path": "builds/mesmer/condi-virtuoso/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d9a452ea04f7a92e752b1847b85075cd27710b3b",
+      "size": 17549,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d9a452ea04f7a92e752b1847b85075cd27710b3b"
+    },
+    {
+      "path": "builds/mesmer/heal-chronomancer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "a60ff68f7a0aa6c014f0975021e51d99e6838435",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/a60ff68f7a0aa6c014f0975021e51d99e6838435"
+    },
+    {
+      "path": "builds/mesmer/heal-chronomancer/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f616ca3fd10f9602befc6cc6f069b3fea1b23cab",
+      "size": 41638,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/f616ca3fd10f9602befc6cc6f069b3fea1b23cab"
+    },
+    {
+      "path": "builds/mesmer/power-chronomancer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "914bdf50860eeea3a3d4e8e959ac40a8fba4ba80",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/914bdf50860eeea3a3d4e8e959ac40a8fba4ba80"
+    },
+    {
+      "path": "builds/mesmer/power-chronomancer/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4fc159332cbd7be2d2ff2677d94cfaeec4f99fdf",
+      "size": 21312,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4fc159332cbd7be2d2ff2677d94cfaeec4f99fdf"
+    },
+    {
+      "path": "builds/mesmer/power-virtuoso",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "5d7e5db795e888daa6544e8302e70385a500c1d6",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/5d7e5db795e888daa6544e8302e70385a500c1d6"
+    },
+    {
+      "path": "builds/mesmer/power-virtuoso/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bbe6a86e89987d49a60a8c70f01cdb953808baf0",
+      "size": 47851,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/bbe6a86e89987d49a60a8c70f01cdb953808baf0"
+    },
+    {
+      "path": "builds/necromancer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b099d899a6c8f0913ee02991f27aa0b96a2bfb0e",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b099d899a6c8f0913ee02991f27aa0b96a2bfb0e"
+    },
+    {
+      "path": "builds/necromancer/celestial-scourge",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4acb6218bc2456c667c197ead9d2ad067442a6b0",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/4acb6218bc2456c667c197ead9d2ad067442a6b0"
+    },
+    {
+      "path": "builds/necromancer/celestial-scourge/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5622569fd948853d8f11b6d617be33661d6d4c69",
+      "size": 18319,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5622569fd948853d8f11b6d617be33661d6d4c69"
+    },
+    {
+      "path": "builds/necromancer/condi-harbinger",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3600f04719d73855f1d57299c1d10c24324d4d80",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/3600f04719d73855f1d57299c1d10c24324d4d80"
+    },
+    {
+      "path": "builds/necromancer/condi-harbinger/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b31416f1826c05d01c517a6f188a384553d51d04",
+      "size": 23767,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b31416f1826c05d01c517a6f188a384553d51d04"
+    },
+    {
+      "path": "builds/necromancer/condi-scourge",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "8b5fefe95ac72b5f441e12a3ecca0f11f822be04",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/8b5fefe95ac72b5f441e12a3ecca0f11f822be04"
+    },
+    {
+      "path": "builds/necromancer/condi-scourge/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "027ca075d28962dea3bfa07511c6d15176748875",
+      "size": 20128,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/027ca075d28962dea3bfa07511c6d15176748875"
+    },
+    {
+      "path": "builds/necromancer/power-reaper",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "db7c58fded182cb9c6183b85d934955a1abf43ae",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/db7c58fded182cb9c6183b85d934955a1abf43ae"
+    },
+    {
+      "path": "builds/necromancer/power-reaper/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7035f840c577c63dd4996f26a2b0663e0c4e16d6",
+      "size": 16931,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7035f840c577c63dd4996f26a2b0663e0c4e16d6"
+    },
+    {
+      "path": "builds/ranger",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "349d5d60cc0b2f9528b824794f4c637b51bf1432",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/349d5d60cc0b2f9528b824794f4c637b51bf1432"
+    },
+    {
+      "path": "builds/ranger/condi-soulbeast",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "7aefc25b440aa826f2af0fc21de3e0a6cbcf4142",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/7aefc25b440aa826f2af0fc21de3e0a6cbcf4142"
+    },
+    {
+      "path": "builds/ranger/condi-soulbeast/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "491fbf55cc90c7464e59ba02d684ec89aac3da16",
+      "size": 24809,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/491fbf55cc90c7464e59ba02d684ec89aac3da16"
+    },
+    {
+      "path": "builds/ranger/hybrid-soulbeast",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "8908abdb10db4307873a584144afffc97f9b06ce",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/8908abdb10db4307873a584144afffc97f9b06ce"
+    },
+    {
+      "path": "builds/ranger/hybrid-soulbeast/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a3f01513ac78970971d935e3c004b378f95d97d4",
+      "size": 12989,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a3f01513ac78970971d935e3c004b378f95d97d4"
+    },
+    {
+      "path": "builds/ranger/power-soulbeast",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b5fee7f612afe8568f4aa520a3040b0f17589f01",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b5fee7f612afe8568f4aa520a3040b0f17589f01"
+    },
+    {
+      "path": "builds/ranger/power-soulbeast/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6d3b3eba930f7a5f6e25c171e59b2ff441ca7228",
+      "size": 30932,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6d3b3eba930f7a5f6e25c171e59b2ff441ca7228"
+    },
+    {
+      "path": "builds/revenant",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c9ab102020d32e5b82c8f5f2079d7fa99c5724d0",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/c9ab102020d32e5b82c8f5f2079d7fa99c5724d0"
+    },
+    {
+      "path": "builds/revenant/condi-alac-renegade",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "9fbf1a7cc2951038387994537e71dd509ce68161",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/9fbf1a7cc2951038387994537e71dd509ce68161"
+    },
+    {
+      "path": "builds/revenant/condi-alac-renegade/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a7522e74e97189529f029f7ad536c1734798506b",
+      "size": 24553,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a7522e74e97189529f029f7ad536c1734798506b"
+    },
+    {
+      "path": "builds/revenant/heal-renegade",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b9806b040fd6ba0b92ac03e16cc624d5df9a4380",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b9806b040fd6ba0b92ac03e16cc624d5df9a4380"
+    },
+    {
+      "path": "builds/revenant/heal-renegade/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8a38a3e5ca3c46392349f35fb321b864c126943c",
+      "size": 12177,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8a38a3e5ca3c46392349f35fb321b864c126943c"
+    },
+    {
+      "path": "builds/revenant/power-herald",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "06d812daeaa997553258cf6d000d029c827dd068",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/06d812daeaa997553258cf6d000d029c827dd068"
+    },
+    {
+      "path": "builds/revenant/power-herald/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b589a4c0ea90124683ae9c4af3a6bf1603d9f0a5",
+      "size": 24801,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b589a4c0ea90124683ae9c4af3a6bf1603d9f0a5"
+    },
+    {
+      "path": "builds/revenant/power-renegade",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "5bbbfc38133de2de4619b942109380981e89bc6b",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/5bbbfc38133de2de4619b942109380981e89bc6b"
+    },
+    {
+      "path": "builds/revenant/power-renegade/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ce9a0b929317ff2e1fb30c7b009a005230106225",
+      "size": 35922,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ce9a0b929317ff2e1fb30c7b009a005230106225"
+    },
+    {
+      "path": "builds/thief",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "880be0df4781f3c39deaa48b7dcd4c4ddee966b7",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/880be0df4781f3c39deaa48b7dcd4c4ddee966b7"
+    },
+    {
+      "path": "builds/thief/condi-deadeye",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "773be93dc8eb39744dc6bb6d7366e4527e363ca8",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/773be93dc8eb39744dc6bb6d7366e4527e363ca8"
+    },
+    {
+      "path": "builds/thief/condi-deadeye/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0f18cafd9ff2928f994d1c3aca7a67dcd364b7c9",
+      "size": 15365,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0f18cafd9ff2928f994d1c3aca7a67dcd364b7c9"
+    },
+    {
+      "path": "builds/thief/condi-specter",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "00e50d9827457a6ea348c1cf4f395b01cd31dd1c",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/00e50d9827457a6ea348c1cf4f395b01cd31dd1c"
+    },
+    {
+      "path": "builds/thief/condi-specter/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fa75ff4c1cb03e8d1e49e225ae55e0e451ef8ca7",
+      "size": 23236,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/fa75ff4c1cb03e8d1e49e225ae55e0e451ef8ca7"
+    },
+    {
+      "path": "builds/thief/power-daredevil",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "2a23d7ce00e692aefc503a3f0d68bd62c6e4796b",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/2a23d7ce00e692aefc503a3f0d68bd62c6e4796b"
+    },
+    {
+      "path": "builds/thief/power-daredevil/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "32fbbbb6e6af6405a998966e844ca2214089901c",
+      "size": 15086,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/32fbbbb6e6af6405a998966e844ca2214089901c"
+    },
+    {
+      "path": "builds/warrior",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "09e538e4c19bbfd96b0273f10c521c6c8904df94",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/09e538e4c19bbfd96b0273f10c521c6c8904df94"
+    },
+    {
+      "path": "builds/warrior/power-berserker",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "ed1de856e5f81c820a72f3c0553789d68d16ab92",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/ed1de856e5f81c820a72f3c0553789d68d16ab92"
+    },
+    {
+      "path": "builds/warrior/power-berserker/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "70990b6fd8ac97a7f8ca962ee1a2d33f6dd36215",
+      "size": 15301,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/70990b6fd8ac97a7f8ca962ee1a2d33f6dd36215"
+    },
+    {
+      "path": "builds/warrior/power-bladesworn",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "fda31ba4a8a304a307d7b97ba68c0c9282ad1f5d",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/fda31ba4a8a304a307d7b97ba68c0c9282ad1f5d"
+    },
+    {
+      "path": "builds/warrior/power-bladesworn/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "193bf99e11d117762fc6707a4935617598c757c3",
+      "size": 11256,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/193bf99e11d117762fc6707a4935617598c757c3"
+    },
+    {
+      "path": "builds/warrior/power-spellbreaker",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "51ba5f87be94317f33c50d9ad6bd3b7133be7008",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/51ba5f87be94317f33c50d9ad6bd3b7133be7008"
+    },
+    {
+      "path": "builds/warrior/power-spellbreaker/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3a4575de9f283bfe3c344bfab05cb51a7a74c6ce",
+      "size": 7457,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/3a4575de9f283bfe3c344bfab05cb51a7a74c6ce"
+    },
+    {
+      "path": "builds/warrior/power-warrior",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b6dc42e612a9f0a13e26927be16e921e03e4b73f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b6dc42e612a9f0a13e26927be16e921e03e4b73f"
+    },
+    {
+      "path": "builds/warrior/power-warrior/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c0859e6bcb4055c901a9397eca3e179a24ac7930",
+      "size": 10952,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c0859e6bcb4055c901a9397eca3e179a24ac7930"
+    },
+    {
+      "path": "cm-guides",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "9cdae131eb7a46e343ecccc959decee3e4935753",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/9cdae131eb7a46e343ecccc959decee3e4935753"
+    },
+    {
+      "path": "cm-guides/elementalist",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c1b81d01293ff5408399a7ddb61983bcad7a3f3f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/c1b81d01293ff5408399a7ddb61983bcad7a3f3f"
+    },
+    {
+      "path": "cm-guides/elementalist/power-weaver",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "5c19265c500623da8ac3884dd554506b5505f7ec",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/5c19265c500623da8ac3884dd554506b5505f7ec"
+    },
+    {
+      "path": "cm-guides/elementalist/power-weaver/pug.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8980971472d60e5ebbc2cf2af0b0e934cf6b44d7",
+      "size": 21968,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8980971472d60e5ebbc2cf2af0b0e934cf6b44d7"
+    },
+    {
+      "path": "cm-guides/elementalist/power-weaver/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7c1de4d4cd2e6316300aae05462d0ca2d232df51",
+      "size": 25324,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7c1de4d4cd2e6316300aae05462d0ca2d232df51"
+    },
+    {
+      "path": "cm-guides/engineer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "872a2a451407b1e5abf2a806b7976255df6f3d64",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/872a2a451407b1e5abf2a806b7976255df6f3d64"
+    },
+    {
+      "path": "cm-guides/engineer/power-scrapper",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "f217ca5c3eaa2bf8beca9b1bc037903508e82270",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/f217ca5c3eaa2bf8beca9b1bc037903508e82270"
+    },
+    {
+      "path": "cm-guides/engineer/power-scrapper/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "37bfed238295eea78e51506e42dd96d1d81e7ae3",
+      "size": 40066,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/37bfed238295eea78e51506e42dd96d1d81e7ae3"
+    },
+    {
+      "path": "cm-guides/guardian",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "13d3e40dc14d2ba33ce3c8f7b9f164d843f8539e",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/13d3e40dc14d2ba33ce3c8f7b9f164d843f8539e"
+    },
+    {
+      "path": "cm-guides/guardian/heal-firebrand",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "847499695a86dfb4d175f21f62e38a3b108f9a6d",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/847499695a86dfb4d175f21f62e38a3b108f9a6d"
+    },
+    {
+      "path": "cm-guides/guardian/heal-firebrand/pug.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8dd696ff2a7e36732a2fc52567129ec721c0543f",
+      "size": 67000,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8dd696ff2a7e36732a2fc52567129ec721c0543f"
+    },
+    {
+      "path": "cm-guides/guardian/power-dragonhunter",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "ed326bb25d67dbd0ab564331a57a4b0ae6bc4f1a",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/ed326bb25d67dbd0ab564331a57a4b0ae6bc4f1a"
+    },
+    {
+      "path": "cm-guides/guardian/power-dragonhunter/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c67fc33bdb566c2d5b1cdc7e1f72be2405b37c66",
+      "size": 40372,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c67fc33bdb566c2d5b1cdc7e1f72be2405b37c66"
+    },
+    {
+      "path": "cm-guides/guardian/power-firebrand",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "74b75bcd76a166c8188dbb7984df69a398b923dc",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/74b75bcd76a166c8188dbb7984df69a398b923dc"
+    },
+    {
+      "path": "cm-guides/guardian/power-firebrand/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b95cb925aa07633d0386f92af9f4dc73d388b810",
+      "size": 33147,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b95cb925aa07633d0386f92af9f4dc73d388b810"
+    },
+    {
+      "path": "cm-guides/necromancer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3fa88fd246e559e75d46c0e86846f1909eddf4ce",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/3fa88fd246e559e75d46c0e86846f1909eddf4ce"
+    },
+    {
+      "path": "cm-guides/necromancer/power-reaper",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "5467d4e958a7cee8dbb6a67fe902a89f3200413a",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/5467d4e958a7cee8dbb6a67fe902a89f3200413a"
+    },
+    {
+      "path": "cm-guides/necromancer/power-reaper/pug.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3435d15d5e2871507137f1eee4b3bc426bff0f4f",
+      "size": 21780,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/3435d15d5e2871507137f1eee4b3bc426bff0f4f"
+    },
+    {
+      "path": "cm-guides/ranger",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "41b5c12babd6b10d4d0b15e432ac5a7cb691ad1f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/41b5c12babd6b10d4d0b15e432ac5a7cb691ad1f"
+    },
+    {
+      "path": "cm-guides/ranger/condi-soulbeast",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "7ba8afd2d2df1211e8bd442ec967e0aeb21e30b0",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/7ba8afd2d2df1211e8bd442ec967e0aeb21e30b0"
+    },
+    {
+      "path": "cm-guides/ranger/condi-soulbeast/pug.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d6e936e99a212d7f7ea149e101ffee25f55c7dc9",
+      "size": 14341,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d6e936e99a212d7f7ea149e101ffee25f55c7dc9"
+    },
+    {
+      "path": "cm-guides/ranger/condi-soulbeast/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "737cffd43eee4f80f4bd55882d4f528487639cd6",
+      "size": 13372,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/737cffd43eee4f80f4bd55882d4f528487639cd6"
+    },
+    {
+      "path": "cm-guides/ranger/power-soulbeast",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "dc570446e6d7068dbd79f87426e6f174a3c5b785",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/dc570446e6d7068dbd79f87426e6f174a3c5b785"
+    },
+    {
+      "path": "cm-guides/ranger/power-soulbeast/pug.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "89bb5e423dd076f400b7c3eb145bb97e27addf7c",
+      "size": 28667,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/89bb5e423dd076f400b7c3eb145bb97e27addf7c"
+    },
+    {
+      "path": "cm-guides/ranger/power-soulbeast/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c8b108986c5129932df31345f07a4e7164123d40",
+      "size": 38383,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c8b108986c5129932df31345f07a4e7164123d40"
+    },
+    {
+      "path": "cm-guides/revenant",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "fea2c68c60c2f9f8683b1f233cfc5c0bc5541a91",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/fea2c68c60c2f9f8683b1f233cfc5c0bc5541a91"
+    },
+    {
+      "path": "cm-guides/revenant/power-renegade",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "716820992ec528615ea6b54252e05f16b2400fa6",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/716820992ec528615ea6b54252e05f16b2400fa6"
+    },
+    {
+      "path": "cm-guides/revenant/power-renegade/pug.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "892339a0ddb41b28ae07cc310c98506769bdb181",
+      "size": 29846,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/892339a0ddb41b28ae07cc310c98506769bdb181"
+    },
+    {
+      "path": "cm-guides/revenant/power-renegade/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d53c9bac1ff2211a044a03a74fe58b11d309179f",
+      "size": 49572,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d53c9bac1ff2211a044a03a74fe58b11d309179f"
+    },
+    {
+      "path": "cm-guides/warrior",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4274e2482a974050bc42e44359570816feaa7ebe",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/4274e2482a974050bc42e44359570816feaa7ebe"
+    },
+    {
+      "path": "cm-guides/warrior/power-berserker",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "8c455a20eb084592652442be5d3f5533e777d282",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/8c455a20eb084592652442be5d3f5533e777d282"
+    },
+    {
+      "path": "cm-guides/warrior/power-berserker/pug.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f6764285b921d44731f7c864de830f82b4a0f83",
+      "size": 12702,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7f6764285b921d44731f7c864de830f82b4a0f83"
+    },
+    {
+      "path": "cm-guides/warrior/power-berserker/static.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8515aaf69a04871b64cc88458623eaf787545c83",
+      "size": 14280,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8515aaf69a04871b64cc88458623eaf787545c83"
+    },
+    {
+      "path": "fractals",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "52d46e5541ad5d411993b936e524a30fc5ae0e25",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/52d46e5541ad5d411993b936e524a30fc5ae0e25"
+    },
+    {
+      "path": "fractals/aetherblade",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "aed6f4ec8e56a941b3ef3daea59fe74bab32392a",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/aed6f4ec8e56a941b3ef3daea59fe74bab32392a"
+    },
+    {
+      "path": "fractals/aetherblade/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "339141bbadef4bc302286e0e91263f62d1943402",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/339141bbadef4bc302286e0e91263f62d1943402"
+    },
+    {
+      "path": "fractals/aetherblade/images/frizz.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "54fbfac6cd930f79f9ea101ff878ad9e5f039c6c",
+      "size": 499001,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/54fbfac6cd930f79f9ea101ff878ad9e5f039c6c"
+    },
+    {
+      "path": "fractals/aetherblade/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a772a1a3a9f5d8c2e31be0033fc5ad8058f158ba",
+      "size": 369185,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a772a1a3a9f5d8c2e31be0033fc5ad8058f158ba"
+    },
+    {
+      "path": "fractals/aetherblade/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dd38c937c3c1c5642f8086a22b7321c53066681f",
+      "size": 485123,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/dd38c937c3c1c5642f8086a22b7321c53066681f"
+    },
+    {
+      "path": "fractals/aetherblade/images/moving_lasers.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c2c4e3e2f674e459351049c5e39e3470153852a7",
+      "size": 487322,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c2c4e3e2f674e459351049c5e39e3470153852a7"
+    },
+    {
+      "path": "fractals/aetherblade/images/spinning_lasers.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8bd6081b48e0bea2d0bd6bf5b97930facb520510",
+      "size": 496707,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8bd6081b48e0bea2d0bd6bf5b97930facb520510"
+    },
+    {
+      "path": "fractals/aetherblade/images/start.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3a9016474f4b73d575de1fc7fee75f57ee205c42",
+      "size": 352493,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/3a9016474f4b73d575de1fc7fee75f57ee205c42"
+    },
+    {
+      "path": "fractals/aetherblade/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bbec9f288ef5e86bcd975f4f303a93fe596f05dc",
+      "size": 9418,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/bbec9f288ef5e86bcd975f4f303a93fe596f05dc"
+    },
+    {
+      "path": "fractals/aquatic-ruins",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "7bca37da7f2c06bb403b52563e19ec156a0d7406",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/7bca37da7f2c06bb403b52563e19ec156a0d7406"
+    },
+    {
+      "path": "fractals/aquatic-ruins/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "bcc099a970365917e2e1a6b47922c7e53f89f280",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/bcc099a970365917e2e1a6b47922c7e53f89f280"
+    },
+    {
+      "path": "fractals/aquatic-ruins/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0aeddabd77987ee11080ccacbb645e113a4e9a01",
+      "size": 219550,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0aeddabd77987ee11080ccacbb645e113a4e9a01"
+    },
+    {
+      "path": "fractals/aquatic-ruins/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "27552d85a8e32745cc7e510ab860049a8913988c",
+      "size": 295015,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/27552d85a8e32745cc7e510ab860049a8913988c"
+    },
+    {
+      "path": "fractals/aquatic-ruins/images/the_jellyfish_beast.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cd9163cdbe849d0bf55044c52db43fdcd0f9b1d9",
+      "size": 287408,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/cd9163cdbe849d0bf55044c52db43fdcd0f9b1d9"
+    },
+    {
+      "path": "fractals/aquatic-ruins/images/trapped_villagers.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "19c1e94090f994a1ed8e8b2123957c41162699cd",
+      "size": 309462,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/19c1e94090f994a1ed8e8b2123957c41162699cd"
+    },
+    {
+      "path": "fractals/aquatic-ruins/images/wooden_rack.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "883739048d0a48e5f8fe659274520d7be2663238",
+      "size": 506268,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/883739048d0a48e5f8fe659274520d7be2663238"
+    },
+    {
+      "path": "fractals/aquatic-ruins/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "262f120c00060a4445b06719b0c1b7cc3fa9914b",
+      "size": 9607,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/262f120c00060a4445b06719b0c1b7cc3fa9914b"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "be8faf102c99b9b2385863b03d871fd1fe661f1b",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/be8faf102c99b9b2385863b03d871fd1fe661f1b"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "025a0ff45bc1a8b780f11f67642774733c1f8cc7",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/025a0ff45bc1a8b780f11f67642774733c1f8cc7"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/images/Electric_blast.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a16f2aa5be44ab7264590be47b3250d3b05eeeea",
+      "size": 21278,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a16f2aa5be44ab7264590be47b3250d3b05eeeea"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "281d1f50d961be6675c4662190743ccb5073bff5",
+      "size": 337529,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/281d1f50d961be6675c4662190743ccb5073bff5"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a825acc2d151f035b99a3fe4cd5e2067f415ac2a",
+      "size": 466103,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a825acc2d151f035b99a3fe4cd5e2067f415ac2a"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/images/horrik.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "30f6b6a5a88a6e2d58905d9b77f0be735e3f6258",
+      "size": 465219,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/30f6b6a5a88a6e2d58905d9b77f0be735e3f6258"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/images/mai_trin.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "729c7331d26be3268cb6ab04958cb92141b5deca",
+      "size": 510982,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/729c7331d26be3268cb6ab04958cb92141b5deca"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/images/start.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "57de24a0cae562feb1254acd0047bb1228132777",
+      "size": 525131,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/57de24a0cae562feb1254acd0047bb1228132777"
+    },
+    {
+      "path": "fractals/captain-mai-trin-boss/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7a088c32eff2fa25395c013f82c57e9a1ad2d385",
+      "size": 4615,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7a088c32eff2fa25395c013f82c57e9a1ad2d385"
+    },
+    {
+      "path": "fractals/chaos-isles",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3485a1bf44bf0c92c3f8ff605a26cde58cd66b8d",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/3485a1bf44bf0c92c3f8ff605a26cde58cd66b8d"
+    },
+    {
+      "path": "fractals/chaos-isles/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1a61f5bd87c8b989808f1963fde1c235646cbc72",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/1a61f5bd87c8b989808f1963fde1c235646cbc72"
+    },
+    {
+      "path": "fractals/chaos-isles/images/forest.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b6fc8b57384cb0324bee4bfbabfd389e14f7d330",
+      "size": 454585,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b6fc8b57384cb0324bee4bfbabfd389e14f7d330"
+    },
+    {
+      "path": "fractals/chaos-isles/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0b744a9b115ea0325b1f35d4d3f99cb1c7e39160",
+      "size": 309099,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0b744a9b115ea0325b1f35d4d3f99cb1c7e39160"
+    },
+    {
+      "path": "fractals/chaos-isles/images/kitty_golems.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0af02724ac468423597bc68258cdfcc1d58748d4",
+      "size": 521994,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0af02724ac468423597bc68258cdfcc1d58748d4"
+    },
+    {
+      "path": "fractals/chaos-isles/images/legendary_brazen_gladiator.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e8226fdce9403163f20ae493f451e78a390d3174",
+      "size": 410637,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/e8226fdce9403163f20ae493f451e78a390d3174"
+    },
+    {
+      "path": "fractals/chaos-isles/images/start.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c66418d50e81d93fa4215f56f358a71a2ecfa33b",
+      "size": 532191,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c66418d50e81d93fa4215f56f358a71a2ecfa33b"
+    },
+    {
+      "path": "fractals/chaos-isles/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0bdd4a8ff5392a541b3921aa87304fb1db807daf",
+      "size": 6742,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0bdd4a8ff5392a541b3921aa87304fb1db807daf"
+    },
+    {
+      "path": "fractals/cliffside",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "0d657106e8acc6a704b86238dd031071497b4f2f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/0d657106e8acc6a704b86238dd031071497b4f2f"
+    },
+    {
+      "path": "fractals/cliffside/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "9d3636f38cd42cefa4c42bb836c5d81a7b3ff671",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/9d3636f38cd42cefa4c42bb836c5d81a7b3ff671"
+    },
+    {
+      "path": "fractals/cliffside/images/ankle_seals.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b61d1355e68d433868cb9e0dbee82372e9099bc9",
+      "size": 573487,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b61d1355e68d433868cb9e0dbee82372e9099bc9"
+    },
+    {
+      "path": "fractals/cliffside/images/arch_diviner.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a482765da5198fc230c546006d3851e10a01742e",
+      "size": 525283,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a482765da5198fc230c546006d3851e10a01742e"
+    },
+    {
+      "path": "fractals/cliffside/images/arm_seal.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1f9d12add706ffc031bfddcb3c64663885ff54f2",
+      "size": 548736,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/1f9d12add706ffc031bfddcb3c64663885ff54f2"
+    },
+    {
+      "path": "fractals/cliffside/images/chest_seal.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c9e5bf6d34b5d158a44103c7df263f72919d7325",
+      "size": 438250,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c9e5bf6d34b5d158a44103c7df263f72919d7325"
+    },
+    {
+      "path": "fractals/cliffside/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "692a5e371df304e4c4fe22e7ef109f618fb8223f",
+      "size": 360054,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/692a5e371df304e4c4fe22e7ef109f618fb8223f"
+    },
+    {
+      "path": "fractals/cliffside/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c85827b0f659b00ba50dd80825c32f66b10c10f7",
+      "size": 481217,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c85827b0f659b00ba50dd80825c32f66b10c10f7"
+    },
+    {
+      "path": "fractals/cliffside/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e82fc5a5ea765413602a36a183ae992886fb983e",
+      "size": 8474,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/e82fc5a5ea765413602a36a183ae992886fb983e"
+    },
+    {
+      "path": "fractals/deepstone",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b0490784c9f675b7bd235a7bf35d995e08074e30",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b0490784c9f675b7bd235a7bf35d995e08074e30"
+    },
+    {
+      "path": "fractals/deepstone/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "770b0a43199f913e60ccf038a8fe2c427ec74130",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/770b0a43199f913e60ccf038a8fe2c427ec74130"
+    },
+    {
+      "path": "fractals/deepstone/images/deepstone_middle_room.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "91e87d53e1a2756d71f2bfc0447fbe03a5f2a0c4",
+      "size": 1233283,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/91e87d53e1a2756d71f2bfc0447fbe03a5f2a0c4"
+    },
+    {
+      "path": "fractals/deepstone/images/deepstone_sentinel.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4b472b8676ce6d0600a2b8dd77219e6846be53c6",
+      "size": 868018,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4b472b8676ce6d0600a2b8dd77219e6846be53c6"
+    },
+    {
+      "path": "fractals/deepstone/images/disappearing_tiles.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d618ef6ee9f187c84b4ce1a254a9bd8d120475ab",
+      "size": 795357,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d618ef6ee9f187c84b4ce1a254a9bd8d120475ab"
+    },
+    {
+      "path": "fractals/deepstone/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a4f516ddcc3769f31611918e72fd94f6929323bc",
+      "size": 1597132,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a4f516ddcc3769f31611918e72fd94f6929323bc"
+    },
+    {
+      "path": "fractals/deepstone/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8b1495a9952bfeb45fe8a06f0b0e631d6d270841",
+      "size": 1349222,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8b1495a9952bfeb45fe8a06f0b0e631d6d270841"
+    },
+    {
+      "path": "fractals/deepstone/images/maze.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "db238785c287a11e8bac90dc3538050d3194e3c8",
+      "size": 1895247,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/db238785c287a11e8bac90dc3538050d3194e3c8"
+    },
+    {
+      "path": "fractals/deepstone/images/the_brood_queen.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "39961fd8d14ee07579da52f55ef460d9e1443e38",
+      "size": 1161121,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/39961fd8d14ee07579da52f55ef460d9e1443e38"
+    },
+    {
+      "path": "fractals/deepstone/images/the_voice.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cfcf239c4be003faf568e16e75fdad68b757c995",
+      "size": 1192434,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/cfcf239c4be003faf568e16e75fdad68b757c995"
+    },
+    {
+      "path": "fractals/deepstone/images/windy_bridge.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ead9c77b31a178ec92279204f1a4e4af896bc6d7",
+      "size": 1598729,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ead9c77b31a178ec92279204f1a4e4af896bc6d7"
+    },
+    {
+      "path": "fractals/deepstone/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b23db72df5f8e7886641f9ff5cb87e7d2ba0de46",
+      "size": 10415,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b23db72df5f8e7886641f9ff5cb87e7d2ba0de46"
+    },
+    {
+      "path": "fractals/lonely-tower",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "64dd00f8f2fbd308fed34f4007509de1d141b00f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/64dd00f8f2fbd308fed34f4007509de1d141b00f"
+    },
+    {
+      "path": "fractals/lonely-tower/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "092e5acaada261fb26e71c5610591dda44fefc81",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/092e5acaada261fb26e71c5610591dda44fefc81"
+    },
+    {
+      "path": "fractals/lonely-tower/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "419636ed10bb613874b5a74789bf9fb080cf383f",
+      "size": 167439,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/419636ed10bb613874b5a74789bf9fb080cf383f"
+    },
+    {
+      "path": "fractals/lonely-tower/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "19eeadfb613568daa2e08adc0250f7488410bc0f",
+      "size": 22129,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/19eeadfb613568daa2e08adc0250f7488410bc0f"
+    },
+    {
+      "path": "fractals/molten-boss",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "73ad5cd72f13993e413a0e083b6c0e6834ab40b0",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/73ad5cd72f13993e413a0e083b6c0e6834ab40b0"
+    },
+    {
+      "path": "fractals/molten-boss/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "46793048c70af95970cc1b6d56b4e1656fb53792",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/46793048c70af95970cc1b6d56b4e1656fb53792"
+    },
+    {
+      "path": "fractals/molten-boss/images/endboss.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4cf2dbeb65d2822191cc4217280734e68ccf31bc",
+      "size": 440907,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4cf2dbeb65d2822191cc4217280734e68ccf31bc"
+    },
+    {
+      "path": "fractals/molten-boss/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "82d1a251ff428d4c56f18f53fc1602f916d7e453",
+      "size": 425565,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/82d1a251ff428d4c56f18f53fc1602f916d7e453"
+    },
+    {
+      "path": "fractals/molten-boss/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "daf958d782992c84354c6f5862d0217c212a42d1",
+      "size": 589144,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/daf958d782992c84354c6f5862d0217c212a42d1"
+    },
+    {
+      "path": "fractals/molten-boss/images/molten_effigy.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b03b3b2dc7a492542b802e2d998d2ad483dd3f71",
+      "size": 491352,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b03b3b2dc7a492542b802e2d998d2ad483dd3f71"
+    },
+    {
+      "path": "fractals/molten-boss/images/start.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d0758c73b2f39519142afc7a778dcd479b9942c3",
+      "size": 524562,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d0758c73b2f39519142afc7a778dcd479b9942c3"
+    },
+    {
+      "path": "fractals/molten-boss/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a0714d901df1343c156e8466d610ab1d7b714dc1",
+      "size": 5363,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a0714d901df1343c156e8466d610ab1d7b714dc1"
+    },
+    {
+      "path": "fractals/molten-furnace",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b26d1b616dc80dfb672473f253368e97bb43bb7c",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b26d1b616dc80dfb672473f253368e97bb43bb7c"
+    },
+    {
+      "path": "fractals/molten-furnace/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "ee00a51613e941a4815247ad058fa841390a264e",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/ee00a51613e941a4815247ad058fa841390a264e"
+    },
+    {
+      "path": "fractals/molten-furnace/images/drill.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d607247806cec1957ee3603cde0bc4e921a584e8",
+      "size": 342260,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d607247806cec1957ee3603cde0bc4e921a584e8"
+    },
+    {
+      "path": "fractals/molten-furnace/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a747f74746523d3a93172ce4e0f21735ccec98e1",
+      "size": 334997,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a747f74746523d3a93172ce4e0f21735ccec98e1"
+    },
+    {
+      "path": "fractals/molten-furnace/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6b2fc3af4c72b688347153f13db3f044d8c3725f",
+      "size": 443793,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6b2fc3af4c72b688347153f13db3f044d8c3725f"
+    },
+    {
+      "path": "fractals/molten-furnace/images/portal.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fc5010c8aec68d439b00f8d338d4b11afefa92d7",
+      "size": 314764,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/fc5010c8aec68d439b00f8d338d4b11afefa92d7"
+    },
+    {
+      "path": "fractals/molten-furnace/images/start_area.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "52f43fd368c7159e709f4678c810da570233faec",
+      "size": 296393,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/52f43fd368c7159e709f4678c810da570233faec"
+    },
+    {
+      "path": "fractals/molten-furnace/images/testing_area.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2ba2ad247fbd671ec08511231671bd14d31f06cf",
+      "size": 382482,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/2ba2ad247fbd671ec08511231671bd14d31f06cf"
+    },
+    {
+      "path": "fractals/molten-furnace/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c558c8a1b56ed6d10b4db1d1316c153d757d89f2",
+      "size": 4457,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c558c8a1b56ed6d10b4db1d1316c153d757d89f2"
+    },
+    {
+      "path": "fractals/nightmare",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1a2a54e22740c34732f73be82a40bb4f85c344b5",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/1a2a54e22740c34732f73be82a40bb4f85c344b5"
+    },
+    {
+      "path": "fractals/nightmare/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "fa8e5d8d145d4d905fa0d0c29fde60aceb1bafa9",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/fa8e5d8d145d4d905fa0d0c29fde60aceb1bafa9"
+    },
+    {
+      "path": "fractals/nightmare/images/altars.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b5514cdfbf85efcdb5b162a82741d310a9a854fe",
+      "size": 507802,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b5514cdfbf85efcdb5b162a82741d310a9a854fe"
+    },
+    {
+      "path": "fractals/nightmare/images/ensolyss.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f165ac060f0d4d77f49c7909153c03e9fe7d1680",
+      "size": 589567,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/f165ac060f0d4d77f49c7909153c03e9fe7d1680"
+    },
+    {
+      "path": "fractals/nightmare/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f84f757a0671c8bb8e24508c07e36a25f68aa537",
+      "size": 222118,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/f84f757a0671c8bb8e24508c07e36a25f68aa537"
+    },
+    {
+      "path": "fractals/nightmare/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "858221f9f18dd874dd3b69e56084eb56d85a4887",
+      "size": 287408,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/858221f9f18dd874dd3b69e56084eb56d85a4887"
+    },
+    {
+      "path": "fractals/nightmare/images/mama.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "90ed0e49165a20ad3cf5830a413db2add58022a3",
+      "size": 495985,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/90ed0e49165a20ad3cf5830a413db2add58022a3"
+    },
+    {
+      "path": "fractals/nightmare/images/siax.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "34a11e0e9b09a9e45283ab7acfe252a2686120b3",
+      "size": 471395,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/34a11e0e9b09a9e45283ab7acfe252a2686120b3"
+    },
+    {
+      "path": "fractals/nightmare/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3d8a28a5bd103ed187a5b4ec95973d74220ebb87",
+      "size": 14719,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/3d8a28a5bd103ed187a5b4ec95973d74220ebb87"
+    },
+    {
+      "path": "fractals/shattered-observatory",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "51c575bc263a75cd2b1f2b70bfe861b54d2e2723",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/51c575bc263a75cd2b1f2b70bfe861b54d2e2723"
+    },
+    {
+      "path": "fractals/shattered-observatory/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "417b49124a7c8e5c22d404de4f5d4a7575adb41a",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/417b49124a7c8e5c22d404de4f5d4a7575adb41a"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/arkk.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7d232ddbe109b8b5b592b38aad8433300920ee20",
+      "size": 465552,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7d232ddbe109b8b5b592b38aad8433300920ee20"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/artsariiv.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "72dd0d97b96dcd32712cc05e4bbd6e065d0e7d13",
+      "size": 293271,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/72dd0d97b96dcd32712cc05e4bbd6e065d0e7d13"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/elite-flux-anomaly.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "26be8cca0f623cedf44aa2baa1b15310dc768a6b",
+      "size": 22254,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/26be8cca0f623cedf44aa2baa1b15310dc768a6b"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7fb970e823b55d8a97d9349778cab163a405258d",
+      "size": 290672,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7fb970e823b55d8a97d9349778cab163a405258d"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2a785b423cfd6286ba9422f2a758a224d03b0c0d",
+      "size": 414669,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/2a785b423cfd6286ba9422f2a758a224d03b0c0d"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/intermediate_part.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0f6deff5feb04555ef9956d201764ce3e5e9e0c7",
+      "size": 367817,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0f6deff5feb04555ef9956d201764ce3e5e9e0c7"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/skorvald.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8410836c05e932c7eb42068690a4c8097af23652",
+      "size": 428958,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8410836c05e932c7eb42068690a4c8097af23652"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/skorvald_arena.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a82fb2c2fed2ce1b0393f7763a8c6e4aca568540",
+      "size": 585795,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a82fb2c2fed2ce1b0393f7763a8c6e4aca568540"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/so-arkk-eye.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4e29fcf31942987a96e075c53f5b86f7e1966f4d",
+      "size": 72736,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4e29fcf31942987a96e075c53f5b86f7e1966f4d"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/so-arkk-green.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d44c690747d49002ac54abc13984e6004a8d9911",
+      "size": 54642,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d44c690747d49002ac54abc13984e6004a8d9911"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/so-arkk-solar.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "823959b4561956e2df72c401d72650304354d68f",
+      "size": 39478,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/823959b4561956e2df72c401d72650304354d68f"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/so-doom.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4e6f4249f1d1484667068953fe46e1f7ca3de3da",
+      "size": 119700,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4e6f4249f1d1484667068953fe46e1f7ca3de3da"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/so-solar-bloom.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "342acc011fe0c9d5fe4eb902a3009e26cd73f96d",
+      "size": 103820,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/342acc011fe0c9d5fe4eb902a3009e26cd73f96d"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/so-temporal-anomaly.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6353103fb2381a79efea51e7cc3614661768ab17",
+      "size": 31784,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6353103fb2381a79efea51e7cc3614661768ab17"
+    },
+    {
+      "path": "fractals/shattered-observatory/images/way_to_artsariiv.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cd0dc92d08145e0aafaa8fa4a29972d20bc52a31",
+      "size": 506506,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/cd0dc92d08145e0aafaa8fa4a29972d20bc52a31"
+    },
+    {
+      "path": "fractals/shattered-observatory/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bb67a9fb4a25f1737a3b335a9bea78b1eb837ee5",
+      "size": 40313,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/bb67a9fb4a25f1737a3b335a9bea78b1eb837ee5"
+    },
+    {
+      "path": "fractals/silent-surf",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "0afbef64cf5f5a9e1632d39bcf3406546327679d",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/0afbef64cf5f5a9e1632d39bcf3406546327679d"
+    },
+    {
+      "path": "fractals/silent-surf/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "cf860a8975437e78c9d0b25e51eacbd3170dddd9",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/cf860a8975437e78c9d0b25e51eacbd3170dddd9"
+    },
+    {
+      "path": "fractals/silent-surf/images/ai_arena.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d026404422ef4063d24bb6133eb52f776451fb4f",
+      "size": 7072426,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d026404422ef4063d24bb6133eb52f776451fb4f"
+    },
+    {
+      "path": "fractals/silent-surf/images/elemental.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4360c3dcde165dbfbbe3133fed055ee7af7145ee",
+      "size": 119602,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4360c3dcde165dbfbbe3133fed055ee7af7145ee"
+    },
+    {
+      "path": "fractals/silent-surf/images/fire_cat.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6c9762bdd0b194221246a5dd5da7978f90e4bd0f",
+      "size": 6851883,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6c9762bdd0b194221246a5dd5da7978f90e4bd0f"
+    },
+    {
+      "path": "fractals/silent-surf/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e6d9f76f5cebbcc2de1da0e5fd0115fcff31d69d",
+      "size": 813974,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/e6d9f76f5cebbcc2de1da0e5fd0115fcff31d69d"
+    },
+    {
+      "path": "fractals/silent-surf/images/hero_sunqua2.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bb22efb5ab338fcc9f2219261cd69263b96cab24",
+      "size": 978000,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/bb22efb5ab338fcc9f2219261cd69263b96cab24"
+    },
+    {
+      "path": "fractals/silent-surf/images/kanaxai.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "707e4930733e601f3c286061b99be9eb61d43faa",
+      "size": 1331456,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/707e4930733e601f3c286061b99be9eb61d43faa"
+    },
+    {
+      "path": "fractals/silent-surf/images/lava_elementals.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "904cdd3617de4fbd3532986d4d5b75e65d560f7b",
+      "size": 6653125,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/904cdd3617de4fbd3532986d4d5b75e65d560f7b"
+    },
+    {
+      "path": "fractals/silent-surf/images/silent_surf_cave.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "513f1763d4ee3f4a5e54f34da9ad1176476328cf",
+      "size": 2430044,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/513f1763d4ee3f4a5e54f34da9ad1176476328cf"
+    },
+    {
+      "path": "fractals/silent-surf/images/water_rocks.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2915607e24987449f616975174e1adbb2b9dafae",
+      "size": 7221186,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/2915607e24987449f616975174e1adbb2b9dafae"
+    },
+    {
+      "path": "fractals/silent-surf/images/waterfall.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9bf1602af785ee2841f043c90d0cc548a3992ad4",
+      "size": 1304130,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/9bf1602af785ee2841f043c90d0cc548a3992ad4"
+    },
+    {
+      "path": "fractals/silent-surf/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "794c094daf1996eca9b9ecfc767b28c51836b3dc",
+      "size": 28776,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/794c094daf1996eca9b9ecfc767b28c51836b3dc"
+    },
+    {
+      "path": "fractals/sirens-reef",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1fb87ea1e323b6ea7811f8880d03cc60addfaa78",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/1fb87ea1e323b6ea7811f8880d03cc60addfaa78"
+    },
+    {
+      "path": "fractals/sirens-reef/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c4ca0f7f43732690d455cd0f04fa1a9f4ff85e67",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/c4ca0f7f43732690d455cd0f04fa1a9f4ff85e67"
+    },
+    {
+      "path": "fractals/sirens-reef/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fae15c1965c04b9345672ae8339f60b74a509476",
+      "size": 1163818,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/fae15c1965c04b9345672ae8339f60b74a509476"
+    },
+    {
+      "path": "fractals/sirens-reef/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4476af8018965e170604f042c513f95eab155a6f",
+      "size": 780323,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4476af8018965e170604f042c513f95eab155a6f"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_blasting_black_peter.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "736f5f1b6f998d8389441d52bc323e23110f4fa7",
+      "size": 1883105,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/736f5f1b6f998d8389441d52bc323e23110f4fa7"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_cursed_chest.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "622a9a82b9afc92c828327c18aef03ee6d93e335",
+      "size": 1365375,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/622a9a82b9afc92c828327c18aef03ee6d93e335"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_cursed_treasure.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8806171f5c93463ab22a5b22a2c5a63ef1d47a0f",
+      "size": 738959,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8806171f5c93463ab22a5b22a2c5a63ef1d47a0f"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_cursed_treasure_sack.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b2f129f7329293c0fdb70f07a7ad4d790a3e9709",
+      "size": 624582,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b2f129f7329293c0fdb70f07a7ad4d790a3e9709"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_first_mate_calix.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1653e0c4941a680ddeddff91ecde1cdb47c3c77a",
+      "size": 1219693,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/1653e0c4941a680ddeddff91ecde1cdb47c3c77a"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_mad_jack_squall.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b2d5569e191cad1591ae1c8044f90ae5c49a610f",
+      "size": 1222407,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b2d5569e191cad1591ae1c8044f90ae5c49a610f"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_mountains.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4ad84b3a327e67fd999ac319f1eed3fab1980a47",
+      "size": 775174,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4ad84b3a327e67fd999ac319f1eed3fab1980a47"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_ship.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5159da5b1eaa4b080f3d6633ddd5cfb25ad77bfb",
+      "size": 1189959,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5159da5b1eaa4b080f3d6633ddd5cfb25ad77bfb"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_shipwreck.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cdb8db829a68d0f8a278b54bbb1745e5e900f7f5",
+      "size": 968933,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/cdb8db829a68d0f8a278b54bbb1745e5e900f7f5"
+    },
+    {
+      "path": "fractals/sirens-reef/images/sirens_way_to_cave.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b4c402ba70c5a0d64a62a8ee321ebfc9cf2cc081",
+      "size": 1432200,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b4c402ba70c5a0d64a62a8ee321ebfc9cf2cc081"
+    },
+    {
+      "path": "fractals/sirens-reef/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7fda12f26c59bb8f7af894923c425e657f69b23b",
+      "size": 6716,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7fda12f26c59bb8f7af894923c425e657f69b23b"
+    },
+    {
+      "path": "fractals/snowblind",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "107d7ef533f44d85728fd4d8db6ffe493ef70341",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/107d7ef533f44d85728fd4d8db6ffe493ef70341"
+    },
+    {
+      "path": "fractals/snowblind/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "61537cf1bc53b851376231ff1dce4ffccb83b34f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/61537cf1bc53b851376231ff1dce4ffccb83b34f"
+    },
+    {
+      "path": "fractals/snowblind/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "be43c9110f5826342ac16ac83b93a984a276750b",
+      "size": 345453,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/be43c9110f5826342ac16ac83b93a984a276750b"
+    },
+    {
+      "path": "fractals/snowblind/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f02738963a03ececd31905e87c0f8ec186f72d3",
+      "size": 610094,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7f02738963a03ececd31905e87c0f8ec186f72d3"
+    },
+    {
+      "path": "fractals/snowblind/images/shaman_lornarr_dragonseeker.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8de5d6272c30d0b383547b4b8eb6ee9ad7ca9a53",
+      "size": 550131,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8de5d6272c30d0b383547b4b8eb6ee9ad7ca9a53"
+    },
+    {
+      "path": "fractals/snowblind/images/the_elemental_source.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ce8ec379e0974e61804fb78246deb25dcbfc36fc",
+      "size": 381289,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ce8ec379e0974e61804fb78246deb25dcbfc36fc"
+    },
+    {
+      "path": "fractals/snowblind/images/the_icy_forest.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7544a58c6bdea9c6d77a5f34b0ab00ac49f68467",
+      "size": 446203,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7544a58c6bdea9c6d77a5f34b0ab00ac49f68467"
+    },
+    {
+      "path": "fractals/snowblind/images/the_start_area.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "845acce40e19179efd6c16b46950afc35caab6b5",
+      "size": 404212,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/845acce40e19179efd6c16b46950afc35caab6b5"
+    },
+    {
+      "path": "fractals/snowblind/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8fcea00ef990d4a6a5ebb73d5bcf0c3e70316ac8",
+      "size": 7020,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8fcea00ef990d4a6a5ebb73d5bcf0c3e70316ac8"
+    },
+    {
+      "path": "fractals/solid-ocean",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "498b998d8d53beef6b3c34c72f6c46cfcbf50e9f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/498b998d8d53beef6b3c34c72f6c46cfcbf50e9f"
+    },
+    {
+      "path": "fractals/solid-ocean/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "2b1d86d038169d21d883f08c8792309d445e76c0",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/2b1d86d038169d21d883f08c8792309d445e76c0"
+    },
+    {
+      "path": "fractals/solid-ocean/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f089bbea473ab333b086fc0827705ec045f8dac1",
+      "size": 370890,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/f089bbea473ab333b086fc0827705ec045f8dac1"
+    },
+    {
+      "path": "fractals/solid-ocean/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "034c9cc6f4d78f1558b88c442cecc3f3016eefa7",
+      "size": 462081,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/034c9cc6f4d78f1558b88c442cecc3f3016eefa7"
+    },
+    {
+      "path": "fractals/solid-ocean/images/jade_maw.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0017f6eb26c3611dd907ac4fdc6b7626b354778c",
+      "size": 551822,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0017f6eb26c3611dd907ac4fdc6b7626b354778c"
+    },
+    {
+      "path": "fractals/solid-ocean/images/start_1.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a7d86ee1b67b968e1c11bb16fc665f5a5bcdb752",
+      "size": 619839,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a7d86ee1b67b968e1c11bb16fc665f5a5bcdb752"
+    },
+    {
+      "path": "fractals/solid-ocean/images/start_2.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0571998d66f679d919aa659333ca48b1ea242101",
+      "size": 636337,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0571998d66f679d919aa659333ca48b1ea242101"
+    },
+    {
+      "path": "fractals/solid-ocean/images/start_3.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "84af62934e2f8a5eafe6d16a7ddc54aa9efbf937",
+      "size": 559177,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/84af62934e2f8a5eafe6d16a7ddc54aa9efbf937"
+    },
+    {
+      "path": "fractals/solid-ocean/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0869ee38dab8e6c1898d9cdf4a97cea53190605f",
+      "size": 5039,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0869ee38dab8e6c1898d9cdf4a97cea53190605f"
+    },
+    {
+      "path": "fractals/sunqua-peak",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "36c05da08ac3c2ad4ab36d2e2798d8aed83599fd",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/36c05da08ac3c2ad4ab36d2e2798d8aed83599fd"
+    },
+    {
+      "path": "fractals/sunqua-peak/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "28ce3e9e18efcdc0ae3c6a5c5abc40d514e64324",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/28ce3e9e18efcdc0ae3c6a5c5abc40d514e64324"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/ai_arena.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d026404422ef4063d24bb6133eb52f776451fb4f",
+      "size": 7072426,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d026404422ef4063d24bb6133eb52f776451fb4f"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/elemental.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4360c3dcde165dbfbbe3133fed055ee7af7145ee",
+      "size": 119602,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4360c3dcde165dbfbbe3133fed055ee7af7145ee"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/fire_cat.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6c9762bdd0b194221246a5dd5da7978f90e4bd0f",
+      "size": 6851883,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6c9762bdd0b194221246a5dd5da7978f90e4bd0f"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e6d9f76f5cebbcc2de1da0e5fd0115fcff31d69d",
+      "size": 813974,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/e6d9f76f5cebbcc2de1da0e5fd0115fcff31d69d"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/hero_sunqua2.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bb22efb5ab338fcc9f2219261cd69263b96cab24",
+      "size": 978000,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/bb22efb5ab338fcc9f2219261cd69263b96cab24"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/lava_elementals.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "904cdd3617de4fbd3532986d4d5b75e65d560f7b",
+      "size": 6653125,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/904cdd3617de4fbd3532986d4d5b75e65d560f7b"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/water_rocks.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2915607e24987449f616975174e1adbb2b9dafae",
+      "size": 7221186,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/2915607e24987449f616975174e1adbb2b9dafae"
+    },
+    {
+      "path": "fractals/sunqua-peak/images/waterfall.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9bf1602af785ee2841f043c90d0cc548a3992ad4",
+      "size": 1304130,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/9bf1602af785ee2841f043c90d0cc548a3992ad4"
+    },
+    {
+      "path": "fractals/sunqua-peak/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fc777037d7b5b417d573684be4f5f63cbdf09dca",
+      "size": 17835,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/fc777037d7b5b417d573684be4f5f63cbdf09dca"
+    },
+    {
+      "path": "fractals/swampland",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3ccc4de4dea0a5bed2905deff75a76eecaff4adc",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/3ccc4de4dea0a5bed2905deff75a76eecaff4adc"
+    },
+    {
+      "path": "fractals/swampland/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "04573ef120354e87348965e1cc5889fe07fd65a9",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/04573ef120354e87348965e1cc5889fe07fd65a9"
+    },
+    {
+      "path": "fractals/swampland/images/bloomhunger.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "38fd21f3c812d5cf0990fd68655e390f8aea5d82",
+      "size": 543644,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/38fd21f3c812d5cf0990fd68655e390f8aea5d82"
+    },
+    {
+      "path": "fractals/swampland/images/bloomhunger_spirit_onslaught.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9077b81a4fe42395904f11c7f0c4bb890c6bab04",
+      "size": 513788,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/9077b81a4fe42395904f11c7f0c4bb890c6bab04"
+    },
+    {
+      "path": "fractals/swampland/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ff89efa3c8b36d44c3f91743825be2edfa846346",
+      "size": 324778,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ff89efa3c8b36d44c3f91743825be2edfa846346"
+    },
+    {
+      "path": "fractals/swampland/images/the_mossman.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "01e834f0dad7fd5a65dd7f9f9509180cc962baba",
+      "size": 415581,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/01e834f0dad7fd5a65dd7f9f9509180cc962baba"
+    },
+    {
+      "path": "fractals/swampland/images/the_three_wisp_clefts.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5e0b5cd62a744986fcb71c2ffb915ebf297e8d87",
+      "size": 472212,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5e0b5cd62a744986fcb71c2ffb915ebf297e8d87"
+    },
+    {
+      "path": "fractals/swampland/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d550403f5867f408de3d3ae4ef126d1d35a105da",
+      "size": 5870,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d550403f5867f408de3d3ae4ef126d1d35a105da"
+    },
+    {
+      "path": "fractals/thaumanova-reactor",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "24c1558d48b2275083de3ce07ad469adbf3c2159",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/24c1558d48b2275083de3ce07ad469adbf3c2159"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "71745d8891d4511a6127bf255db5e29b80583d12",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/71745d8891d4511a6127bf255db5e29b80583d12"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/fire_shaman.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4921c126f44751d4b26bc98cb5ef418d12936eaa",
+      "size": 527654,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4921c126f44751d4b26bc98cb5ef418d12936eaa"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a0467f26e49f337f0b9b64a69fe6e29d626c9a32",
+      "size": 384514,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a0467f26e49f337f0b9b64a69fe6e29d626c9a32"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a96131d320a8cfc0e2fd98967219945dca7a6e5a",
+      "size": 529997,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a96131d320a8cfc0e2fd98967219945dca7a6e5a"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/researcher_dormitories.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "64f966178d9ef585791e3f7978ad8c6f6045fd9e",
+      "size": 619416,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/64f966178d9ef585791e3f7978ad8c6f6045fd9e"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/subject_6_block.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "08b16ab9e2102c47b6746ac2522ea6c810a2a855",
+      "size": 531415,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/08b16ab9e2102c47b6746ac2522ea6c810a2a855"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/superheated_room.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a32c90216afbed4567f4a8b27b763f3a97d76b1d",
+      "size": 577176,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a32c90216afbed4567f4a8b27b763f3a97d76b1d"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/thaumanova_anomaly.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cf495dc478e1a92d64a65546c725ccb899bb3d70",
+      "size": 419725,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/cf495dc478e1a92d64a65546c725ccb899bb3d70"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/images/turret_room.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "89b25c32147689b664747ce7794a967497e773a8",
+      "size": 485445,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/89b25c32147689b664747ce7794a967497e773a8"
+    },
+    {
+      "path": "fractals/thaumanova-reactor/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ec34bf93f311fb50290473522d771118cf924447",
+      "size": 7570,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ec34bf93f311fb50290473522d771118cf924447"
+    },
+    {
+      "path": "fractals/twilight-oasis",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e9ee1d64fc9d3d40e5027f6e1f2f93c31d30ace1",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/e9ee1d64fc9d3d40e5027f6e1f2f93c31d30ace1"
+    },
+    {
+      "path": "fractals/twilight-oasis/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "451e7fdf0e09bf6f29fe63d6447d0d6fbe4ed861",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/451e7fdf0e09bf6f29fe63d6447d0d6fbe4ed861"
+    },
+    {
+      "path": "fractals/twilight-oasis/images/amala.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0be2de08de9de1b0a2dcf2855c37ba45db4c16f3",
+      "size": 704803,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0be2de08de9de1b0a2dcf2855c37ba45db4c16f3"
+    },
+    {
+      "path": "fractals/twilight-oasis/images/first_sandbinder.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0f875e2404dc74beecd26dea3bca44946da7c3d7",
+      "size": 492441,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0f875e2404dc74beecd26dea3bca44946da7c3d7"
+    },
+    {
+      "path": "fractals/twilight-oasis/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9ba2767fa1035af5ceb8775b0f83fdee11471d2d",
+      "size": 520792,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/9ba2767fa1035af5ceb8775b0f83fdee11471d2d"
+    },
+    {
+      "path": "fractals/twilight-oasis/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dd92d81b69388d1302390021e6825e94e7c47c96",
+      "size": 620111,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/dd92d81b69388d1302390021e6825e94e7c47c96"
+    },
+    {
+      "path": "fractals/twilight-oasis/images/praise_joko.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ff7ef2dc188822f48a464e38eb4babb785c5a71a",
+      "size": 564946,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ff7ef2dc188822f48a464e38eb4babb785c5a71a"
+    },
+    {
+      "path": "fractals/twilight-oasis/images/second_sandbinder.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7cc99f115678cda55221ae3f11e9172dd8d00926",
+      "size": 509472,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7cc99f115678cda55221ae3f11e9172dd8d00926"
+    },
+    {
+      "path": "fractals/twilight-oasis/images/start.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dd77b6b62298fe8847dd5395b23f966a7a617e73",
+      "size": 508748,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/dd77b6b62298fe8847dd5395b23f966a7a617e73"
+    },
+    {
+      "path": "fractals/twilight-oasis/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "da4336e1d18a23216a381c4e8a6fa24c97194bb4",
+      "size": 12515,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/da4336e1d18a23216a381c4e8a6fa24c97194bb4"
+    },
+    {
+      "path": "fractals/uncategorized",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4511fc27d6655ef297afe25cd3d29025f1d77856",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/4511fc27d6655ef297afe25cd3d29025f1d77856"
+    },
+    {
+      "path": "fractals/uncategorized/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "2b901a5f62b7c3fabca249ac747c1c42bf8f6fff",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/2b901a5f62b7c3fabca249ac747c1c42bf8f6fff"
+    },
+    {
+      "path": "fractals/uncategorized/images/harpies_jp.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fa0a5a517b944980968210752851f3fdfb918dc3",
+      "size": 402897,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/fa0a5a517b944980968210752851f3fdfb918dc3"
+    },
+    {
+      "path": "fractals/uncategorized/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "124ed721df7646a4a80a2e39d172cd4febef3535",
+      "size": 274877,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/124ed721df7646a4a80a2e39d172cd4febef3535"
+    },
+    {
+      "path": "fractals/uncategorized/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7def08f95950dfa064cf5378c98b0401ea09ade0",
+      "size": 369119,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7def08f95950dfa064cf5378c98b0401ea09ade0"
+    },
+    {
+      "path": "fractals/uncategorized/images/old_tom.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "628805e9af5d9a6b5b175d74fbee8036717dc5d7",
+      "size": 322334,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/628805e9af5d9a6b5b175d74fbee8036717dc5d7"
+    },
+    {
+      "path": "fractals/uncategorized/images/pulsing_orbs.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1c7870c175a92eee3a9e3c64907353cdde60c3f5",
+      "size": 418331,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/1c7870c175a92eee3a9e3c64907353cdde60c3f5"
+    },
+    {
+      "path": "fractals/uncategorized/images/raving_asura.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ab576ebfa2e7a5d2f83d9c5e1a5640ab3b5233c0",
+      "size": 442285,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ab576ebfa2e7a5d2f83d9c5e1a5640ab3b5233c0"
+    },
+    {
+      "path": "fractals/uncategorized/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f92dded31379918a2e5f7350f97e0312ea3efa8",
+      "size": 7313,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7f92dded31379918a2e5f7350f97e0312ea3efa8"
+    },
+    {
+      "path": "fractals/underground-facility",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "797be1c411e637f225c714d6050d6851ac85572c",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/797be1c411e637f225c714d6050d6851ac85572c"
+    },
+    {
+      "path": "fractals/underground-facility/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "21b88bdb78903368df09e1628ff761afe65b39c5",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/21b88bdb78903368df09e1628ff761afe65b39c5"
+    },
+    {
+      "path": "fractals/underground-facility/images/console_locker.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6820722cf6bd6038bb4afa7f42a743b9b468818e",
+      "size": 540512,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6820722cf6bd6038bb4afa7f42a743b9b468818e"
+    },
+    {
+      "path": "fractals/underground-facility/images/gun_path.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5efeb781005e2a48a1239f0a0000cb5aa6c98c9e",
+      "size": 513322,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5efeb781005e2a48a1239f0a0000cb5aa6c98c9e"
+    },
+    {
+      "path": "fractals/underground-facility/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7a196089fc640044be784809df3841aa765a8ef8",
+      "size": 437440,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7a196089fc640044be784809df3841aa765a8ef8"
+    },
+    {
+      "path": "fractals/underground-facility/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "237ca56601c4354fe48d073f8fd51ea1a2e9758e",
+      "size": 600389,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/237ca56601c4354fe48d073f8fd51ea1a2e9758e"
+    },
+    {
+      "path": "fractals/underground-facility/images/ice_elemental.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "521b90f249463d457e56ecaa486a5d58863bedec",
+      "size": 426797,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/521b90f249463d457e56ecaa486a5d58863bedec"
+    },
+    {
+      "path": "fractals/underground-facility/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "882cbbc52c053635019d6898fa6961c51a88da98",
+      "size": 10680,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/882cbbc52c053635019d6898fa6961c51a88da98"
+    },
+    {
+      "path": "fractals/urban-battlegrounds",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1f38872c861d3499dd2314bd3df4f8468521dc6a",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/1f38872c861d3499dd2314bd3df4f8468521dc6a"
+    },
+    {
+      "path": "fractals/urban-battlegrounds/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "772af7fa3863a43a25d3f840bdcf686539a37521",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/772af7fa3863a43a25d3f840bdcf686539a37521"
+    },
+    {
+      "path": "fractals/urban-battlegrounds/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b87e8203caaf64f271f80221e032b58ed6f889e8",
+      "size": 380938,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b87e8203caaf64f271f80221e032b58ed6f889e8"
+    },
+    {
+      "path": "fractals/urban-battlegrounds/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b8ab28a5bea02d9dda714cb1db1fc6ef2a32f5de",
+      "size": 524084,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b8ab28a5bea02d9dda714cb1db1fc6ef2a32f5de"
+    },
+    {
+      "path": "fractals/urban-battlegrounds/images/siegemaster_dulfy.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a1e82e11879c4ba174431552d5270239c0c43e43",
+      "size": 371817,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/a1e82e11879c4ba174431552d5270239c0c43e43"
+    },
+    {
+      "path": "fractals/urban-battlegrounds/images/the_courtyard.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "33ab210975b083a929c35933dfbb0990985b53f9",
+      "size": 725524,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/33ab210975b083a929c35933dfbb0990985b53f9"
+    },
+    {
+      "path": "fractals/urban-battlegrounds/images/the_town.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "20f75e85b4aa2a9c8a71c36be2e72c17d5fe61c1",
+      "size": 511056,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/20f75e85b4aa2a9c8a71c36be2e72c17d5fe61c1"
+    },
+    {
+      "path": "fractals/urban-battlegrounds/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6bfc397ba2f82be3d8abb3580420a3d5a3083cbd",
+      "size": 5000,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6bfc397ba2f82be3d8abb3580420a3d5a3083cbd"
+    },
+    {
+      "path": "fractals/volcanic",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "724ca663cfb5c0d5a3c729b2e71a5343de25350f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/724ca663cfb5c0d5a3c729b2e71a5343de25350f"
+    },
+    {
+      "path": "fractals/volcanic/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b00dd641eef093d0218d9fcdf2aea14d63de9724",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b00dd641eef093d0218d9fcdf2aea14d63de9724"
+    },
+    {
+      "path": "fractals/volcanic/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6db5b1ad5eb0ce46a2a56b6a0c183749c2eefe4b",
+      "size": 393470,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6db5b1ad5eb0ce46a2a56b6a0c183749c2eefe4b"
+    },
+    {
+      "path": "fractals/volcanic/images/header_old.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5d00ac6080d202941410f2b2c6c95461381a0321",
+      "size": 447545,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5d00ac6080d202941410f2b2c6c95461381a0321"
+    },
+    {
+      "path": "fractals/volcanic/images/the_grawl_shaman.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d08fe8170102879e2289fd37a3573ad262a07fd6",
+      "size": 496506,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d08fe8170102879e2289fd37a3573ad262a07fd6"
+    },
+    {
+      "path": "fractals/volcanic/images/the_imbued_shaman.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6cea81583721493ca9ce3a94a3fb00be811c4062",
+      "size": 511346,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6cea81583721493ca9ce3a94a3fb00be811c4062"
+    },
+    {
+      "path": "fractals/volcanic/images/the_start_area.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fbefa7d6a648d2a42d7d2193c49e1e0d59bef4d8",
+      "size": 443338,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/fbefa7d6a648d2a42d7d2193c49e1e0d59bef4d8"
+    },
+    {
+      "path": "fractals/volcanic/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8b8c56f9ea3d029c265285409c40b2070e1fbda6",
+      "size": 7386,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/8b8c56f9ea3d029c265285409c40b2070e1fbda6"
+    },
+    {
+      "path": "guides",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "954566b273ab494ff63eec10c25071033ae4116f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/954566b273ab494ff63eec10c25071033ae4116f"
+    },
+    {
+      "path": "guides/cc-distribution",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "23609af3bcc3aee513fad0db4c0f10fb361d2dac",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/23609af3bcc3aee513fad0db4c0f10fb361d2dac"
+    },
+    {
+      "path": "guides/cc-distribution/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "37d5e6bf27a156274ed39502661ca919660d366e",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/37d5e6bf27a156274ed39502661ca919660d366e"
+    },
+    {
+      "path": "guides/cc-distribution/images/arkk.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "740e4224be8a56ffbcf236f5f1f7537e3d90117c",
+      "size": 14203,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/740e4224be8a56ffbcf236f5f1f7537e3d90117c"
+    },
+    {
+      "path": "guides/cc-distribution/images/artsariiv.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ac69be7c01fa7ab70d47f0350a214079d0c0513c",
+      "size": 15077,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/ac69be7c01fa7ab70d47f0350a214079d0c0513c"
+    },
+    {
+      "path": "guides/cc-distribution/images/enso_1.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "79b030a2402c07e163e2a57d240f482181f43631",
+      "size": 24603,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/79b030a2402c07e163e2a57d240f482181f43631"
+    },
+    {
+      "path": "guides/cc-distribution/images/enso_2.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "019d8d17e3d632c8f6b51b21396ba6d49696adc0",
+      "size": 33704,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/019d8d17e3d632c8f6b51b21396ba6d49696adc0"
+    },
+    {
+      "path": "guides/cc-distribution/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0067bfcdec5f6613f9c73a9933fc28b22e0919ed",
+      "size": 143807,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/0067bfcdec5f6613f9c73a9933fc28b22e0919ed"
+    },
+    {
+      "path": "guides/cc-distribution/images/mama_restricted.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "05d714d19d103129548383d966031dd164dbc243",
+      "size": 60717,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/05d714d19d103129548383d966031dd164dbc243"
+    },
+    {
+      "path": "guides/cc-distribution/images/mama_unrestricted.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "60eba8f7dacc5445c42040d57808640dd11331a0",
+      "size": 53668,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/60eba8f7dacc5445c42040d57808640dd11331a0"
+    },
+    {
+      "path": "guides/cc-distribution/images/siax.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fa13154bb830242435bd4c91665cef666dd41f21",
+      "size": 14385,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/fa13154bb830242435bd4c91665cef666dd41f21"
+    },
+    {
+      "path": "guides/cc-distribution/images/skorvald.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "99fcf479869c5a55ff3bfce56e1b1aa10c158322",
+      "size": 21541,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/99fcf479869c5a55ff3bfce56e1b1aa10c158322"
+    },
+    {
+      "path": "guides/cc-distribution/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a22780a1e2c28ddfc2578b9abd5d9cfbeb9ba0f",
+      "size": 30090,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/4a22780a1e2c28ddfc2578b9abd5d9cfbeb9ba0f"
+    },
+    {
+      "path": "guides/cheat-sheet",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4477326697c88ee4cd742167b83d4f5b029ea0dd",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/4477326697c88ee4cd742167b83d4f5b029ea0dd"
+    },
+    {
+      "path": "guides/cheat-sheet/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4ef2f2c97840ca57577034a731deb71651006adf",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/4ef2f2c97840ca57577034a731deb71651006adf"
+    },
+    {
+      "path": "guides/cheat-sheet/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5b0f6b94a085ed812e180a45fa4fba185f6c7b77",
+      "size": 412323,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5b0f6b94a085ed812e180a45fa4fba185f6c7b77"
+    },
+    {
+      "path": "guides/cheat-sheet/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b2bf2b9e7c775ecbb5150349fab59ebb4cc55795",
+      "size": 10380,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b2bf2b9e7c775ecbb5150349fab59ebb4cc55795"
+    },
+    {
+      "path": "guides/cm-profession-guides",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "51dae7c23055122be169ddaa17bbec9624a42593",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/51dae7c23055122be169ddaa17bbec9624a42593"
+    },
+    {
+      "path": "guides/cm-profession-guides/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "829f0dcd06af04d00e7656120c810070dfa68b9c",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/829f0dcd06af04d00e7656120c810070dfa68b9c"
+    },
+    {
+      "path": "guides/cm-profession-guides/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "838c72078076d26612cf12aced8c06202a20bd5b",
+      "size": 816156,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/838c72078076d26612cf12aced8c06202a20bd5b"
+    },
+    {
+      "path": "guides/cm-profession-guides/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "631d0fe5cb9b7b19023b9c255e92d89c875f92d9",
+      "size": 3577,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/631d0fe5cb9b7b19023b9c255e92d89c875f92d9"
+    },
+    {
+      "path": "guides/crit-cap",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "ca3d1f11be079b718361baaf075ab86e61a9ae65",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/ca3d1f11be079b718361baaf075ab86e61a9ae65"
+    },
+    {
+      "path": "guides/crit-cap/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "a5555b94aaeeff70ec49a5b085b6e9c7b33c4e5b",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/a5555b94aaeeff70ec49a5b085b6e9c7b33c4e5b"
+    },
+    {
+      "path": "guides/crit-cap/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "60f27de0399e5c7a1a8cba2c73b8fb7b02220c8f",
+      "size": 56621,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/60f27de0399e5c7a1a8cba2c73b8fb7b02220c8f"
+    },
+    {
+      "path": "guides/crit-cap/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "69f3fc1f4e9716d8a60ceaa5f3d000a0e758301f",
+      "size": 10994,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/69f3fc1f4e9716d8a60ceaa5f3d000a0e758301f"
+    },
+    {
+      "path": "guides/daily-comps",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e72be263c70ccaa5f7d7312431ca4fd06f742223",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/e72be263c70ccaa5f7d7312431ca4fd06f742223"
+    },
+    {
+      "path": "guides/daily-comps/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b7e7ed6985e470b8a9d6627e9dd5f22bb3165f11",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b7e7ed6985e470b8a9d6627e9dd5f22bb3165f11"
+    },
+    {
+      "path": "guides/daily-comps/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5c139b6843dbda52bc49ba60e046cdf4d9a57e8b",
+      "size": 562408,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5c139b6843dbda52bc49ba60e046cdf4d9a57e8b"
+    },
+    {
+      "path": "guides/daily-comps/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c44b5ed9b087e3d4284b25bb6accd43d340a46a5",
+      "size": 19593,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/c44b5ed9b087e3d4284b25bb6accd43d340a46a5"
+    },
+    {
+      "path": "guides/new-player-guide",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "090fd0cb9cd3b677f24796bfa213d8fdcdcc3513",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/090fd0cb9cd3b677f24796bfa213d8fdcdcc3513"
+    },
+    {
+      "path": "guides/new-player-guide/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "12e7a249cb12727ee70bff5b3a3e201273b64e13",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/12e7a249cb12727ee70bff5b3a3e201273b64e13"
+    },
+    {
+      "path": "guides/new-player-guide/images/ccbar.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5f7fff5d568299db3575bfc4a39e33f16309c027",
+      "size": 201891,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5f7fff5d568299db3575bfc4a39e33f16309c027"
+    },
+    {
+      "path": "guides/new-player-guide/images/cchighlight.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b8b555ad7239562f621aee9cd4aa9cb225997ccd",
+      "size": 348572,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/b8b555ad7239562f621aee9cd4aa9cb225997ccd"
+    },
+    {
+      "path": "guides/new-player-guide/images/gg.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3196c4d2f3946aa871317f737c2cbd1e538cb4a3",
+      "size": 164653,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/3196c4d2f3946aa871317f737c2cbd1e538cb4a3"
+    },
+    {
+      "path": "guides/new-player-guide/images/gw2university.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7ad211c7a13552bac29a8c4c0f68a8ff4fede3b8",
+      "size": 47299,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/7ad211c7a13552bac29a8c4c0f68a8ff4fede3b8"
+    },
+    {
+      "path": "guides/new-player-guide/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "274640ecec22f86f95784864f9d099694f026dad",
+      "size": 1286435,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/274640ecec22f86f95784864f9d099694f026dad"
+    },
+    {
+      "path": "guides/new-player-guide/images/instabilities.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5b0c2b0866d7c2882f72dc09f6b29383399694b5",
+      "size": 262949,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/5b0c2b0866d7c2882f72dc09f6b29383399694b5"
+    },
+    {
+      "path": "guides/new-player-guide/images/mistlock.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bdf5d3633e1d5b96d68f6ab3edbb601d889107c2",
+      "size": 15943,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/bdf5d3633e1d5b96d68f6ab3edbb601d889107c2"
+    },
+    {
+      "path": "guides/new-player-guide/images/mistlocked.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cb2aa7424447d3fb41b0e4f6e7abda2bed31eb0d",
+      "size": 321433,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/cb2aa7424447d3fb41b0e4f6e7abda2bed31eb0d"
+    },
+    {
+      "path": "guides/new-player-guide/images/portal.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6d52a81a6cb352723bba33de09733961f5519dbd",
+      "size": 688983,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6d52a81a6cb352723bba33de09733961f5519dbd"
+    },
+    {
+      "path": "guides/new-player-guide/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6cf52ff1073049320853c2ec2d3ca9cb6287c142",
+      "size": 43724,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/6cf52ff1073049320853c2ec2d3ca9cb6287c142"
+    },
+    {
+      "path": "guides/teamcomp101",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b9ffff766c48a72a6c088720a26293cfbaa0051f",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/b9ffff766c48a72a6c088720a26293cfbaa0051f"
+    },
+    {
+      "path": "guides/teamcomp101/images",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "38f878da50be2c679ef89b038e92970b8c7a9154",
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/trees/38f878da50be2c679ef89b038e92970b8c7a9154"
+    },
+    {
+      "path": "guides/teamcomp101/images/LS-Logo.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d54242432849345f1708a9b69ba4ac3ce2494e95",
+      "size": 4195,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/d54242432849345f1708a9b69ba4ac3ce2494e95"
+    },
+    {
+      "path": "guides/teamcomp101/images/header.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e0ee98ed559409779780d7de46290acb77d7dea6",
+      "size": 111755,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/e0ee98ed559409779780d7de46290acb77d7dea6"
+    },
+    {
+      "path": "guides/teamcomp101/index.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "01db9ab3b6278032bb0e042d38fd1433aad346c4",
+      "size": 22537,
+      "url": "https://api.github.com/repos/discretize/discretize-guides/git/blobs/01db9ab3b6278032bb0e042d38fd1433aad346c4"
+    }
+  ],
+  "truncated": false
+}

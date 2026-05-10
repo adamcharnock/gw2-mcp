@@ -7,7 +7,10 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 
-use crate::domain::{ApiKey, Currency, CurrencyId, WalletEntry};
+use crate::domain::{
+    ApiKey, CharacterName, Currency, CurrencyId, Skill, SkillId, Specialization, SpecializationId,
+    Trait, TraitId, WalletEntry,
+};
 use crate::ports::{Gw2Api, Gw2ApiError};
 
 const DEFAULT_BASE_URL: &str = "https://api.guildwars2.com/v2";
@@ -104,22 +107,80 @@ impl Gw2Api for HttpGw2Api {
         &self,
         ids: &[CurrencyId],
     ) -> Result<BTreeMap<CurrencyId, Currency>, Gw2ApiError> {
-        // GW2 API caps `ids` parameter at 200 per request; chunk to be safe.
-        const CHUNK: usize = 200;
+        self.fetch_by_ids("currencies", ids, |c: Currency| (c.id, c))
+            .await
+    }
 
+    async fn fetch_skills(&self, ids: &[SkillId]) -> Result<BTreeMap<SkillId, Skill>, Gw2ApiError> {
+        self.fetch_by_ids("skills", ids, |s: Skill| (s.id, s)).await
+    }
+
+    async fn fetch_traits(&self, ids: &[TraitId]) -> Result<BTreeMap<TraitId, Trait>, Gw2ApiError> {
+        self.fetch_by_ids("traits", ids, |t: Trait| (t.id, t)).await
+    }
+
+    async fn fetch_specializations(
+        &self,
+        ids: &[SpecializationId],
+    ) -> Result<BTreeMap<SpecializationId, Specialization>, Gw2ApiError> {
+        self.fetch_by_ids("specializations", ids, |s: Specialization| (s.id, s))
+            .await
+    }
+
+    async fn fetch_buildtabs(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<Vec<serde_json::Value>, Gw2ApiError> {
+        let url = format!(
+            "{}/characters/{}/buildtabs?tabs=all",
+            self.base_url,
+            url_encode_segment(name.as_str()),
+        );
+        self.fetch_authed_json(&url, key).await
+    }
+
+    async fn fetch_equipmenttabs(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<Vec<serde_json::Value>, Gw2ApiError> {
+        let url = format!(
+            "{}/characters/{}/equipmenttabs?tabs=all",
+            self.base_url,
+            url_encode_segment(name.as_str()),
+        );
+        self.fetch_authed_json(&url, key).await
+    }
+}
+
+impl HttpGw2Api {
+    /// Generic helper for `/v2/<endpoint>?ids=…`. Chunks at the GW2 200-id limit.
+    async fn fetch_by_ids<Id, T, K, F>(
+        &self,
+        endpoint: &str,
+        ids: &[Id],
+        index: F,
+    ) -> Result<BTreeMap<K, T>, Gw2ApiError>
+    where
+        Id: std::fmt::Display,
+        T: for<'de> Deserialize<'de>,
+        K: Ord,
+        F: Fn(T) -> (K, T),
+    {
+        const CHUNK: usize = 200;
         if ids.is_empty() {
             return Ok(BTreeMap::new());
         }
 
         let mut out = BTreeMap::new();
-
         for chunk in ids.chunks(CHUNK) {
             let ids_param = chunk
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(",");
-            let url = format!("{}/currencies?ids={}", self.base_url, ids_param);
+            let url = format!("{}/{endpoint}?ids={ids_param}", self.base_url);
             let resp = self
                 .client
                 .get(&url)
@@ -127,17 +188,44 @@ impl Gw2Api for HttpGw2Api {
                 .await
                 .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
             let resp = check_status(resp).await?;
-            let currencies: Vec<Currency> = resp
+            let items: Vec<T> = resp
                 .json()
                 .await
                 .map_err(|e| Gw2ApiError::Decode(e.to_string()))?;
-            for c in currencies {
-                out.insert(c.id, c);
+            for item in items {
+                let (k, v) = index(item);
+                out.insert(k, v);
             }
         }
-
         Ok(out)
     }
+
+    async fn fetch_authed_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        url: &str,
+        key: &ApiKey,
+    ) -> Result<T, Gw2ApiError> {
+        let resp = self
+            .client
+            .get(url)
+            .bearer_auth(key.expose())
+            .send()
+            .await
+            .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        if resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN {
+            return Err(Gw2ApiError::Unauthorized);
+        }
+        let resp = check_status(resp).await?;
+        resp.json::<T>()
+            .await
+            .map_err(|e| Gw2ApiError::Decode(e.to_string()))
+    }
+}
+
+fn url_encode_segment(s: &str) -> String {
+    // GW2 character names allow spaces; reqwest doesn't auto-encode path
+    // segments built into the URL string, so we do it ourselves.
+    url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
 
 async fn check_status(resp: reqwest::Response) -> Result<reqwest::Response, Gw2ApiError> {

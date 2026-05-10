@@ -11,10 +11,29 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
+use gw2_mcp::adapters::ChatrDecoder;
 use gw2_mcp::domain::{
-    ApiKey, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResult, WalletEntry,
+    ApiKey, CharacterName, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResult, Skill,
+    SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
-use gw2_mcp::ports::{Cache, CacheError, Clock, Gw2Api, Gw2ApiError, Wiki, WikiError};
+use gw2_mcp::ports::{
+    BuildCodeDecoder, Cache, CacheError, CatalogRegistry, Clock, Gw2Api, Gw2ApiError, Wiki,
+    WikiError,
+};
+
+/// Build a `Service` with the in-memory fakes and a real chatr decoder.
+/// Tests that need a different decoder can call `Service::new` directly.
+#[must_use]
+pub fn build_service(
+    gw2: Arc<dyn Gw2Api>,
+    wiki: Arc<dyn Wiki>,
+    cache: Arc<dyn Cache>,
+    clock: Arc<dyn Clock>,
+) -> Service {
+    let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
+    let catalogs = Arc::new(CatalogRegistry::new());
+    Service::new(gw2, wiki, cache, clock, decoder, catalogs)
+}
 
 // ---------------------------------------------------------------------------
 // Test clock
@@ -123,8 +142,18 @@ impl Cache for TestCache {
 pub struct FakeGw2Api {
     pub wallet_calls: Mutex<usize>,
     pub currency_calls: Mutex<usize>,
+    pub skill_calls: Mutex<usize>,
+    pub trait_calls: Mutex<usize>,
+    pub spec_calls: Mutex<usize>,
+    pub buildtab_calls: Mutex<usize>,
+    pub equipmenttab_calls: Mutex<usize>,
     pub wallet_response: Mutex<Result<Vec<WalletEntry>, Gw2ApiError>>,
     pub currencies: Mutex<BTreeMap<CurrencyId, Currency>>,
+    pub skills: Mutex<BTreeMap<SkillId, Skill>>,
+    pub traits: Mutex<BTreeMap<TraitId, Trait>>,
+    pub specs: Mutex<BTreeMap<SpecializationId, Specialization>>,
+    pub buildtabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
+    pub equipmenttabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
 }
 
 impl FakeGw2Api {
@@ -132,8 +161,18 @@ impl FakeGw2Api {
         Arc::new(Self {
             wallet_calls: Mutex::new(0),
             currency_calls: Mutex::new(0),
+            skill_calls: Mutex::new(0),
+            trait_calls: Mutex::new(0),
+            spec_calls: Mutex::new(0),
+            buildtab_calls: Mutex::new(0),
+            equipmenttab_calls: Mutex::new(0),
             wallet_response: Mutex::new(Ok(Vec::new())),
             currencies: Mutex::new(BTreeMap::new()),
+            skills: Mutex::new(BTreeMap::new()),
+            traits: Mutex::new(BTreeMap::new()),
+            specs: Mutex::new(BTreeMap::new()),
+            buildtabs: Mutex::new(BTreeMap::new()),
+            equipmenttabs: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -149,11 +188,43 @@ impl FakeGw2Api {
         self.currencies.lock().unwrap().insert(c.id, c);
     }
 
+    pub fn add_skill(&self, s: Skill) {
+        self.skills.lock().unwrap().insert(s.id, s);
+    }
+
+    pub fn add_trait(&self, t: Trait) {
+        self.traits.lock().unwrap().insert(t.id, t);
+    }
+
+    pub fn add_specialization(&self, s: Specialization) {
+        self.specs.lock().unwrap().insert(s.id, s);
+    }
+
+    pub fn set_buildtabs(&self, name: &CharacterName, tabs: Vec<serde_json::Value>) {
+        self.buildtabs
+            .lock()
+            .unwrap()
+            .insert(name.as_str().to_owned(), tabs);
+    }
+
+    pub fn set_equipmenttabs(&self, name: &CharacterName, tabs: Vec<serde_json::Value>) {
+        self.equipmenttabs
+            .lock()
+            .unwrap()
+            .insert(name.as_str().to_owned(), tabs);
+    }
+
     pub fn wallet_calls(&self) -> usize {
         *self.wallet_calls.lock().unwrap()
     }
     pub fn currency_calls(&self) -> usize {
         *self.currency_calls.lock().unwrap()
+    }
+    pub fn skill_calls(&self) -> usize {
+        *self.skill_calls.lock().unwrap()
+    }
+    pub fn buildtab_calls(&self) -> usize {
+        *self.buildtab_calls.lock().unwrap()
     }
 }
 
@@ -161,7 +232,6 @@ impl FakeGw2Api {
 impl Gw2Api for FakeGw2Api {
     async fn fetch_wallet(&self, _key: &ApiKey) -> Result<Vec<WalletEntry>, Gw2ApiError> {
         *self.wallet_calls.lock().unwrap() += 1;
-        // Clone the result; cloning Gw2ApiError is non-trivial so map-error.
         match &*self.wallet_response.lock().unwrap() {
             Ok(v) => Ok(v.clone()),
             Err(Gw2ApiError::Unauthorized) => Err(Gw2ApiError::Unauthorized),
@@ -184,6 +254,66 @@ impl Gw2Api for FakeGw2Api {
             .iter()
             .filter_map(|id| store.get(id).map(|c| (*id, c.clone())))
             .collect())
+    }
+
+    async fn fetch_skills(&self, ids: &[SkillId]) -> Result<BTreeMap<SkillId, Skill>, Gw2ApiError> {
+        *self.skill_calls.lock().unwrap() += 1;
+        let store = self.skills.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|s| (*id, s.clone())))
+            .collect())
+    }
+
+    async fn fetch_traits(&self, ids: &[TraitId]) -> Result<BTreeMap<TraitId, Trait>, Gw2ApiError> {
+        *self.trait_calls.lock().unwrap() += 1;
+        let store = self.traits.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|t| (*id, t.clone())))
+            .collect())
+    }
+
+    async fn fetch_specializations(
+        &self,
+        ids: &[SpecializationId],
+    ) -> Result<BTreeMap<SpecializationId, Specialization>, Gw2ApiError> {
+        *self.spec_calls.lock().unwrap() += 1;
+        let store = self.specs.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|s| (*id, s.clone())))
+            .collect())
+    }
+
+    async fn fetch_buildtabs(
+        &self,
+        _key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<Vec<serde_json::Value>, Gw2ApiError> {
+        *self.buildtab_calls.lock().unwrap() += 1;
+        Ok(self
+            .buildtabs
+            .lock()
+            .unwrap()
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn fetch_equipmenttabs(
+        &self,
+        _key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<Vec<serde_json::Value>, Gw2ApiError> {
+        *self.equipmenttab_calls.lock().unwrap() += 1;
+        Ok(self
+            .equipmenttabs
+            .lock()
+            .unwrap()
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or_default())
     }
 }
 

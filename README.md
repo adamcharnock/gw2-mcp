@@ -73,11 +73,27 @@ Or with the Docker image:
 
 ## Tools
 
-| Tool             | Required args | Optional args |
-|------------------|---------------|---------------|
-| `wiki_search`    | `query`       | `limit` (1–50, default 5) |
-| `get_wallet`     | `api_key`     | — |
-| `get_currencies` | —             | `ids` (array of ids; omit for all) |
+| Tool                      | Required args              | Optional args                              | Notes |
+|---------------------------|----------------------------|--------------------------------------------|-------|
+| `wiki_search`             | `query`                    | `limit` (1–50, default 5)                  | GW2 wiki search with prose extracts. |
+| `get_wallet`              | `api_key`                  | —                                          | Account wallet + currency metadata. |
+| `get_currencies`          | —                          | `ids` (array; omit for all)                | Currency definitions. |
+| `get_skills`              | `ids` (array)              | —                                          | Resolve skill ids to name + description + facts. |
+| `get_traits`              | `ids` (array)              | —                                          | Resolve trait ids. |
+| `get_specializations`     | `ids` (array)              | —                                          | Resolve specialization ids (core + elite). |
+| `get_character_build`     | `api_key`, `character`     | —                                          | Full per-tab build + equipment for a character (needs `builds` scope). |
+| `decode_build_code`       | `code` (`[&Dw…]`)          | —                                          | Decode any build chat code into structured JSON. No auth. |
+| `list_build_sources`      | —                          | —                                          | Lists registered curated-build sources. |
+| `list_recommended_builds` | `source`                   | `profession`, `gamemode`, `limit`          | Browse a curated source. |
+| `get_recommended_build`   | `source`, `slug`           | —                                          | Fetch full details for a curated build. |
+
+### Build-source coverage
+
+| Source       | Coverage                | Mechanism                                |
+|--------------|-------------------------|------------------------------------------|
+| `discretize` | Fractals (T4 + CMs)     | GitHub raw markdown + YAML front-matter  |
+| `metabattle` | All gamemodes (Meta tier) | MediaWiki API                          |
+| `snowcrows`  | Raids/strikes meta      | On-demand HTML scrape (no bulk listing — respects `ai-train=no`); slug shape `<category>/<profession>/<build-slug>` |
 
 Resource: `gw2://currencies` — full currency list as JSON.
 

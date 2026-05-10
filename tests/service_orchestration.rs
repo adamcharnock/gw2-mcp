@@ -9,11 +9,18 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gw2_mcp::domain::{CurrencyId, SearchLimit, SearchQuery, SearchResult, WalletEntry};
+use std::collections::BTreeMap;
+
+use gw2_mcp::domain::{
+    BuildChatCode, CharacterName, CurrencyId, SearchLimit, SearchQuery, SearchResult, Skill,
+    SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+};
 use gw2_mcp::service::{Service, WALLET_TTL};
 use pretty_assertions::assert_eq;
 
-use crate::common::{FakeGw2Api, FakeWiki, TestCache, TestClock, currency, valid_api_key};
+use crate::common::{
+    FakeGw2Api, FakeWiki, TestCache, TestClock, build_service, currency, valid_api_key,
+};
 
 fn build(
     gw2: Arc<FakeGw2Api>,
@@ -21,7 +28,7 @@ fn build(
     cache: Arc<TestCache>,
     clock: Arc<TestClock>,
 ) -> Service {
-    Service::new(gw2, wiki, cache, clock)
+    build_service(gw2, wiki, cache, clock)
 }
 
 #[tokio::test]
@@ -266,6 +273,144 @@ async fn wiki_search_query_normalisation_dedupes_cache() {
         1,
         "normalised queries should share a cache entry"
     );
+}
+
+#[tokio::test]
+async fn skills_are_cached_per_id() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let s1 = Skill {
+        id: SkillId::new(9137).unwrap(),
+        name: "Wave of Wrath".to_owned(),
+        extra: BTreeMap::new(),
+    };
+    let s2 = Skill {
+        id: SkillId::new(5503).unwrap(),
+        name: "Other".to_owned(),
+        extra: BTreeMap::new(),
+    };
+    gw2.add_skill(s1);
+    gw2.add_skill(s2);
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+
+    // First call fetches both.
+    let first = svc
+        .get_skills(&[SkillId::new(9137).unwrap(), SkillId::new(5503).unwrap()])
+        .await
+        .unwrap();
+    assert_eq!(first.len(), 2);
+    assert_eq!(gw2.skill_calls(), 1);
+
+    // Second call: both ids cache-hit, no upstream.
+    svc.get_skills(&[SkillId::new(9137).unwrap()])
+        .await
+        .unwrap();
+    assert_eq!(
+        gw2.skill_calls(),
+        1,
+        "cached id must not trigger another fetch"
+    );
+}
+
+#[tokio::test]
+async fn traits_are_cached_per_id() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.add_trait(Trait {
+        id: TraitId::new(648).unwrap(),
+        name: "Zealot's Resolution".to_owned(),
+        extra: BTreeMap::new(),
+    });
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    svc.get_traits(&[TraitId::new(648).unwrap()]).await.unwrap();
+    svc.get_traits(&[TraitId::new(648).unwrap()]).await.unwrap();
+    assert_eq!(*gw2.trait_calls.lock().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn specializations_are_cached_per_id() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.add_specialization(Specialization {
+        id: SpecializationId::new(42).unwrap(),
+        name: "Zeal".to_owned(),
+        extra: BTreeMap::new(),
+    });
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    svc.get_specializations(&[SpecializationId::new(42).unwrap()])
+        .await
+        .unwrap();
+    svc.get_specializations(&[SpecializationId::new(42).unwrap()])
+        .await
+        .unwrap();
+    assert_eq!(*gw2.spec_calls.lock().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn character_build_combines_buildtabs_and_equipmenttabs() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let name = CharacterName::new("My Hero").unwrap();
+    gw2.set_buildtabs(
+        &name,
+        vec![serde_json::json!({"tab": 1, "is_active": true, "build": {"profession": "Guardian"}})],
+    );
+    gw2.set_equipmenttabs(
+        &name,
+        vec![serde_json::json!({"tab": 1, "is_active": true, "name": "Default", "equipment": []})],
+    );
+
+    let svc = build(gw2.clone(), wiki, cache, clock.clone());
+    let snap = svc
+        .get_character_build(&valid_api_key(), &name)
+        .await
+        .unwrap();
+    assert_eq!(snap.character_name, "My Hero");
+    assert_eq!(snap.build_tabs.len(), 1);
+    assert_eq!(snap.equipment_tabs.len(), 1);
+    assert_eq!(snap.build_tabs[0]["build"]["profession"], "Guardian");
+    assert_eq!(gw2.buildtab_calls(), 1);
+
+    // Cached on second call within TTL.
+    let snap2 = svc
+        .get_character_build(&valid_api_key(), &name)
+        .await
+        .unwrap();
+    assert_eq!(snap, snap2);
+    assert_eq!(
+        gw2.buildtab_calls(),
+        1,
+        "cached call must not refetch buildtabs"
+    );
+}
+
+#[tokio::test]
+async fn decode_build_code_via_service() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    let svc = build(gw2, wiki, cache, clock);
+
+    let code =
+        BuildChatCode::new("[&DQYpGyU+OD90AAAAywAAAI8AAACRAAAAJgAAAAAAAAAAAAAAAAAAAAAAAAA=]")
+            .unwrap();
+    let decoded = svc.decode_build_code(&code).unwrap();
+    assert_eq!(decoded["profession"], 6);
+    assert_eq!(decoded["skills"]["healing"]["terrestrial"], 116);
 }
 
 #[tokio::test]

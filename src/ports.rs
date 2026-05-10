@@ -13,7 +13,8 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::domain::{
-    ApiKey, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResult, WalletEntry,
+    ApiKey, CharacterName, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResult, Skill,
+    SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,167 @@ pub trait Gw2Api: Send + Sync + 'static {
         &self,
         ids: &[CurrencyId],
     ) -> Result<BTreeMap<CurrencyId, Currency>, Gw2ApiError>;
+
+    /// `/v2/skills?ids=…`
+    async fn fetch_skills(&self, ids: &[SkillId]) -> Result<BTreeMap<SkillId, Skill>, Gw2ApiError>;
+
+    /// `/v2/traits?ids=…`
+    async fn fetch_traits(&self, ids: &[TraitId]) -> Result<BTreeMap<TraitId, Trait>, Gw2ApiError>;
+
+    /// `/v2/specializations?ids=…`
+    async fn fetch_specializations(
+        &self,
+        ids: &[SpecializationId],
+    ) -> Result<BTreeMap<SpecializationId, Specialization>, Gw2ApiError>;
+
+    /// `/v2/characters/:name/buildtabs?tabs=all` — requires `builds` scope.
+    /// Returned as raw JSON values (variants too rich to be worth typing).
+    async fn fetch_buildtabs(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<Vec<serde_json::Value>, Gw2ApiError>;
+
+    /// `/v2/characters/:name/equipmenttabs?tabs=all` — requires `builds` scope.
+    async fn fetch_equipmenttabs(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<Vec<serde_json::Value>, Gw2ApiError>;
+}
+
+// ---------------------------------------------------------------------------
+// Curated build catalogs (Phase B)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum CatalogError {
+    #[error("no such build source: {0}")]
+    NoSuchSource(String),
+
+    // `source` is reserved by thiserror; use `source_name` everywhere.
+    #[error("build not found in {source_name}: {slug}")]
+    NotFound { source_name: String, slug: String },
+
+    #[error("transport error from {source_name}: {message}")]
+    Transport {
+        source_name: String,
+        message: String,
+    },
+
+    #[error("parse error from {source_name}: {message}")]
+    Parse {
+        source_name: String,
+        message: String,
+    },
+}
+
+/// What to filter the catalog listing by. None means "no filter on that
+/// dimension". Sources interpret unknown values by returning an empty
+/// listing rather than erroring.
+#[derive(Debug, Clone, Default)]
+pub struct CatalogFilter {
+    pub profession: Option<String>,
+    pub gamemode: Option<String>,
+    pub limit: Option<u32>,
+}
+
+/// Lightweight summary returned from a catalog listing — enough for an
+/// LLM to pick which build to fetch in detail.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct BuildSummary {
+    pub slug: String,
+    pub title: String,
+    pub profession: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elite_spec: Option<String>,
+    pub role: String,
+    pub gamemode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<String>,
+    pub source: String,
+    pub source_url: String,
+}
+
+/// Detailed build view. We keep this loose (`details: serde_json::Value`)
+/// because each catalog's data is shaped differently and the LLM is the
+/// consumer — typing every variant would be premature.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct BuildDetail {
+    pub summary: BuildSummary,
+    pub details: serde_json::Value,
+    /// Plain-text description / rotation notes if the source provides them.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Build chat code, if the source publishes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_code: Option<String>,
+}
+
+#[async_trait]
+pub trait BuildCatalog: Send + Sync + 'static {
+    /// Stable identifier — used as the `source` field in MCP tool calls.
+    fn name(&self) -> &'static str;
+
+    async fn list(&self, filter: &CatalogFilter) -> Result<Vec<BuildSummary>, CatalogError>;
+
+    async fn fetch(&self, slug: &str) -> Result<BuildDetail, CatalogError>;
+}
+
+/// Tiny registry so `Service` can route by source name without owning a
+/// fixed set of adapters.
+pub struct CatalogRegistry {
+    catalogs: std::collections::BTreeMap<&'static str, std::sync::Arc<dyn BuildCatalog>>,
+}
+
+impl CatalogRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            catalogs: std::collections::BTreeMap::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with(mut self, c: std::sync::Arc<dyn BuildCatalog>) -> Self {
+        self.catalogs.insert(c.name(), c);
+        self
+    }
+
+    pub fn get(&self, name: &str) -> Option<&std::sync::Arc<dyn BuildCatalog>> {
+        self.catalogs.get(name)
+    }
+
+    #[must_use]
+    pub fn names(&self) -> Vec<&'static str> {
+        self.catalogs.keys().copied().collect()
+    }
+}
+
+impl Default for CatalogRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Build code decoder
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum BuildCodeError {
+    #[error("malformed chat code: {0}")]
+    Malformed(String),
+}
+
+/// Decodes GW2 build template chat codes (`[&Dw...=]`) into structured
+/// data. Behind a port so we can swap the underlying decoder later
+/// (currently `chatr`).
+pub trait BuildCodeDecoder: Send + Sync + 'static {
+    fn decode(
+        &self,
+        code: &crate::domain::BuildChatCode,
+    ) -> Result<serde_json::Value, BuildCodeError>;
 }
 
 // ---------------------------------------------------------------------------

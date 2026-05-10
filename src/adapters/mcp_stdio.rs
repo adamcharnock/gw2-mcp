@@ -14,7 +14,11 @@ use rmcp::model::{
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
-use crate::domain::{ApiKey, CurrencyId, SearchLimit, SearchQuery};
+use crate::domain::{
+    ApiKey, BuildChatCode, CharacterName, CurrencyId, SearchLimit, SearchQuery, SkillId,
+    SpecializationId, TraitId,
+};
+use crate::ports::CatalogFilter;
 use crate::service::Service;
 
 const CURRENCIES_RESOURCE_URI: &str = "gw2://currencies";
@@ -55,6 +59,14 @@ impl McpServer {
             "wiki_search" => self.handle_wiki_search(&args).await,
             "get_wallet" => self.handle_get_wallet(&args).await,
             "get_currencies" => self.handle_get_currencies(&args).await,
+            "get_skills" => self.handle_get_skills(&args).await,
+            "get_traits" => self.handle_get_traits(&args).await,
+            "get_specializations" => self.handle_get_specializations(&args).await,
+            "get_character_build" => self.handle_get_character_build(&args).await,
+            "decode_build_code" => self.handle_decode_build_code_sync(&args),
+            "list_build_sources" => self.handle_list_build_sources(),
+            "list_recommended_builds" => self.handle_list_recommended_builds(&args).await,
+            "get_recommended_build" => self.handle_get_recommended_build(&args).await,
             other => return Err(format!("unknown tool: {other}")),
         };
         outcome.map_err(|e| e.to_string())
@@ -118,26 +130,7 @@ impl McpServer {
     }
 
     async fn handle_get_currencies(&self, args: &serde_json::Value) -> Result<String, CallError> {
-        let ids: Vec<CurrencyId> = match args.get("ids") {
-            None | Some(serde_json::Value::Null) => Vec::new(),
-            Some(serde_json::Value::Array(arr)) => arr
-                .iter()
-                .map(|v| {
-                    v.as_i64()
-                        .ok_or(CallError::BadArg {
-                            name: "ids",
-                            expected: "array of positive integers",
-                        })
-                        .and_then(|n| CurrencyId::new(n).map_err(CallError::Domain))
-                })
-                .collect::<Result<_, _>>()?,
-            Some(_) => {
-                return Err(CallError::BadArg {
-                    name: "ids",
-                    expected: "array",
-                });
-            }
-        };
+        let ids = parse_id_array(args, "ids", CurrencyId::new)?;
         let map = self
             .service
             .get_currencies(&ids)
@@ -145,6 +138,176 @@ impl McpServer {
             .map_err(CallError::Service)?;
         Ok(serde_json::to_string_pretty(&map)?)
     }
+
+    async fn handle_get_skills(&self, args: &serde_json::Value) -> Result<String, CallError> {
+        let ids = parse_required_id_array(args, "ids", SkillId::new)?;
+        let map = self
+            .service
+            .get_skills(&ids)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&map)?)
+    }
+
+    async fn handle_get_traits(&self, args: &serde_json::Value) -> Result<String, CallError> {
+        let ids = parse_required_id_array(args, "ids", TraitId::new)?;
+        let map = self
+            .service
+            .get_traits(&ids)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&map)?)
+    }
+
+    async fn handle_get_specializations(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<String, CallError> {
+        let ids = parse_required_id_array(args, "ids", SpecializationId::new)?;
+        let map = self
+            .service
+            .get_specializations(&ids)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&map)?)
+    }
+
+    async fn handle_get_character_build(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<String, CallError> {
+        let raw_key = args
+            .get("api_key")
+            .and_then(|v| v.as_str())
+            .ok_or(CallError::MissingArg("api_key"))?;
+        let raw_name = args
+            .get("character")
+            .and_then(|v| v.as_str())
+            .ok_or(CallError::MissingArg("character"))?;
+        let key = ApiKey::new(raw_key).map_err(CallError::Domain)?;
+        let name = CharacterName::new(raw_name).map_err(CallError::Domain)?;
+        let snap = self
+            .service
+            .get_character_build(&key, &name)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&snap)?)
+    }
+
+    fn handle_decode_build_code_sync(&self, args: &serde_json::Value) -> Result<String, CallError> {
+        let raw = args
+            .get("code")
+            .and_then(|v| v.as_str())
+            .ok_or(CallError::MissingArg("code"))?;
+        let code = BuildChatCode::new(raw).map_err(CallError::Domain)?;
+        let value = self
+            .service
+            .decode_build_code(&code)
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&value)?)
+    }
+
+    fn handle_list_build_sources(&self) -> Result<String, CallError> {
+        let names = self.service.list_catalogs();
+        Ok(serde_json::to_string_pretty(&names)?)
+    }
+
+    async fn handle_list_recommended_builds(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<String, CallError> {
+        let source = args
+            .get("source")
+            .and_then(|v| v.as_str())
+            .ok_or(CallError::MissingArg("source"))?;
+        let filter = CatalogFilter {
+            profession: args
+                .get("profession")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
+            gamemode: args
+                .get("gamemode")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
+            limit: args
+                .get("limit")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok()),
+        };
+        let summaries = self
+            .service
+            .list_catalog_builds(source, filter)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&summaries)?)
+    }
+
+    async fn handle_get_recommended_build(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<String, CallError> {
+        let source = args
+            .get("source")
+            .and_then(|v| v.as_str())
+            .ok_or(CallError::MissingArg("source"))?;
+        let slug = args
+            .get("slug")
+            .and_then(|v| v.as_str())
+            .ok_or(CallError::MissingArg("slug"))?;
+        let detail = self
+            .service
+            .get_catalog_build(source, slug)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_string_pretty(&detail)?)
+    }
+}
+
+/// Parse an optional array of positive ints into typed ids.
+fn parse_id_array<Id, F>(
+    args: &serde_json::Value,
+    name: &'static str,
+    ctor: F,
+) -> Result<Vec<Id>, CallError>
+where
+    F: Fn(i64) -> Result<Id, crate::domain::DomainError>,
+{
+    match args.get(name) {
+        None | Some(serde_json::Value::Null) => Ok(Vec::new()),
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .map(|v| {
+                v.as_i64()
+                    .ok_or(CallError::BadArg {
+                        name,
+                        expected: "array of positive integers",
+                    })
+                    .and_then(|n| ctor(n).map_err(CallError::Domain))
+            })
+            .collect(),
+        Some(_) => Err(CallError::BadArg {
+            name,
+            expected: "array",
+        }),
+    }
+}
+
+fn parse_required_id_array<Id, F>(
+    args: &serde_json::Value,
+    name: &'static str,
+    ctor: F,
+) -> Result<Vec<Id>, CallError>
+where
+    F: Fn(i64) -> Result<Id, crate::domain::DomainError>,
+{
+    let ids = parse_id_array(args, name, ctor)?;
+    if ids.is_empty() {
+        return Err(CallError::BadArg {
+            name,
+            expected: "non-empty array of positive integers",
+        });
+    }
+    Ok(ids)
 }
 
 #[derive(Debug)]
@@ -287,6 +450,8 @@ impl ServerHandler for McpServer {
     }
 }
 
+#[allow(clippy::too_many_lines)] // Each tool needs its own schema literal; refactoring into a
+// table-driven form would obscure them more than help.
 fn build_tools() -> Vec<Tool> {
     let wiki_search: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
@@ -330,6 +495,69 @@ fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    let by_required_ids: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "ids": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "description": "Ids to fetch. Required — there are 1000s of entries; pass only what you need."
+            }
+        },
+        "required": ["ids"]
+    }))
+    .expect("valid schema literal");
+
+    let get_character_build: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "api_key": { "type": "string", "description": "GW2 API key with 'account' + 'characters' + 'builds' scopes." },
+                "character": { "type": "string", "description": "Character name (case-sensitive)." }
+            },
+            "required": ["api_key", "character"]
+        }))
+        .expect("valid schema literal");
+
+    let decode_build_code: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "code": {
+                "type": "string",
+                "description": "Build chat code, e.g. `[&DQ...=]`. Decoded into structured JSON (profession, specs, traits, palette skill ids, pets/legends)."
+            }
+        },
+        "required": ["code"]
+    }))
+    .expect("valid schema literal");
+
+    let list_recommended: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "source": { "type": "string", "description": "Source name from list_build_sources (e.g. discretize, metabattle, snowcrows)." },
+            "profession": { "type": "string", "description": "Optional profession filter (e.g. 'guardian')." },
+            "gamemode": { "type": "string", "description": "Optional game-mode filter (e.g. 'fractals', 'raids')." },
+            "limit": { "type": "integer", "minimum": 1, "description": "Cap on number of results." }
+        },
+        "required": ["source"]
+    }))
+    .expect("valid schema literal");
+
+    let get_recommended: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "source": { "type": "string", "description": "Source name." },
+            "slug": { "type": "string", "description": "Build slug from list_recommended_builds." }
+        },
+        "required": ["source", "slug"]
+    }))
+    .expect("valid schema literal");
+
+    let empty_args: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({ "type": "object" }))
+            .expect("valid schema literal");
+
     vec![
         Tool::new(
             "wiki_search",
@@ -346,6 +574,46 @@ fn build_tools() -> Vec<Tool> {
             "Fetch Guild Wars 2 currency metadata. Pass `ids` for specific currencies; omit to \
              fetch all.",
             get_currencies,
+        ),
+        Tool::new(
+            "get_skills",
+            "Resolve GW2 skill ids (e.g. those returned by get_character_build) into name + description + facts.",
+            by_required_ids.clone(),
+        ),
+        Tool::new(
+            "get_traits",
+            "Resolve GW2 trait ids into name + description + facts.",
+            by_required_ids.clone(),
+        ),
+        Tool::new(
+            "get_specializations",
+            "Resolve GW2 specialization ids (core + elite) into name, profession, and minor/major trait ids.",
+            by_required_ids,
+        ),
+        Tool::new(
+            "get_character_build",
+            "Fetch every build/equipment tab for a character. Requires an API key with 'builds' scope.",
+            get_character_build,
+        ),
+        Tool::new(
+            "decode_build_code",
+            "Decode a `[&Dw...]` build chat code into structured JSON. No auth required.",
+            decode_build_code,
+        ),
+        Tool::new(
+            "list_build_sources",
+            "List the registered curated-build sources (Discretize, MetaBattle, Snow Crows, …).",
+            empty_args,
+        ),
+        Tool::new(
+            "list_recommended_builds",
+            "List builds from a curated source. Returns lightweight summaries; use get_recommended_build for full details.",
+            list_recommended,
+        ),
+        Tool::new(
+            "get_recommended_build",
+            "Fetch full details for a specific curated build by source + slug.",
+            get_recommended,
         ),
     ]
 }

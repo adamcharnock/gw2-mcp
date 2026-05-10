@@ -8,10 +8,18 @@ use std::time::Duration;
 use thiserror::Error;
 use tracing::{debug, warn};
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::domain::BuildChatCode;
 use crate::domain::{
-    ApiKey, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResponse, WalletEntry, WalletInfo,
+    ApiKey, CharacterName, Currency, CurrencyId, SearchLimit, SearchQuery, SearchResponse, Skill,
+    SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry, WalletInfo,
 };
-use crate::ports::{Cache, CacheError, Clock, Gw2Api, Gw2ApiError, Wiki, WikiError};
+use crate::ports::{
+    BuildCodeDecoder, BuildCodeError, Cache, CacheError, Clock, Gw2Api, Gw2ApiError, Wiki,
+    WikiError,
+};
 
 // Cache TTLs centralised so changes are atomic.
 pub const STATIC_TTL: Duration = Duration::from_secs(60 * 60 * 24 * 365); // 1 year
@@ -28,6 +36,12 @@ pub enum ServiceError {
 
     #[error("cache error: {0}")]
     Cache(#[from] CacheError),
+
+    #[error("build code decode error: {0}")]
+    BuildCode(#[from] BuildCodeError),
+
+    #[error("build catalog error: {0}")]
+    Catalog(#[from] crate::ports::CatalogError),
 }
 
 /// Orchestrates GW2 / wiki access with a TTL cache in front.
@@ -39,6 +53,8 @@ pub struct Service {
     wiki: Arc<dyn Wiki>,
     cache: Arc<dyn Cache>,
     clock: Arc<dyn Clock>,
+    build_decoder: Arc<dyn BuildCodeDecoder>,
+    catalogs: Arc<crate::ports::CatalogRegistry>,
 }
 
 impl Service {
@@ -47,13 +63,57 @@ impl Service {
         wiki: Arc<dyn Wiki>,
         cache: Arc<dyn Cache>,
         clock: Arc<dyn Clock>,
+        build_decoder: Arc<dyn BuildCodeDecoder>,
+        catalogs: Arc<crate::ports::CatalogRegistry>,
     ) -> Self {
         Self {
             gw2,
             wiki,
             cache,
             clock,
+            build_decoder,
+            catalogs,
         }
+    }
+
+    /// Decode a `[&Dw…]` build chat code into structured JSON.
+    pub fn decode_build_code(
+        &self,
+        code: &BuildChatCode,
+    ) -> Result<serde_json::Value, ServiceError> {
+        Ok(self.build_decoder.decode(code)?)
+    }
+
+    /// List the names of registered curated-build sources.
+    #[must_use]
+    pub fn list_catalogs(&self) -> Vec<&'static str> {
+        self.catalogs.names()
+    }
+
+    /// List builds from a named catalog.
+    pub async fn list_catalog_builds(
+        &self,
+        source: &str,
+        filter: crate::ports::CatalogFilter,
+    ) -> Result<Vec<crate::ports::BuildSummary>, ServiceError> {
+        let cat = self
+            .catalogs
+            .get(source)
+            .ok_or_else(|| crate::ports::CatalogError::NoSuchSource(source.to_owned()))?;
+        Ok(cat.list(&filter).await?)
+    }
+
+    /// Fetch a specific build from a catalog.
+    pub async fn get_catalog_build(
+        &self,
+        source: &str,
+        slug: &str,
+    ) -> Result<crate::ports::BuildDetail, ServiceError> {
+        let cat = self
+            .catalogs
+            .get(source)
+            .ok_or_else(|| crate::ports::CatalogError::NoSuchSource(source.to_owned()))?;
+        Ok(cat.fetch(slug).await?)
     }
 
     // -----------------------------------------------------------------
@@ -183,6 +243,100 @@ impl Service {
     }
 
     // -----------------------------------------------------------------
+    // Reference data: skills, traits, specializations
+    //
+    // Same caching pattern as currencies: per-id JSON cache entries with
+    // STATIC_TTL. Empty `ids` is rejected (skills alone are 3000+ entries
+    // — fetching the lot is never the right call).
+    // -----------------------------------------------------------------
+
+    pub async fn get_skills(
+        &self,
+        ids: &[SkillId],
+    ) -> Result<BTreeMap<SkillId, Skill>, ServiceError> {
+        cached_by_id(
+            self.cache.as_ref(),
+            ids,
+            |id| format!("skill:{id}"),
+            |missing| async move { self.gw2.fetch_skills(&missing).await.map_err(Into::into) },
+        )
+        .await
+    }
+
+    pub async fn get_traits(
+        &self,
+        ids: &[TraitId],
+    ) -> Result<BTreeMap<TraitId, Trait>, ServiceError> {
+        cached_by_id(
+            self.cache.as_ref(),
+            ids,
+            |id| format!("trait:{id}"),
+            |missing| async move { self.gw2.fetch_traits(&missing).await.map_err(Into::into) },
+        )
+        .await
+    }
+
+    pub async fn get_specializations(
+        &self,
+        ids: &[SpecializationId],
+    ) -> Result<BTreeMap<SpecializationId, Specialization>, ServiceError> {
+        cached_by_id(
+            self.cache.as_ref(),
+            ids,
+            |id| format!("specialization:{id}"),
+            |missing| async move {
+                self.gw2
+                    .fetch_specializations(&missing)
+                    .await
+                    .map_err(Into::into)
+            },
+        )
+        .await
+    }
+
+    // -----------------------------------------------------------------
+    // Character build (A.2)
+    // -----------------------------------------------------------------
+
+    /// Fetch every build tab and equipment tab for a character.
+    ///
+    /// Output is cached per (api-key-fingerprint, character) at `WALLET_TTL` —
+    /// the data changes whenever the player saves a tab in-game, so the
+    /// short TTL avoids stale build advice without spamming the API.
+    pub async fn get_character_build(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<CharacterBuildSnapshot, ServiceError> {
+        let cache_key = format!("character_build:{}:{}", key.fingerprint(), name.as_str());
+
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(snap) = serde_json::from_str::<CharacterBuildSnapshot>(&json)
+        {
+            debug!(character = %name, "character build cache hit");
+            return Ok(snap);
+        }
+
+        // Fetch in parallel — independent endpoints, no point sequential.
+        let (build_tabs, equipment_tabs) = tokio::try_join!(
+            self.gw2.fetch_buildtabs(key, name),
+            self.gw2.fetch_equipmenttabs(key, name),
+        )?;
+
+        let snap = CharacterBuildSnapshot {
+            character_name: name.as_str().to_owned(),
+            build_tabs,
+            equipment_tabs,
+            fetched_at: self.clock.now(),
+        };
+
+        if let Ok(json) = serde_json::to_string(&snap) {
+            self.cache.set(&cache_key, json, WALLET_TTL).await;
+        }
+        Ok(snap)
+    }
+
+    // -----------------------------------------------------------------
     // Wiki
     // -----------------------------------------------------------------
 
@@ -262,6 +416,66 @@ fn wiki_extract_cache_key(title: &str) -> String {
 pub fn wiki_page_url(title: &str) -> String {
     let encoded = url::form_urlencoded::byte_serialize(title.as_bytes()).collect::<String>();
     format!("https://wiki.guildwars2.com/wiki/{encoded}")
+}
+
+/// Snapshot of a character's build + equipment tabs at a moment in time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CharacterBuildSnapshot {
+    pub character_name: String,
+    pub build_tabs: Vec<serde_json::Value>,
+    pub equipment_tabs: Vec<serde_json::Value>,
+    pub fetched_at: DateTime<Utc>,
+}
+
+/// Generic per-id cache helper used by `get_skills` / `get_traits` /
+/// `get_specializations`. Splits ids into cache hits + misses, fetches the
+/// misses in one upstream call, writes them through, and merges.
+///
+/// `on_miss` is called *only* if there are any missing ids, with the full
+/// list of misses — adapters get a single chunked request.
+async fn cached_by_id<Id, T, KFn, MFn, MFut>(
+    cache: &dyn Cache,
+    ids: &[Id],
+    key_for: KFn,
+    on_miss: MFn,
+) -> Result<BTreeMap<Id, T>, ServiceError>
+where
+    Id: Copy + Ord + std::fmt::Display,
+    T: Clone + Serialize + for<'de> Deserialize<'de>,
+    KFn: Fn(Id) -> String,
+    MFn: FnOnce(Vec<Id>) -> MFut,
+    MFut: std::future::Future<Output = Result<BTreeMap<Id, T>, ServiceError>>,
+{
+    let mut hits = BTreeMap::new();
+    let mut misses = Vec::new();
+
+    for id in ids {
+        let k = key_for(*id);
+        match cache.get(&k).await {
+            Some(json) => match serde_json::from_str::<T>(&json) {
+                Ok(v) => {
+                    hits.insert(*id, v);
+                }
+                Err(e) => {
+                    warn!(key = %k, error = ?e, "cache poisoned; refetching");
+                    misses.push(*id);
+                }
+            },
+            None => misses.push(*id),
+        }
+    }
+
+    if !misses.is_empty() {
+        let fetched = on_miss(misses).await?;
+        for (id, item) in fetched {
+            if let Ok(json) = serde_json::to_string(&item) {
+                cache.set(&key_for(id), json, STATIC_TTL).await;
+            }
+            hits.insert(id, item);
+        }
+    }
+
+    Ok(hits)
 }
 
 #[cfg(test)]

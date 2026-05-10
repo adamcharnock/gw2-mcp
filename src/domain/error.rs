@@ -13,6 +13,21 @@ pub enum DomainError {
     #[error("currency id must be positive (got {got})")]
     CurrencyIdInvalid { got: i64 },
 
+    #[error("skill id must be positive (got {got})")]
+    SkillIdInvalid { got: i64 },
+
+    #[error("trait id must be positive (got {got})")]
+    TraitIdInvalid { got: i64 },
+
+    #[error("specialization id must be positive (got {got})")]
+    SpecializationIdInvalid { got: i64 },
+
+    #[error("character name must be 1..32 chars (got {got_len})")]
+    CharacterNameInvalid { got_len: usize },
+
+    #[error("build chat code must start with `[&` and end with `]` (got: {got_prefix})")]
+    BuildCodeMalformed { got_prefix: String },
+
     #[error("search query is empty after trimming")]
     SearchQueryEmpty,
 
