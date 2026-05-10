@@ -3,6 +3,7 @@
 //! boundaries and can be constructed in tests without any setup.
 
 pub mod api_key;
+pub mod bearing;
 pub mod build_code;
 pub mod build_slug;
 pub mod character;
@@ -13,6 +14,7 @@ pub mod wallet;
 pub mod wiki;
 
 pub use api_key::ApiKey;
+pub use bearing::{Bearing16, METERS_PER_GW2_UNIT, bearing, distance_meters, distance_units};
 pub use build_code::BuildChatCode;
 pub use build_slug::BuildSlug;
 pub use character::CharacterName;

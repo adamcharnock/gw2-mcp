@@ -66,6 +66,16 @@ clap = { version = "4", features = ["derive", "env"] }
 httpdate = "1"
 rand = "0.8"
 
+# Mumble Link reader: zero-copy struct casts of the C-shaped MumbleLink block.
+bytemuck = { version = "1", features = ["derive"] }
+# Cross-platform memory mapping for /dev/shm/MumbleLink (Linux + Wine on macOS).
+memmap2 = "0.9"
+
+# Windows-only shared-memory access for the MumbleLink named-mapping. Behind a
+# target_os = "windows" cfg so non-Windows builds don't pull it in.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Memory"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 wiremock = "0.6"
@@ -84,9 +94,15 @@ panic = "abort"
 [profile.dev]
 opt-level = 0
 
-# Strict lints (enforced via `cargo clippy -- -D warnings` in CI/lefthook)
+# Strict lints (enforced via `cargo clippy -- -D warnings` in CI/lefthook).
+#
+# `unsafe_code` is `deny`, not `forbid`, solely so the Windows-only Mumble
+# Link reader (`adapters::mumble_link`) can `#[allow(unsafe_code)]` on the
+# one tight function that calls `OpenFileMappingW` + `MapViewOfFile` —
+# Windows shared memory has no safe wrapper in any current crate. Every
+# other module must remain `unsafe`-free.
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 missing_docs = "allow"
 
 [lints.clippy]

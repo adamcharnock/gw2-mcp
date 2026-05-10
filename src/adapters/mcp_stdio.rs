@@ -137,6 +137,10 @@ impl McpServer {
             "list_catalog_sources" => self.handle_list_catalog_sources(),
             "list_catalog_builds" => self.handle_list_catalog_builds(&args).await,
             "get_catalog_build" => self.handle_get_catalog_build(&args).await,
+            "get_my_location" => self.handle_get_my_location().await,
+            "get_directions" => self.handle_get_directions(&args).await,
+            "find_nearby" => self.handle_find_nearby(&args).await,
+            "describe_facing" => self.handle_describe_facing().await,
             "get_info" => Ok(serde_json::Value::String(SERVER_RUNBOOK.to_owned())),
             other => return Err(format!("unknown tool: {other}")),
         };
@@ -555,6 +559,152 @@ impl McpServer {
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&detail)?)
     }
+
+    // -- Tier 6B navigation tools --------------------------------------
+
+    async fn handle_get_my_location(&self) -> Result<serde_json::Value, CallError> {
+        let snap = self
+            .service
+            .get_my_location()
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&snap)?)
+    }
+
+    async fn handle_get_directions(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let from = parse_location_ref(args.get("from"), "from")?;
+        let to = parse_location_ref(args.get("to"), "to")?;
+        let res = self
+            .service
+            .get_directions(from, to)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&res)?)
+    }
+
+    async fn handle_find_nearby(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let filter = parse_nearby_filter(args.get("filter"))?;
+        let around = match args.get("around") {
+            Some(v) if !v.is_null() => parse_location_ref(Some(v), "around")?,
+            _ => crate::service::LocationRef::Here,
+        };
+        let limit = args
+            .get("limit")
+            .and_then(serde_json::Value::as_u64)
+            .map_or(5usize, |n| usize::try_from(n).unwrap_or(5))
+            .clamp(1, 25);
+        let res = self
+            .service
+            .find_nearby(filter, around, limit)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&res)?)
+    }
+
+    async fn handle_describe_facing(&self) -> Result<serde_json::Value, CallError> {
+        let res = self
+            .service
+            .describe_facing()
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&res)?)
+    }
+}
+
+/// Parse a `LocationRef` from MCP args. The MCP schema is a `oneOf`:
+/// `{coords:[x,y], map_id?: int}` | `{poi_name: str, map_id: int}` |
+/// `{here: true}`. We recognise each shape by its discriminating key
+/// rather than requiring the LLM to set a `kind` field — schemas with
+/// implicit discrimination are friendlier for tool-calling models.
+fn parse_location_ref(
+    v: Option<&serde_json::Value>,
+    field: &'static str,
+) -> Result<crate::service::LocationRef, CallError> {
+    let v = v.ok_or(CallError::MissingArg(field))?;
+    let Some(obj) = v.as_object() else {
+        return Err(CallError::BadArg {
+            name: field,
+            expected: "object: {coords:[x,y]}, {poi_name, map_id}, or {here:true}",
+        });
+    };
+
+    if obj.get("here").and_then(serde_json::Value::as_bool) == Some(true) {
+        return Ok(crate::service::LocationRef::Here);
+    }
+
+    if let Some(arr) = obj.get("coords").and_then(serde_json::Value::as_array) {
+        if arr.len() != 2 {
+            return Err(CallError::BadArg {
+                name: field,
+                expected: "coords must be a 2-element [x, y] array of numbers",
+            });
+        }
+        let x = arr[0].as_f64().ok_or(CallError::BadArg {
+            name: field,
+            expected: "coords[0] must be a number",
+        })?;
+        let y = arr[1].as_f64().ok_or(CallError::BadArg {
+            name: field,
+            expected: "coords[1] must be a number",
+        })?;
+        let map_id = obj
+            .get("map_id")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok());
+        return Ok(crate::service::LocationRef::Coords {
+            coord: (x, y),
+            map_id,
+        });
+    }
+
+    if let Some(name) = obj.get("poi_name").and_then(|v| v.as_str()) {
+        let map_id = obj
+            .get("map_id")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or(CallError::BadArg {
+                name: field,
+                expected: "poi_name requires an accompanying integer map_id",
+            })?;
+        return Ok(crate::service::LocationRef::NamedPoi {
+            map_id,
+            name: name.to_owned(),
+        });
+    }
+
+    Err(CallError::BadArg {
+        name: field,
+        expected: "object: {coords:[x,y]}, {poi_name, map_id}, or {here:true}",
+    })
+}
+
+fn parse_nearby_filter(
+    v: Option<&serde_json::Value>,
+) -> Result<crate::service::NearbyFilter, CallError> {
+    use crate::service::NearbyFilter;
+    let Some(s) = v.and_then(|v| v.as_str()) else {
+        return Ok(NearbyFilter::Any);
+    };
+    Ok(match s {
+        "waypoint" => NearbyFilter::Waypoint,
+        "poi" => NearbyFilter::Poi,
+        "vista" => NearbyFilter::Vista,
+        "hero_point" => NearbyFilter::HeroPoint,
+        "task" => NearbyFilter::Task,
+        "any" | "" => NearbyFilter::Any,
+        _ => {
+            return Err(CallError::BadArg {
+                name: "filter",
+                expected: "one of: waypoint | poi | vista | hero_point | task | any",
+            });
+        }
+    })
 }
 
 const DEFAULT_PAGE_SIZE: u32 = 25;
@@ -1111,6 +1261,87 @@ fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    // -- Tier 6B navigation tool schemas --------------------------------
+    //
+    // `LocationRef` is encoded as a JSON Schema oneOf with three shapes:
+    //   {coords:[x,y], map_id?}   — literal coords (map_id optional)
+    //   {poi_name, map_id}         — named POI on a known map
+    //   {here:true}                — current Mumble Link position
+    let location_ref_schema = serde_json::json!({
+        "oneOf": [
+            {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["coords"],
+                "properties": {
+                    "coords": {
+                        "type": "array",
+                        "items": { "type": "number" },
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Continent-space [x, y] map coordinates."
+                    },
+                    "map_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Map id; falls back to the player's current map if omitted."
+                    }
+                }
+            },
+            {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["poi_name", "map_id"],
+                "properties": {
+                    "poi_name": { "type": "string", "description": "Case-insensitive POI name (waypoint, landmark, vista, etc.)." },
+                    "map_id": { "type": "integer", "minimum": 1 }
+                }
+            },
+            {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["here"],
+                "properties": {
+                    "here": { "type": "boolean", "const": true, "description": "Use the player's current Mumble Link position." }
+                }
+            }
+        ]
+    });
+
+    let get_directions_schema: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "from": location_ref_schema,
+                "to": location_ref_schema
+            },
+            "required": ["from", "to"]
+        }))
+        .expect("valid schema literal");
+
+    let find_nearby_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "filter": {
+                "type": "string",
+                "enum": ["waypoint", "poi", "vista", "hero_point", "task", "any"],
+                "default": "any",
+                "description": "POI category to include. `poi` matches landmarks + unlocks; `waypoint` matches travel waypoints only."
+            },
+            "around": location_ref_schema.clone(),
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 25,
+                "default": 5,
+                "description": "Maximum results to return."
+            }
+        }
+    }))
+    .expect("valid schema literal");
+
     vec![
         Tool::new(
             "wiki_search",
@@ -1203,9 +1434,41 @@ fn build_tools() -> Vec<Tool> {
         Tool::new(
             "get_info",
             "Return the server's usage runbook — how to choose tools, recipe per question type, gotchas, and the prompt + resource catalogue. Identical to the `instructions` field returned in MCP `initialize`; offered as a tool because some clients drop or truncate that field.",
-            empty_args,
+            empty_args.clone(),
         )
         .annotate(read_only_closed_world("About this server")),
+        // -- Tier 6B: navigation tools (Mumble Link + map data) -----------
+        // All four are openWorld=true: Mumble Link state changes every
+        // frame, and POI lookups touch the live GW2 API. They're still
+        // read-only / non-destructive / idempotent — repeating the call
+        // never changes server-side state.
+        Tool::new(
+            "get_my_location",
+            "Return where the player currently is: character name, profession, map name + region, 2D map coordinates, and the 16-point compass bearing they're facing. Reads live state from the Guild Wars 2 client via Mumble Link; requires GW2 to be running on the same host as this MCP server.",
+            empty_args.clone(),
+        )
+        .annotate(read_only_open_world("Get My Location"))
+        .with_output_schema::<crate::service::MyLocationSnapshot>(),
+        Tool::new(
+            "get_directions",
+            "Return the bearing (16-point compass) and distance from `from` to `to`. Each endpoint can be literal coords `{coords:[x,y], map_id?}`, a named POI `{poi_name, map_id}`, or the player's current location `{here:true}`. POI names match case-insensitively against the map's waypoint/landmark/vista catalogue.",
+            get_directions_schema,
+        )
+        .annotate(read_only_open_world("Get Directions"))
+        .with_output_schema::<crate::service::DirectionsResult>(),
+        Tool::new(
+            "find_nearby",
+            "List the closest POIs to `around` (defaults to the player's current location). `filter` narrows by kind: `waypoint`, `poi` (landmarks + unlocks), `vista`, `hero_point`, `task` (renown hearts), or `any`. Up to 25 results sorted nearest-first.",
+            find_nearby_schema,
+        )
+        .annotate(read_only_open_world("Find Nearby")),
+        Tool::new(
+            "describe_facing",
+            "Describe which way the player is facing in plain English plus the closest landmark in that direction. No arguments — reads live state from Mumble Link.",
+            empty_args,
+        )
+        .annotate(read_only_open_world("Describe Facing"))
+        .with_output_schema::<crate::service::FacingDescription>(),
     ]
 }
 
@@ -1622,8 +1885,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            13,
-            "tier-5 ships 13 tools (12 functional + get_info)"
+            17,
+            "tier-6b ships 17 tools (12 base + get_info + 4 navigation tools)"
         );
     }
 
@@ -1711,6 +1974,9 @@ mod tests {
             "get_wallet",
             "get_character_build",
             "get_catalog_build",
+            "get_my_location",
+            "get_directions",
+            "describe_facing",
         ] {
             let t = by_name
                 .get(name)

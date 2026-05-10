@@ -10,8 +10,10 @@ pub mod catalog_metabattle;
 pub mod catalog_snowcrows;
 pub mod error_body;
 pub mod gw2_http;
+pub mod gw2_map;
 pub mod mcp_stdio;
 pub mod memory_cache;
+pub mod mumble_link;
 pub mod system_clock;
 pub mod wiki_http;
 
@@ -20,7 +22,12 @@ pub use catalog_discretize::DiscretizeCatalog;
 pub use catalog_metabattle::MetaBattleCatalog;
 pub use catalog_snowcrows::SnowCrowsCatalog;
 pub use gw2_http::HttpGw2Api;
+pub use gw2_map::HttpMapData;
 pub use mcp_stdio::McpServer;
 pub use memory_cache::MemoryCache;
+pub use mumble_link::{
+    MUMBLE_HEADER_LEN, MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot,
+    StubMumbleLink, parse_header, probe_default,
+};
 pub use system_clock::SystemClock;
 pub use wiki_http::HttpWiki;

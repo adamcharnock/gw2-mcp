@@ -12,13 +12,17 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use gw2_mcp::adapters::ChatrDecoder;
+use gw2_mcp::adapters::mumble_link::{
+    MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot, StubMumbleLink,
+};
 use gw2_mcp::domain::{
     ApiKey, BuildSlug, CharacterName, Currency, CurrencyId, Item, ItemId, SearchLimit, SearchQuery,
     SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
-    CatalogFilter, CatalogRegistry, Clock, Gw2Api, Gw2ApiError, Wiki, WikiError,
+    CatalogFilter, CatalogRegistry, Clock, Gw2Api, Gw2ApiError, MapData, MapDataError, MapId,
+    MapInfo, MapPoi, Wiki, WikiError,
 };
 
 /// Build a `Service` with the in-memory fakes and a real chatr decoder.
@@ -32,7 +36,10 @@ pub fn build_service(
 ) -> Service {
     let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
     let catalogs = Arc::new(CatalogRegistry::new());
-    Service::new(gw2, wiki, cache, clock, decoder, catalogs)
+    let mumble: Arc<dyn MumbleLink> =
+        Arc::new(StubMumbleLink::new("test default: no mumble link wired"));
+    let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+    Service::new(gw2, wiki, cache, clock, decoder, catalogs, mumble, maps)
 }
 
 /// Build a `Service` with a custom set of catalogs registered.
@@ -45,7 +52,27 @@ pub fn build_service_with_catalogs(
     catalogs: Arc<CatalogRegistry>,
 ) -> Service {
     let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
-    Service::new(gw2, wiki, cache, clock, decoder, catalogs)
+    let mumble: Arc<dyn MumbleLink> =
+        Arc::new(StubMumbleLink::new("test default: no mumble link wired"));
+    let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+    Service::new(gw2, wiki, cache, clock, decoder, catalogs, mumble, maps)
+}
+
+/// Build a `Service` with custom navigation ports — used by the
+/// navigation-specific test binary so it can inject a `FakeMumbleLink`
+/// and a seeded `FakeMapData` without sacrificing the catalog wiring.
+#[must_use]
+pub fn build_service_with_navigation(
+    gw2: Arc<dyn Gw2Api>,
+    wiki: Arc<dyn Wiki>,
+    cache: Arc<dyn Cache>,
+    clock: Arc<dyn Clock>,
+    mumble: Arc<dyn MumbleLink>,
+    maps: Arc<dyn MapData>,
+) -> Service {
+    let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
+    let catalogs = Arc::new(CatalogRegistry::new());
+    Service::new(gw2, wiki, cache, clock, decoder, catalogs, mumble, maps)
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +547,201 @@ pub fn currency(id: u32, name: &str) -> Currency {
         description: format!("description for {name}"),
         icon: format!("https://render.example/{name}.png"),
         order: i32::try_from(id).unwrap_or(0),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Recording fake for the MapData port — used by the navigation tests.
+// ---------------------------------------------------------------------------
+
+pub struct FakeMapData {
+    pub map_calls: Mutex<usize>,
+    pub poi_calls: Mutex<usize>,
+    pub maps: Mutex<BTreeMap<MapId, MapInfo>>,
+    pub pois: Mutex<BTreeMap<MapId, Vec<MapPoi>>>,
+}
+
+impl FakeMapData {
+    pub fn new() -> Self {
+        Self {
+            map_calls: Mutex::new(0),
+            poi_calls: Mutex::new(0),
+            maps: Mutex::new(BTreeMap::new()),
+            pois: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    pub fn add_map(&self, info: MapInfo) {
+        self.maps.lock().unwrap().insert(info.id, info);
+    }
+
+    pub fn add_pois(&self, map_id: MapId, pois: Vec<MapPoi>) {
+        self.pois.lock().unwrap().insert(map_id, pois);
+    }
+
+    pub fn map_calls(&self) -> usize {
+        *self.map_calls.lock().unwrap()
+    }
+
+    pub fn poi_calls(&self) -> usize {
+        *self.poi_calls.lock().unwrap()
+    }
+}
+
+#[async_trait]
+impl MapData for FakeMapData {
+    async fn get_map(&self, id: MapId) -> Result<MapInfo, MapDataError> {
+        *self.map_calls.lock().unwrap() += 1;
+        self.maps
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .ok_or(MapDataError::NotFound(id))
+    }
+
+    async fn list_pois(&self, map_id: MapId) -> Result<Vec<MapPoi>, MapDataError> {
+        *self.poi_calls.lock().unwrap() += 1;
+        Ok(self
+            .pois
+            .lock()
+            .unwrap()
+            .get(&map_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Recording fake for the MumbleLink port. Tests build a snapshot in-line
+// rather than crafting raw bytes — the parsing path is already exercised
+// in the unit tests for `adapters::mumble_link`.
+// ---------------------------------------------------------------------------
+
+pub struct FakeMumbleLink {
+    pub calls: Mutex<usize>,
+    pub response: Mutex<Result<MumbleSnapshot, MumbleError>>,
+}
+
+impl FakeMumbleLink {
+    pub fn with_snapshot(snap: MumbleSnapshot) -> Arc<Self> {
+        Arc::new(Self {
+            calls: Mutex::new(0),
+            response: Mutex::new(Ok(snap)),
+        })
+    }
+
+    pub fn with_error(err: MumbleError) -> Arc<Self> {
+        Arc::new(Self {
+            calls: Mutex::new(0),
+            response: Mutex::new(Err(err)),
+        })
+    }
+
+    pub fn calls(&self) -> usize {
+        *self.calls.lock().unwrap()
+    }
+}
+
+impl MumbleLink for FakeMumbleLink {
+    fn snapshot(&self) -> Result<MumbleSnapshot, MumbleError> {
+        *self.calls.lock().unwrap() += 1;
+        match &*self.response.lock().unwrap() {
+            Ok(s) => Ok(s.clone()),
+            Err(e) => Err(clone_mumble_error(e)),
+        }
+    }
+}
+
+/// `MumbleError` is `#[non_exhaustive]`-style enum (no Clone derived).
+/// Reproduce by variant so the fake can hand out fresh copies without
+/// the trait object boxing dance.
+fn clone_mumble_error(e: &MumbleError) -> MumbleError {
+    match e {
+        MumbleError::NotConnected(s) => MumbleError::NotConnected(s.clone()),
+        MumbleError::Unsupported(s) => MumbleError::Unsupported(s.clone()),
+        MumbleError::Io(io) => MumbleError::Io(std::io::Error::new(io.kind(), io.to_string())),
+        MumbleError::Decode(s) => MumbleError::Decode(s.clone()),
+    }
+}
+
+#[must_use]
+pub fn make_mumble_snapshot(
+    map_id: u32,
+    player_x: f32,
+    player_y: f32,
+    facing: [f32; 3],
+    character: &str,
+    profession: u8,
+) -> MumbleSnapshot {
+    MumbleSnapshot {
+        ui_version: 1,
+        ui_tick: 100,
+        avatar_position: [0.0, 0.0, 0.0],
+        avatar_front: facing,
+        camera_position: [0.0, 0.0, 0.0],
+        camera_front: facing,
+        identity: MumbleIdentity {
+            name: Some(character.to_owned()),
+            profession: Some(profession),
+            spec: Some(0),
+            race: Some(2),
+            map_id: Some(map_id),
+            world_id: Some(2202),
+            team_color_id: Some(0),
+            commander: Some(false),
+            fov: Some(1.222),
+            uisz: Some(1),
+        },
+        context: MumbleContext {
+            server_address: [0; 28],
+            map_id,
+            map_type: 5,
+            shard_id: 0,
+            instance: 0,
+            build_id: 162_000,
+            ui_state: 0,
+            compass_width: 256,
+            compass_height: 256,
+            compass_rotation: 0.0,
+            player_x,
+            player_y,
+            map_center_x: 0.0,
+            map_center_y: 0.0,
+            map_scale: 1.0,
+            process_id: 1234,
+            mount_index: 0,
+        },
+    }
+}
+
+#[must_use]
+pub fn make_map_info(id: MapId, name: &str) -> MapInfo {
+    MapInfo {
+        id,
+        name: name.to_owned(),
+        map_type: Some("Public".to_owned()),
+        min_level: Some(1),
+        max_level: Some(15),
+        default_floor: 1,
+        region_id: 4,
+        region_name: "Kryta".to_owned(),
+        continent_id: 1,
+        continent_name: "Tyria".to_owned(),
+        continent_rect: [[0.0, 0.0], [10000.0, 10000.0]],
+        map_rect: [[0.0, 0.0], [20000.0, 20000.0]],
+    }
+}
+
+#[must_use]
+pub fn make_poi(id: u64, name: &str, kind: &str, coord: (f64, f64)) -> MapPoi {
+    MapPoi {
+        id,
+        name: name.to_owned(),
+        kind: kind.to_owned(),
+        coord,
+        chat_link: None,
+        floor: 1,
     }
 }
 

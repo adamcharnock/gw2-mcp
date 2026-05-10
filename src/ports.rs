@@ -342,3 +342,76 @@ pub trait Wiki: Send + Sync + 'static {
     /// Returns the leading prose extract for a page. Empty string if missing.
     async fn fetch_extract(&self, title: &str) -> Result<String, WikiError>;
 }
+
+// ---------------------------------------------------------------------------
+// Map data (POIs, waypoints, hero points, …) — Tier 6B navigation.
+// ---------------------------------------------------------------------------
+
+/// Numeric GW2 map id (e.g. 15 = Queensdale). Newtype-light: maps and
+/// continents are open-coded as `u32` everywhere in the GW2 API; we
+/// don't need value-class invariants beyond "non-zero".
+pub type MapId = u32;
+
+#[derive(Debug, Error)]
+pub enum MapDataError {
+    #[error("transport error: {0}")]
+    Transport(String),
+
+    #[error("GW2 map API returned {status}: {body}")]
+    Status { status: u16, body: String },
+
+    #[error("could not decode GW2 map response: {0}")]
+    Decode(String),
+
+    #[error("no such map id: {0}")]
+    NotFound(MapId),
+}
+
+/// Metadata for a single GW2 map. Only the fields we actually use for
+/// navigation are pulled out — the raw payload is otherwise enormous.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct MapInfo {
+    pub id: MapId,
+    pub name: String,
+    /// Map kind — `Public`, `Instance`, `Pvp`, `WvW`, etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_level: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_level: Option<u32>,
+    pub default_floor: i32,
+    pub region_id: u32,
+    pub region_name: String,
+    pub continent_id: u32,
+    pub continent_name: String,
+    /// `[[x_min,y_min],[x_max,y_max]]` in continent space. Used to pin
+    /// POIs onto navigable coords.
+    pub continent_rect: [[f64; 2]; 2],
+    pub map_rect: [[f64; 2]; 2],
+}
+
+/// Map point of interest. The GW2 API splits these across several arrays
+/// per `/v2/continents/.../regions/.../maps/.../{id}` (`points_of_interest`,
+/// `tasks`, `skill_challenges`, `sectors`); we flatten them into one
+/// shape so the LLM doesn't have to special-case.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct MapPoi {
+    pub id: u64,
+    pub name: String,
+    /// `waypoint`, `landmark`, `vista`, `unlock`, `hero_point`, or `task`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// Continent-space (x, y) — same coordinate frame the Mumble Link
+    /// `context.player_x` / `context.player_y` reports.
+    pub coord: (f64, f64),
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_link: Option<String>,
+    pub floor: i32,
+}
+
+#[async_trait]
+pub trait MapData: Send + Sync + 'static {
+    async fn get_map(&self, id: MapId) -> Result<MapInfo, MapDataError>;
+    async fn list_pois(&self, map_id: MapId) -> Result<Vec<MapPoi>, MapDataError>;
+}

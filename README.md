@@ -102,6 +102,10 @@ Or with the Docker image:
 | `list_catalog_builds`   | `source`          | `profession`, `gamemode`, `page_size` (≤100), `cursor` | Browse a curated source. Cursor-based pagination; pass back `next_cursor`. |
 | `get_catalog_build`     | `source`, `slug`  | —                                                   | Fetch full details for a curated build. |
 | `get_info`              | —                 | —                                                   | Returns the server's usage runbook (same as `initialize.instructions`). |
+| `get_my_location`       | —                 | —                                                   | Live position + map + facing direction via Mumble Link. Requires GW2 running on the same host. |
+| `get_directions`        | `from`, `to`      | —                                                   | Bearing (16-point compass) + distance between two points. Each accepts `{coords:[x,y]}`, `{poi_name, map_id}`, or `{here:true}`. |
+| `find_nearby`           | —                 | `filter` (waypoint/poi/vista/hero_point/task/any), `around`, `limit` | Closest POIs to a point (defaults to player's location). |
+| `describe_facing`       | —                 | —                                                   | Plain-English description of which way the player is facing + nearest landmark in that direction. |
 
 ### Build-source coverage
 
@@ -112,6 +116,33 @@ Or with the Docker image:
 | `snowcrows`  | Raids/strikes meta      | On-demand HTML scrape (no bulk listing — respects `ai-train=no`); slug shape `<category>/<profession>/<build-slug>` |
 
 Resource: `gw2://currencies` — full currency list as JSON.
+
+## Navigation (live position via Mumble Link)
+
+The four navigation tools (`get_my_location`, `get_directions`, `find_nearby`,
+`describe_facing`) read live in-game state from the Guild Wars 2 client over
+[Mumble Link](https://wiki.guildwars2.com/wiki/API:MumbleLink), a shared-memory
+region the game writes every frame.
+
+| Host | Mechanism | Status |
+|------|-----------|--------|
+| Windows | Named file mapping `MumbleLink` via `OpenFileMappingW` | Compiled but unverified — feedback welcome |
+| Linux / Steam Proton | `/dev/shm/MumbleLink` (tmpfs) | Compiled; verified path is correct |
+| macOS (CrossOver / Whisky) | Probes `~/Library/Application Support/CrossOver/Bottles/*/dosdevices/MumbleLink` and Whisky equivalents | Best-effort; macOS Wine prefixes vary by version |
+| macOS (Parallels VM) | Not reachable from the host | Use the Windows side directly |
+| Docker / headless | Not applicable | Pass `--no-mumble-link` to silence the auto-probe |
+
+The server **never fails** at startup when no Mumble Link is reachable —
+it wires a stub that returns a clear "not connected" error from the four
+navigation tools while everything else keeps working. Pass `--no-mumble-link`
+to deliberately disable Mumble Link (useful in Docker, CI, headless deployments).
+
+### Coordinate convention
+
+GW2 map coordinates use a Y-down convention (Y grows southward, like screen
+coords). The `bearing` math handles the inversion internally; literal coords
+passed to `get_directions` should match what `/v2/continents/.../maps/{id}`
+returns. Distances are reported in raw GW2 units (~1 inch each) and metres.
 
 ## Getting a GW2 API key
 

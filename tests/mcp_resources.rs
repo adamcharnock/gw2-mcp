@@ -8,17 +8,19 @@ mod common;
 
 use std::sync::Arc;
 
+use gw2_mcp::adapters::mumble_link::{MumbleLink, StubMumbleLink};
 use gw2_mcp::adapters::{ChatrDecoder, McpServer};
 use gw2_mcp::domain::{
     Currency, CurrencyId, Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait,
     TraitId,
 };
-use gw2_mcp::ports::{BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, Wiki};
+use gw2_mcp::ports::{BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, Wiki};
 use gw2_mcp::service::Service;
 use serde_json::Value;
 
 use crate::common::{
-    FakeCatalog, FakeGw2Api, FakeWiki, TestCache, TestClock, build_detail, build_summary,
+    FakeCatalog, FakeGw2Api, FakeMapData, FakeWiki, TestCache, TestClock, build_detail,
+    build_summary,
 };
 
 fn build_server_with_fakes(gw2: Arc<FakeGw2Api>, catalogs: Arc<CatalogRegistry>) -> McpServer {
@@ -27,8 +29,10 @@ fn build_server_with_fakes(gw2: Arc<FakeGw2Api>, catalogs: Arc<CatalogRegistry>)
     let wiki: Arc<dyn Wiki> = FakeWiki::new();
     let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
     let gw2_port: Arc<dyn Gw2Api> = gw2;
+    let mumble: Arc<dyn MumbleLink> = Arc::new(StubMumbleLink::new("test default: no mumble"));
+    let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
     McpServer::new(Service::new(
-        gw2_port, wiki, cache, clock, decoder, catalogs,
+        gw2_port, wiki, cache, clock, decoder, catalogs, mumble, maps,
     ))
 }
 
