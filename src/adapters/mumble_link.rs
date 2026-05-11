@@ -81,9 +81,6 @@ struct RawMumbleHeader {
 /// need the first `MUMBLE_HEADER_LEN`.
 pub const MUMBLE_HEADER_LEN: usize = std::mem::size_of::<RawMumbleHeader>();
 
-/// Raw bytes for the GW2 context portion (256 bytes).
-const GW2_CONTEXT_LEN: usize = 256;
-
 /// Repr of the GW2 context block. Same `repr(C)` rules apply. The fields
 /// total 85 bytes — the trailing 171 bytes of the 256-byte block are
 /// padding / future use.
@@ -142,7 +139,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<MumbleSnapshot, MumbleError> {
     }
 
     let identity = parse_identity_utf16(&header.identity)?;
-    let context = parse_gw2_context(&header.context, header.context_len)?;
+    let context = parse_gw2_context(&header.context);
 
     Ok(MumbleSnapshot {
         ui_version: header.ui_version,
@@ -169,32 +166,23 @@ fn parse_identity_utf16(buf: &[u16; 256]) -> Result<MumbleIdentity, MumbleError>
         .map_err(|e| MumbleError::Decode(format!("identity JSON parse: {e} (raw: {s:?})")))
 }
 
-fn parse_gw2_context(buf: &[u8; 256], context_len: u32) -> Result<MumbleContext, MumbleError> {
-    // The GW2 context is fixed-size in practice (~85 bytes of real
-    // fields). Our `RawGw2Context` is 88 bytes because Rust's natural
-    // alignment pads out `mount_index: u8` to a 4-byte boundary; the
-    // last 3 bytes are explicit trailing padding (`_pad`) that we never
-    // read. `context_len` from the client tells us how many *real* bytes
-    // are populated — anything ≥ the field count is enough.
-    const REAL_FIELD_BYTES: usize = 85;
-    let usable = (context_len as usize).min(GW2_CONTEXT_LEN);
-    if usable < REAL_FIELD_BYTES {
-        // GW2 writes a partial context (server/build/instance metadata
-        // only, ending at build_id = 48 bytes) while the player is at
-        // character or world select. Per-player state (player_x/_y,
-        // mount_index, etc.) only gets populated once the client loads
-        // into a map. Report it as NotConnected with the actual cause
-        // rather than Decode — this is normal during login, not a parse
-        // failure.
-        return Err(MumbleError::NotConnected(format!(
-            "GW2 is at character / world select (context_len={usable}, need {REAL_FIELD_BYTES}). \
-             Pick a character and enter the world — per-player state (position, mount, etc.) only \
-             populates once you're loaded into a map."
-        )));
-    }
+fn parse_gw2_context(buf: &[u8; 256]) -> MumbleContext {
+    // IMPORTANT: `context_len` is **not** a "how many bytes are populated"
+    // indicator. Per the Mumble Link spec it's the prefix length Mumble
+    // uses for proximity-voice grouping ("are these two players in the
+    // same instance?"). GW2 sets it to 48 — the bytes of
+    // server+map+shard+instance+build that uniquely identify an instance.
+    // Everything past offset 48 (ui_state, compass, player_x/y, map
+    // center/scale, process_id, mount_index) is per-player state that
+    // GW2 writes regardless. An earlier version of this code gated on
+    // `context_len >= 85` and surfaced character-select-style messages
+    // even when the player was zoned in and producing live coords —
+    // pure misdiagnosis. Our `RawGw2Context` (88 bytes incl. trailing
+    // alignment padding) reads the canonical layout, so the buffer's
+    // full size is always available.
     let struct_size = std::mem::size_of::<RawGw2Context>();
     let raw: &RawGw2Context = bytemuck::from_bytes(&buf[..struct_size]);
-    Ok(MumbleContext {
+    MumbleContext {
         server_address: raw.server_address,
         map_id: raw.map_id,
         map_type: raw.map_type,
@@ -212,7 +200,7 @@ fn parse_gw2_context(buf: &[u8; 256], context_len: u32) -> Result<MumbleContext,
         map_scale: raw.map_scale,
         process_id: raw.process_id,
         mount_index: raw.mount_index,
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
