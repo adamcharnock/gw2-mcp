@@ -1,770 +1,1501 @@
 15:
   name: Queensdale
   region_name: Kryta
+  min_level: 1
+  max_level: 15
+  expansion: core
   neighbors:
   - map_id: 18
     name: Divinity's Reach
     direction: NW
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 24
     name: Gendarran Fields
     direction: E
+    connection: physical
+    min_level: 25
+    max_level: 35
+    expansion: core
   - map_id: 23
     name: Kessex Hills
     direction: SW, S
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
 17:
   name: Harathi Hinterlands
   region_name: Kryta
+  min_level: 35
+  max_level: 45
+  expansion: core
   neighbors:
   - map_id: 24
     name: Gendarran Fields
     direction: SW, SE
+    connection: physical
+    min_level: 25
+    max_level: 35
+    expansion: core
   - map_id: 1185
     name: Lake Doric
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: living_world_season3
 19:
   name: Plains of Ashford
   region_name: Ascalon
+  min_level: 1
+  max_level: 15
+  expansion: core
   neighbors:
   - map_id: 218
     name: Black Citadel
     direction: W
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 20
     name: Blazeridge Steppes
     direction: E
+    connection: physical
+    min_level: 40
+    max_level: 50
+    expansion: core
   - map_id: 32
     name: Diessa Plateau
     direction: N
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 25
     name: Iron Marches
     direction: NE
+    connection: physical
+    min_level: 50
+    max_level: 60
+    expansion: core
   - map_id: 1510
     name: Skywatch Archipelago
     direction: S
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: secrets_of_the_obscure
 20:
   name: Blazeridge Steppes
   region_name: Ascalon
+  min_level: 40
+  max_level: 50
+  expansion: core
   neighbors:
   - map_id: 21
     name: Fields of Ruin
     direction: SE, SW
+    connection: physical
+    min_level: 30
+    max_level: 40
+    expansion: core
   - map_id: 25
     name: Iron Marches
     direction: NW
+    connection: physical
+    min_level: 50
+    max_level: 60
+    expansion: core
   - map_id: 19
     name: Plains of Ashford
     direction: W
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
 21:
   name: Fields of Ruin
   region_name: Ascalon
+  min_level: 30
+  max_level: 40
+  expansion: core
   neighbors:
   - map_id: 20
     name: Blazeridge Steppes
     direction: NE, NW
+    connection: physical
+    min_level: 40
+    max_level: 50
+    expansion: core
 22:
   name: Fireheart Rise
   region_name: Ascalon
+  min_level: 60
+  max_level: 70
+  expansion: core
   neighbors:
   - map_id: 69
     name: Citadel of Flame
     direction: NE
+    connection: physical
+    min_level: 75
+    max_level: 75
   - map_id: 30
     name: Frostgorge Sound
     direction: W
+    connection: physical
+    min_level: 70
+    max_level: 80
+    expansion: core
   - map_id: 25
     name: Iron Marches
     direction: SE
+    connection: physical
+    min_level: 50
+    max_level: 60
+    expansion: core
 23:
   name: Kessex Hills
   region_name: Kryta
+  min_level: 15
+  max_level: 25
+  expansion: core
   neighbors:
   - map_id: 54
     name: Brisban Wildlands
     direction: NW
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 34
     name: Caledon Forest
     direction: S
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 24
     name: Gendarran Fields
     direction: NE
+    connection: physical
+    min_level: 25
+    max_level: 35
+    expansion: core
   - map_id: 15
     name: Queensdale
     direction: NW, N
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
 24:
   name: Gendarran Fields
   region_name: Kryta
+  min_level: 25
+  max_level: 35
+  expansion: core
   neighbors:
   - map_id: 17
     name: Harathi Hinterlands
     direction: N, NW
+    connection: physical
+    min_level: 35
+    max_level: 45
+    expansion: core
   - map_id: 23
     name: Kessex Hills
     direction: SW
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 50
     name: Lion's Arch
     direction: S
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 27
     name: Lornar's Pass
     direction: E
+    connection: physical
+    min_level: 25
+    max_level: 40
+    expansion: core
   - map_id: 15
     name: Queensdale
     direction: NW
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 31
     name: Snowden Drifts
     direction: NE
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 51
     name: Straits of Devastation
+    connection: asura_gate
+    min_level: 70
+    max_level: 75
+    expansion: core
 25:
   name: Iron Marches
   region_name: Ascalon
+  min_level: 50
+  max_level: 60
+  expansion: core
   neighbors:
   - map_id: 20
     name: Blazeridge Steppes
     direction: SE
+    connection: physical
+    min_level: 40
+    max_level: 50
+    expansion: core
   - map_id: 22
     name: Fireheart Rise
     direction: W
+    connection: physical
+    min_level: 60
+    max_level: 70
+    expansion: core
   - map_id: 19
     name: Plains of Ashford
     direction: S
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
 26:
   name: Dredgehaunt Cliffs
   region_name: Shiverpeak Mountains
+  min_level: 40
+  max_level: 50
+  expansion: core
   neighbors:
   - map_id: 326
     name: Hoelbrak
     direction: N
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 27
     name: Lornar's Pass
     direction: W
+    connection: physical
+    min_level: 25
+    max_level: 40
+    expansion: core
   - map_id: 29
     name: Timberline Falls
     direction: S
+    connection: physical
+    min_level: 50
+    max_level: 60
+    expansion: core
 27:
   name: Lornar's Pass
   region_name: Shiverpeak Mountains
+  min_level: 25
+  max_level: 40
+  expansion: core
   neighbors:
   - map_id: 73
     name: Bloodtide Coast
     direction: SW, W
+    connection: physical
+    min_level: 45
+    max_level: 55
+    expansion: core
   - map_id: 26
     name: Dredgehaunt Cliffs
     direction: E
+    connection: physical
+    min_level: 40
+    max_level: 50
+    expansion: core
   - map_id: 24
     name: Gendarran Fields
     direction: NW
+    connection: physical
+    min_level: 25
+    max_level: 35
+    expansion: core
   - map_id: 50
     name: Lion's Arch
     direction: W
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 31
     name: Snowden Drifts
     direction: NE
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 51
     name: Straits of Devastation
+    connection: asura_gate
+    min_level: 70
+    max_level: 75
+    expansion: core
   - map_id: 29
     name: Timberline Falls
     direction: SE
+    connection: physical
+    min_level: 50
+    max_level: 60
+    expansion: core
 28:
   name: Wayfarer Foothills
   region_name: Shiverpeak Mountains
+  min_level: 1
+  max_level: 15
+  expansion: core
   neighbors:
   - map_id: 32
     name: Diessa Plateau
     direction: NE
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 30
     name: Frostgorge Sound
     direction: NE
+    connection: physical
+    min_level: 70
+    max_level: 80
+    expansion: core
   - map_id: 326
     name: Hoelbrak
     direction: W
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 31
     name: Snowden Drifts
     direction: NW
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
 29:
   name: Timberline Falls
   region_name: Shiverpeak Mountains
+  min_level: 50
+  max_level: 60
+  expansion: core
   neighbors:
   - map_id: 26
     name: Dredgehaunt Cliffs
     direction: N
+    connection: physical
+    min_level: 40
+    max_level: 50
+    expansion: core
   - map_id: 27
     name: Lornar's Pass
     direction: NW
+    connection: physical
+    min_level: 25
+    max_level: 40
+    expansion: core
   - map_id: 39
     name: Mount Maelstrom
     direction: S
+    connection: physical
+    min_level: 60
+    max_level: 70
+    expansion: core
 30:
   name: Frostgorge Sound
   region_name: Shiverpeak Mountains
+  min_level: 70
+  max_level: 80
+  expansion: core
   neighbors:
   - map_id: 1178
     name: Bitterfrost Frontier
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: living_world_season3
   - map_id: 22
     name: Fireheart Rise
     direction: E
+    connection: physical
+    min_level: 60
+    max_level: 70
+    expansion: core
   - map_id: 31
     name: Snowden Drifts
     direction: SW
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 28
     name: Wayfarer Foothills
     direction: SE
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
 31:
   name: Snowden Drifts
   region_name: Shiverpeak Mountains
+  min_level: 15
+  max_level: 25
+  expansion: core
   neighbors:
   - map_id: 30
     name: Frostgorge Sound
     direction: N
+    connection: physical
+    min_level: 70
+    max_level: 80
+    expansion: core
   - map_id: 24
     name: Gendarran Fields
     direction: W
+    connection: physical
+    min_level: 25
+    max_level: 35
+    expansion: core
   - map_id: 27
     name: Lornar's Pass
     direction: S
+    connection: physical
+    min_level: 25
+    max_level: 40
+    expansion: core
   - map_id: 28
     name: Wayfarer Foothills
     direction: NE
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
 32:
   name: Diessa Plateau
   region_name: Ascalon
+  min_level: 15
+  max_level: 25
+  expansion: core
   neighbors:
   - map_id: 218
     name: Black Citadel
     direction: SW
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 19
     name: Plains of Ashford
     direction: SE
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 28
     name: Wayfarer Foothills
     direction: NW
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
 34:
   name: Caledon Forest
   region_name: Tarnished Coast
+  min_level: 1
+  max_level: 15
+  expansion: core
   neighbors:
   - map_id: 54
     name: Brisban Wildlands
     direction: NW
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 23
     name: Kessex Hills
     direction: NE
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 35
     name: Metrica Province
     direction: W
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 91
     name: The Grove
     direction: S
+    connection: physical
+    min_level: 0
+    max_level: 80
 35:
   name: Metrica Province
   region_name: Tarnished Coast
+  min_level: 1
+  max_level: 15
+  expansion: core
   neighbors:
   - map_id: 54
     name: Brisban Wildlands
     direction: N
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 34
     name: Caledon Forest
     direction: NE
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 139
     name: Rata Sum
     direction: SW
-38:
-  name: Eternal Battlegrounds
-  region_name: World vs. World
-  neighbors:
-  - map_id: 50
-    name: Lion's Arch
+    connection: physical
+    min_level: 0
+    max_level: 80
 39:
   name: Mount Maelstrom
   region_name: Tarnished Coast
+  min_level: 60
+  max_level: 70
+  expansion: core
   neighbors:
   - map_id: 53
     name: Sparkfly Fen
     direction: NW
+    connection: physical
+    min_level: 55
+    max_level: 65
+    expansion: core
   - map_id: 51
     name: Straits of Devastation
     direction: SW
+    connection: physical
+    min_level: 70
+    max_level: 75
+    expansion: core
   - map_id: 29
     name: Timberline Falls
     direction: N
+    connection: physical
+    min_level: 50
+    max_level: 60
+    expansion: core
 51:
   name: Straits of Devastation
   region_name: Ruins of Orr
+  min_level: 70
+  max_level: 75
+  expansion: core
   neighbors:
   - map_id: 336
     name: Chantry of Secrets
+    connection: asura_gate
+    min_level: 45
+    max_level: 55
   - map_id: 24
     name: Gendarran Fields
+    connection: asura_gate
+    min_level: 25
+    max_level: 35
+    expansion: core
   - map_id: 27
     name: Lornar's Pass
+    connection: asura_gate
+    min_level: 25
+    max_level: 40
+    expansion: core
   - map_id: 65
     name: Malchor's Leap
     direction: SW
+    connection: physical
+    min_level: 75
+    max_level: 80
+    expansion: core
   - map_id: 39
     name: Mount Maelstrom
     direction: E
+    connection: physical
+    min_level: 60
+    max_level: 70
+    expansion: core
   - map_id: 53
     name: Sparkfly Fen
     direction: NE
+    connection: physical
+    min_level: 55
+    max_level: 65
+    expansion: core
 53:
   name: Sparkfly Fen
   region_name: Tarnished Coast
+  min_level: 55
+  max_level: 65
+  expansion: core
   neighbors:
   - map_id: 73
     name: Bloodtide Coast
     direction: NE, NW
+    connection: physical
+    min_level: 45
+    max_level: 55
+    expansion: core
   - map_id: 39
     name: Mount Maelstrom
     direction: SE
+    connection: physical
+    min_level: 60
+    max_level: 70
+    expansion: core
   - map_id: 51
     name: Straits of Devastation
     direction: S
+    connection: physical
+    min_level: 70
+    max_level: 75
+    expansion: core
 54:
   name: Brisban Wildlands
   region_name: Tarnished Coast
+  min_level: 15
+  max_level: 25
+  expansion: core
   neighbors:
   - map_id: 34
     name: Caledon Forest
     direction: E
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 988
     name: Dry Top
     direction: SW
+    connection: physical
+    min_level: 80
+    max_level: 80
   - map_id: 23
     name: Kessex Hills
     direction: NE
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 35
     name: Metrica Province
     direction: S
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 1015
     name: The Silverwastes
     direction: W
+    connection: physical
+    min_level: 80
+    max_level: 80
 62:
   name: Cursed Shore
   region_name: Ruins of Orr
+  min_level: 80
+  max_level: 80
+  expansion: core
   neighbors:
   - map_id: 65
     name: Malchor's Leap
     direction: NE
+    connection: physical
+    min_level: 75
+    max_level: 80
+    expansion: core
 65:
   name: Malchor's Leap
   region_name: Ruins of Orr
+  min_level: 75
+  max_level: 80
+  expansion: core
   neighbors:
   - map_id: 62
     name: Cursed Shore
     direction: S
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: core
   - map_id: 51
     name: Straits of Devastation
     direction: SE
+    connection: physical
+    min_level: 70
+    max_level: 75
+    expansion: core
 73:
   name: Bloodtide Coast
   region_name: Kryta
+  min_level: 45
+  max_level: 55
+  expansion: core
   neighbors:
   - map_id: 336
     name: Chantry of Secrets
+    connection: asura_gate
+    min_level: 45
+    max_level: 55
   - map_id: 50
     name: Lion's Arch
     direction: N
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 27
     name: Lornar's Pass
     direction: E, NE
+    connection: physical
+    min_level: 25
+    max_level: 40
+    expansion: core
   - map_id: 53
     name: Sparkfly Fen
     direction: SE, SW
-95:
-  name: ' Alpine Borderlands'
-  region_name: World vs. World
-  neighbors:
-  - map_id: 38
-    name: Eternal Battlegrounds
-  - map_id: 50
-    name: Lion's Arch
-96:
-  name: ' Alpine Borderlands'
-  region_name: World vs. World
-  neighbors:
-  - map_id: 38
-    name: Eternal Battlegrounds
-  - map_id: 50
-    name: Lion's Arch
+    connection: physical
+    min_level: 55
+    max_level: 65
+    expansion: core
 111:
   name: Victory or Death
   region_name: Ruins of Orr
+  min_level: 80
+  max_level: 80
+  expansion: core
   neighbors: []
 776:
   name: Temple of the Forgotten God
   region_name: Ruins of Orr
+  min_level: 80
+  max_level: 80
+  expansion: core
   neighbors: []
 873:
   name: Southsun Cove
   region_name: Kryta
+  min_level: 80
+  max_level: 80
   neighbors:
   - map_id: 50
     name: Lion's Arch
-899:
-  name: Obsidian Sanctum
-  region_name: World vs. World
-  neighbors:
-  - map_id: 38
-    name: Eternal Battlegrounds
-  - map_id: 50
-    name: Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
 922:
   name: Labyrinthine Cliffs
   region_name: Tarnished Coast
+  min_level: 1
+  max_level: 80
+  expansion: core
   neighbors:
   - map_id: 50
     name: Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
 929:
   name: The Crown Pavilion
   region_name: Kryta
+  min_level: 80
+  max_level: 80
+  expansion: core
   neighbors:
   - map_id: 18
     name: Divinity's Reach
-968:
-  name: Edge of the Mists
-  region_name: World vs. World
-  neighbors:
-  - map_id: 50
-    name: Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
 988:
   name: Dry Top
   region_name: Maguuma Wastes
+  min_level: 80
+  max_level: 80
   neighbors:
   - map_id: 54
     name: Brisban Wildlands
     direction: SE
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
 1015:
   name: The Silverwastes
   region_name: Maguuma Wastes
+  min_level: 80
+  max_level: 80
   neighbors:
   - map_id: 54
     name: Brisban Wildlands
     direction: E
+    connection: physical
+    min_level: 15
+    max_level: 25
+    expansion: core
   - map_id: 1052
     name: Verdant Brink
     direction: SW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: heart_of_thorns
 1041:
   name: Dragon's Stand
   region_name: Heart of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: heart_of_thorns
   neighbors:
   - map_id: 1045
     name: Tangled Depths
     direction: NE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: heart_of_thorns
 1043:
   name: Auric Basin
   region_name: Heart of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: heart_of_thorns
   neighbors:
   - map_id: 1121
     name: Gilded Hollow
     direction: C
+    connection: physical
+    min_level: 80
+    max_level: 80
   - map_id: 1045
     name: Tangled Depths
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: heart_of_thorns
   - map_id: 1052
     name: Verdant Brink
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: heart_of_thorns
 1045:
   name: Tangled Depths
   region_name: Heart of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: heart_of_thorns
   neighbors:
   - map_id: 1043
     name: Auric Basin
     direction: W
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: heart_of_thorns
   - map_id: 1041
     name: Dragon's Stand
     direction: S, SW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: heart_of_thorns
 1052:
   name: Verdant Brink
   region_name: Heart of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: heart_of_thorns
   neighbors:
   - map_id: 1043
     name: Auric Basin
     direction: SW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: heart_of_thorns
   - map_id: 1124
     name: Lost Precipice
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
   - map_id: 1158
     name: Noble's Folly
     direction: SSW
+    connection: physical
+    min_level: 80
+    max_level: 80
   - map_id: 1015
     name: The Silverwastes
     direction: E
-1099:
-  name: ' Desert Borderlands'
-  region_name: World vs. World
-  neighbors:
-  - map_id: 38
-    name: Eternal Battlegrounds
-  - map_id: 50
-    name: Lion's Arch
+    connection: physical
+    min_level: 80
+    max_level: 80
 1165:
   name: Bloodstone Fen
   region_name: Heart of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season3
   neighbors: []
 1175:
   name: Ember Bay
   region_name: Heart of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season3
   neighbors: []
 1178:
   name: Bitterfrost Frontier
   region_name: Shiverpeak Mountains
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season3
   neighbors:
   - map_id: 30
     name: Frostgorge Sound
     direction: SW
+    connection: physical
+    min_level: 70
+    max_level: 80
+    expansion: core
 1185:
   name: Lake Doric
   region_name: Kryta
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season3
   neighbors:
   - map_id: 18
     name: Divinity's Reach
     direction: W
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 17
     name: Harathi Hinterlands
     direction: E
+    connection: physical
+    min_level: 35
+    max_level: 45
+    expansion: core
 1195:
   name: Draconis Mons
   region_name: Ring of Fire
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season3
   neighbors: []
 1203:
   name: Siren's Landing
   region_name: Ruins of Orr
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season3
   neighbors: []
 1210:
   name: Crystal Oasis
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: path_of_fire
   neighbors:
   - map_id: 1211
     name: Desert Highlands
     direction: NE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
   - map_id: 1228
     name: Elon Riverlands
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
 1211:
   name: Desert Highlands
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: path_of_fire
   neighbors:
   - map_id: 1210
     name: Crystal Oasis
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
 1226:
   name: The Desolation
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: path_of_fire
   neighbors:
   - map_id: 1248
     name: Domain of Vabbi
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
   - map_id: 1228
     name: Elon Riverlands
     direction: N, NE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
 1228:
   name: Elon Riverlands
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: path_of_fire
   neighbors:
   - map_id: 1210
     name: Crystal Oasis
     direction: NE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
   - map_id: 1226
     name: The Desolation
     direction: S, SE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
 1248:
   name: Domain of Vabbi
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: path_of_fire
   neighbors:
   - map_id: 1301
     name: Jahai Bluffs
     direction: S
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: living_world_season4
   - map_id: 1226
     name: The Desolation
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
   - map_id: 1323
     name: The Key of Ahdashim
     direction: N
+    connection: physical
+    min_level: 80
+    max_level: 80
   - map_id: 1250
     name: Windswept Haven
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
 1263:
   name: Domain of Istan
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
   neighbors: []
 1268:
   name: Fahranur, the First City
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season4
   neighbors: []
 1271:
   name: Sandswept Isles
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season4
   neighbors: []
 1288:
   name: Domain of Kourna
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season4
   neighbors:
   - map_id: 1301
     name: Jahai Bluffs
     direction: N
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: living_world_season4
 1301:
   name: Jahai Bluffs
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season4
   neighbors:
   - map_id: 1288
     name: Domain of Kourna
     direction: S
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: living_world_season4
   - map_id: 1248
     name: Domain of Vabbi
     direction: NE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: path_of_fire
 1310:
   name: Thunderhead Peaks
   region_name: Shiverpeak Mountains
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season4
   neighbors: []
 1316:
   name: Mists Rift
   region_name: Mad King's Realm
+  min_level: 80
+  max_level: 80
+  expansion: core
   neighbors: []
 1317:
   name: Dragonfall
   region_name: Crystal Desert
+  min_level: 80
+  max_level: 80
+  expansion: living_world_season4
   neighbors: []
 1330:
   name: Grothmar Valley
   region_name: Ascalon
+  min_level: 80
+  max_level: 80
+  expansion: icebrood_saga
   neighbors: []
 1343:
   name: Bjora Marches
   region_name: Shiverpeak Mountains
+  min_level: 80
+  max_level: 80
+  expansion: icebrood_saga
   neighbors: []
 1371:
   name: Drizzlewood Coast
   region_name: Shiverpeak Mountains
+  min_level: 80
+  max_level: 80
+  expansion: icebrood_saga
   neighbors: []
 1422:
   name: Dragon's End
   region_name: Cantha
+  min_level: 80
+  max_level: 80
+  expansion: end_of_dragons
   neighbors:
   - map_id: 1452
     name: The Echovald Wilds
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
 1438:
   name: New Kaineng City
   region_name: Cantha
+  min_level: 80
+  max_level: 80
+  expansion: end_of_dragons
   neighbors:
   - map_id: 1428
     name: Arborstone
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
   - map_id: 1490
     name: Gyala Delve
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
   - map_id: 1442
     name: Seitung Province
     direction: W
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
   - map_id: 1452
     name: The Echovald Wilds
     direction: E
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
 1442:
   name: Seitung Province
   region_name: Cantha
+  min_level: 80
+  max_level: 80
+  expansion: end_of_dragons
   neighbors:
   - map_id: 1462
     name: Isle of Reflection
+    connection: asura_gate
+    min_level: 80
+    max_level: 80
   - map_id: 1438
     name: New Kaineng City
     direction: NE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
 1452:
   name: The Echovald Wilds
   region_name: Cantha
+  min_level: 80
+  max_level: 80
+  expansion: end_of_dragons
   neighbors:
   - map_id: 1428
     name: Arborstone
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
   - map_id: 1422
     name: Dragon's End
     direction: E
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
   - map_id: 1438
     name: New Kaineng City
     direction: N
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
 1482:
   name: The Battle For Lion's Arch (Public)
   region_name: Kryta
+  min_level: 80
+  max_level: 80
   neighbors: []
 1490:
   name: Gyala Delve
   region_name: Cantha
+  min_level: 80
+  max_level: 80
+  expansion: end_of_dragons
   neighbors:
   - map_id: 1438
     name: New Kaineng City
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: end_of_dragons
 1510:
   name: Skywatch Archipelago
   region_name: Horn of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: secrets_of_the_obscure
   neighbors:
   - map_id: 1509
     name: The Wizard's Tower
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
 1517:
   name: Amnytas
   region_name: Horn of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: secrets_of_the_obscure
   neighbors:
   - map_id: 1509
     name: The Wizard's Tower
     direction: S
+    connection: physical
+    min_level: 80
+    max_level: 80
 1526:
   name: Inner Nayos
   region_name: Horn of Maguuma
+  min_level: 80
+  max_level: 80
+  expansion: secrets_of_the_obscure
   neighbors:
   - map_id: 1509
     name: The Wizard's Tower
+    connection: asura_gate
+    min_level: 80
+    max_level: 80
 1550:
   name: Lowland Shore
   region_name: Janthir
+  min_level: 80
+  max_level: 80
+  expansion: janthir_wilds
   neighbors:
   - map_id: 18
     name: Divinity's Reach
     direction: S
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 1554
     name: Janthir Syntri
     direction: N
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: janthir_wilds
 1554:
   name: Janthir Syntri
   region_name: Janthir
+  min_level: 80
+  max_level: 80
+  expansion: janthir_wilds
   neighbors:
   - map_id: 1550
     name: Lowland Shore
     direction: SE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: janthir_wilds
   - map_id: 1575
     name: Mistburned Barrens
     direction: NE
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: janthir_wilds
   - map_id: 1564
     name: Mount Balrior
     direction: NW
+    connection: physical
+    min_level: 80
+    max_level: 80
 1574:
   name: Bava Nisos
   region_name: Janthir
+  min_level: 80
+  max_level: 80
+  expansion: janthir_wilds
   neighbors:
   - map_id: 1575
     name: Mistburned Barrens
+    connection: asura_gate
+    min_level: 80
+    max_level: 80
+    expansion: janthir_wilds
 1575:
   name: Mistburned Barrens
   region_name: Janthir
+  min_level: 80
+  max_level: 80
+  expansion: janthir_wilds
   neighbors:
   - map_id: 1574
     name: Bava Nisos
     direction: E
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: janthir_wilds
   - map_id: 18
     name: Divinity's Reach
     direction: W
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 1554
     name: Janthir Syntri
     direction: SW
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: janthir_wilds
 1593:
   name: Starlit Weald
   region_name: Castora
+  min_level: 80
+  max_level: 80
+  expansion: castora
   neighbors:
   - map_id: 1595
     name: Shipwreck Strand
     direction: E
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: castora
 1595:
   name: Shipwreck Strand
   region_name: Castora
+  min_level: 80
+  max_level: 80
+  expansion: castora
   neighbors:
   - map_id: 50
     name: Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
   - map_id: 1593
     name: Starlit Weald
     direction: W
+    connection: physical
+    min_level: 80
+    max_level: 80
+    expansion: castora

@@ -67,13 +67,12 @@ pub enum Expansion {
     /// Living World Season 4 — 2018–2019. Domain of Istan, Sandswept,
     /// Kourna, Jahai, Thunderhead, Dragonfall.
     LivingWorldSeason4,
-    /// The Icebrood Saga — 2019–2021. Bjora Marches, Drizzlewood, etc.
+    /// The Icebrood Saga — 2019–2021. Bjora Marches, Drizzlewood,
+    /// Eye of the North revisited. Also known as "Living World
+    /// Season 5" (the wiki's `requires = lws5` value maps here).
     IcebroodSaga,
     /// End of Dragons — 2022. Cantha zones.
     EndOfDragons,
-    /// Living World Season 5 — Janthir prologue maps that shipped
-    /// between expansions. Currently unused; kept for forward-compat.
-    LivingWorldSeason5,
     /// Secrets of the Obscure — 2023. Skywatch / Amnytas / Inner Nayos.
     SecretsOfTheObscure,
     /// Janthir Wilds — 2024. Lowland Shore / Bava Nisos / Mistburned
@@ -334,6 +333,8 @@ mod tests {
         assert!(yaml.contains("heart_of_thorns"), "got: {yaml}");
         let yaml = serde_yaml_bw::to_string(&Expansion::SecretsOfTheObscure).unwrap();
         assert!(yaml.contains("secrets_of_the_obscure"), "got: {yaml}");
+        let yaml = serde_yaml_bw::to_string(&Expansion::IcebroodSaga).unwrap();
+        assert!(yaml.contains("icebrood_saga"), "got: {yaml}");
     }
 
     #[test]

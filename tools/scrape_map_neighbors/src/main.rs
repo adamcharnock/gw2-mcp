@@ -11,19 +11,36 @@
 //! What it does (per the planning spec):
 //!
 //! 1. Build a name→id index of every public map by hitting
-//!    `https://api.guildwars2.com/v2/maps?ids=all`.
+//!    `https://api.guildwars2.com/v2/maps?ids=all`. The same response
+//!    carries `min_level` / `max_level` per map, which we mirror into
+//!    the YAML so the LLM doesn't have to follow up with
+//!    `list_maps_in_region` to answer "is this level-appropriate?".
 //! 2. Enumerate every `Category:Zones` page on the wiki via the
 //!    MediaWiki action API with pagination (`cmcontinue`).
-//! 3. For each page, fetch wikitext (`action=parse&prop=wikitext`).
-//! 4. Parse the `{{Location infobox … | type = Zone | id = <map id> |
-//!    connections = … }}` infobox. Drop anything where
-//!    `type != "Zone"` or `id` isn't a known `/v2/maps` id.
-//! 5. Per connection segment, regex-extract the target page name +
+//! 3. For each page, fetch wikitext (`action=parse&prop=wikitext`),
+//!    parse the `{{Location infobox … | type = Zone | id = <map id> |
+//!    connections = … }}` block, and pull out the `| requires = …`
+//!    field so we can tag the source map with its expansion. The
+//!    wiki uses tag values like `hot`, `pof`, `lws3`, `eod`, `soto`,
+//!    `jw`, `voe`; core-Tyria maps omit the field entirely. When a
+//!    map carries multiple tags (e.g. `requires = hot, lws3` for
+//!    LWS3 zones that need HoT access), the *latest* expansion wins.
+//!    Drop anything where `type != "Zone"`, `id` isn't a known
+//!    `/v2/maps` id, or `within` contains "World vs. World" (WvW
+//!    is excluded from PvE travel planning).
+//! 4. Per connection segment, regex-extract the target page name +
 //!    optional direction (e.g. `[[Brisban Wildlands]] (NW)`). Resolve
 //!    the target to a map id via the name→id index from step 1.
-//! 6. Emit YAML keyed by map id. Unresolved target page names get
-//!    reported to stderr for hand-review (cities, instance
-//!    entrances, disambiguation hops).
+//! 5. Apply the `connection` heuristic: if the segment carried an
+//!    explicit direction, mark it `physical`; otherwise mark it
+//!    `asura_gate`. This is the "data convention" the round-1 YAML
+//!    already used implicitly (empty direction = gate) — promoting it
+//!    to an explicit field makes the distinction unmissable to the LLM.
+//!    Hand-curators can override specific edges to `story_gate`,
+//!    `instance_portal`, or `guild_hall` after the scrape.
+//! 6. Emit YAML keyed by map id, sorted by name for stable diffs.
+//!    Unresolved target page names get reported to stderr for
+//!    hand-review (cities, instance entrances, disambiguation hops).
 //!
 //! The output is deterministic per `/v2/maps` + wiki snapshot — same
 //! input, same YAML. Hand-review is expected before the YAML lands
@@ -65,6 +82,10 @@ struct GwMap {
     name: String,
     #[serde(default)]
     region_name: Option<String>,
+    #[serde(default)]
+    min_level: Option<u32>,
+    #[serde(default)]
+    max_level: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,6 +100,14 @@ struct YamlMapEntry {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     region_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_level: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_level: Option<u32>,
+    /// Snake-case enum value matching `domain::Expansion`. Plain
+    /// string here because this crate doesn't depend on gw2-mcp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expansion: Option<String>,
     neighbors: Vec<YamlNeighbor>,
 }
 
@@ -88,6 +117,18 @@ struct YamlNeighbor {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     direction: Option<String>,
+    /// Snake-case enum value matching `domain::ConnectionType`.
+    /// "physical" if the source page gave a direction; "asura_gate"
+    /// otherwise. Hand-curators can override to "story_gate",
+    /// "instance_portal", or "guild_hall".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_level: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_level: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expansion: Option<String>,
 }
 
 #[tokio::main]
@@ -115,9 +156,11 @@ async fn main() -> Result<()> {
     let mut output = YamlOutput {
         maps: BTreeMap::new(),
     };
+    // Pass-1 scrape result: source_id → (release, raw_connections).
+    // We accumulate before emitting so neighbor-side level/expansion can
+    // pull from the same in-memory map.
+    let mut scraped: BTreeMap<u32, ScrapedZone> = BTreeMap::new();
     let mut unresolved: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut skipped_not_zone = 0usize;
-    let mut skipped_unknown_id = 0usize;
 
     let total = zone_pages.len();
     for (i, page) in zone_pages.iter().enumerate() {
@@ -126,48 +169,69 @@ async fn main() -> Result<()> {
         }
         match parse_zone_page(&client, page, &maps).await {
             Ok(Some(entry)) => {
-                let source_map_id = entry.source_id;
-                let mut neighbors = Vec::new();
-                for raw in entry.raw_connections {
-                    if let Some(id) = name_to_id.get(&normalise(&raw.page)) {
-                        let neighbor_name = maps
-                            .get(id)
-                            .map(|m| m.name.clone())
-                            .unwrap_or_else(|| raw.page.clone());
-                        neighbors.push(YamlNeighbor {
-                            map_id: *id,
-                            name: neighbor_name,
-                            direction: raw.direction,
-                        });
-                    } else {
-                        unresolved
-                            .entry(raw.page.clone())
-                            .or_default()
-                            .push(entry.source_name.clone());
-                    }
-                }
-                // Sort neighbors by name so YAML diffs are minimal across reruns.
-                neighbors.sort_by(|a, b| a.name.cmp(&b.name));
-                output.maps.insert(
-                    source_map_id,
-                    YamlMapEntry {
-                        name: entry.source_name,
-                        region_name: maps.get(&source_map_id).and_then(|m| m.region_name.clone()),
-                        neighbors,
+                scraped.insert(
+                    entry.source_id,
+                    ScrapedZone {
+                        source_name: entry.source_name,
+                        requires_raw: entry.requires_raw,
+                        raw_connections: entry.raw_connections,
                     },
                 );
             }
             Ok(None) => {
-                // Tracked via the counters below; reason already printed.
+                // Tracked in stderr already.
             }
             Err(e) => {
                 eprintln!("    ! page {page} failed: {e}");
             }
         }
-        // The wiki MediaWiki action API is more tolerant than the GW2
-        // API; still, a brief pause keeps us friendly.
+        // Keep the request rate polite — the wiki MediaWiki action API
+        // is tolerant but courtesy costs us little.
         tokio::time::sleep(Duration::from_millis(80)).await;
-        _ = (&mut skipped_not_zone, &mut skipped_unknown_id);
+    }
+
+    eprintln!("[3.5/4] Resolving neighbors + applying enrichments …");
+    for (source_id, zone) in &scraped {
+        let mut neighbors = Vec::new();
+        for raw in &zone.raw_connections {
+            if let Some(id) = name_to_id.get(&normalise(&raw.page)) {
+                let target_map = maps.get(id);
+                let neighbor_name = target_map
+                    .map(|m| m.name.clone())
+                    .unwrap_or_else(|| raw.page.clone());
+                let target_expansion = scraped
+                    .get(id)
+                    .and_then(|z| expansion_with_core_default(z.requires_raw.as_deref()));
+                neighbors.push(YamlNeighbor {
+                    map_id: *id,
+                    name: neighbor_name,
+                    connection: Some(infer_connection_type(raw.direction.as_deref()).to_owned()),
+                    direction: raw.direction.clone(),
+                    min_level: target_map.and_then(|m| m.min_level),
+                    max_level: target_map.and_then(|m| m.max_level),
+                    expansion: target_expansion,
+                });
+            } else {
+                unresolved
+                    .entry(raw.page.clone())
+                    .or_default()
+                    .push(zone.source_name.clone());
+            }
+        }
+        // Sort neighbors by name so YAML diffs are minimal across reruns.
+        neighbors.sort_by(|a, b| a.name.cmp(&b.name));
+        let source_map = maps.get(source_id);
+        output.maps.insert(
+            *source_id,
+            YamlMapEntry {
+                name: zone.source_name.clone(),
+                region_name: source_map.and_then(|m| m.region_name.clone()),
+                min_level: source_map.and_then(|m| m.min_level),
+                max_level: source_map.and_then(|m| m.max_level),
+                expansion: expansion_with_core_default(zone.requires_raw.as_deref()),
+                neighbors,
+            },
+        );
     }
 
     eprintln!("[4/4] Writing YAML to {} …", args.out.display());
@@ -191,10 +255,26 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// One zone's scraped data before neighbor resolution. We accumulate
+/// these in pass-1 so pass-2 can cross-reference target maps for level
+/// range / expansion without re-fetching them.
+#[derive(Debug)]
+struct ScrapedZone {
+    source_name: String,
+    /// Raw value of `| requires =` from the infobox, if present. A
+    /// comma-separated list of expansion tags (`hot`, `pof`, `lws3`,
+    /// `lws4`, `lws5`, `eod`, `soto`, `jw`, `voe`). Absence means a
+    /// core-Tyria map. Mapped to a single canonical expansion via
+    /// [`pick_expansion`].
+    requires_raw: Option<String>,
+    raw_connections: Vec<RawConnection>,
+}
+
 #[derive(Debug)]
 struct ZoneEntry {
     source_id: u32,
     source_name: String,
+    requires_raw: Option<String>,
     raw_connections: Vec<RawConnection>,
 }
 
@@ -227,6 +307,70 @@ fn normalise(name: &str) -> String {
     // Wiki page names use spaces; both sides preserve case but our
     // index is case-insensitive to forgive infobox typos.
     name.trim().to_lowercase()
+}
+
+/// Pass-1 connection-type heuristic. The round-1 YAML already used
+/// "empty direction = gate" implicitly; we promote that to an explicit
+/// `connection` field so the LLM can rely on the signal without
+/// inferring from absence.
+fn infer_connection_type(direction: Option<&str>) -> &'static str {
+    if direction.is_some_and(|d| !d.trim().is_empty()) {
+        "physical"
+    } else {
+        "asura_gate"
+    }
+}
+
+/// Pick the canonical expansion for a map from its `| requires =`
+/// value. `requires` is a comma-separated list of access-prereq tags;
+/// when a map needs more than one (e.g. LWS3 zones require both HoT
+/// and the LWS3 episode itself, so `requires = hot, lws3`), we report
+/// the *latest* — that's the one a player most needs to own.
+///
+/// Returns the snake_case enum string that `domain::Expansion`
+/// deserialises. `None` means the value didn't match any known tag.
+/// Callers should default to `"core"` for maps that omit the field
+/// entirely (those are core-Tyria release).
+fn pick_expansion(requires_raw: Option<&str>) -> Option<String> {
+    // Order roughly corresponds to release chronology so "later" wins
+    // when a map carries multiple tags. Earliest at index 0.
+    const PRIORITY: &[(&str, &str)] = &[
+        ("hot", "heart_of_thorns"),
+        ("lws3", "living_world_season3"),
+        ("pof", "path_of_fire"),
+        ("lws4", "living_world_season4"),
+        // The wiki uses `lws5` for what was officially renamed the
+        // "Icebrood Saga"; map both to the same enum value.
+        ("lws5", "icebrood_saga"),
+        ("ibs", "icebrood_saga"),
+        ("eod", "end_of_dragons"),
+        ("soto", "secrets_of_the_obscure"),
+        ("jw", "janthir_wilds"),
+        // Visions of Eternity / Castora.
+        ("voe", "castora"),
+        ("castora", "castora"),
+    ];
+    let raw = requires_raw?.trim().to_lowercase();
+    if raw.is_empty() {
+        return None;
+    }
+    let tags: Vec<&str> = raw.split(',').map(str::trim).collect();
+    // Iterate priority in reverse so the *latest* match wins.
+    for (tag, enum_value) in PRIORITY.iter().rev() {
+        if tags.contains(tag) {
+            return Some((*enum_value).to_owned());
+        }
+    }
+    None
+}
+
+/// Wrap [`pick_expansion`] so absence defaults to `"core"`.
+/// Core-Tyria maps don't carry a `requires` field on the wiki.
+fn expansion_with_core_default(requires_raw: Option<&str>) -> Option<String> {
+    match requires_raw {
+        Some(s) if !s.trim().is_empty() => pick_expansion(Some(s)),
+        _ => Some("core".to_owned()),
+    }
 }
 
 async fn list_category_members(client: &reqwest::Client, category: &str) -> Result<Vec<String>> {
@@ -318,6 +462,19 @@ async fn parse_zone_page(
         eprintln!("    skipped {page}: id {source_id} not in /v2/maps (probably WvW/PvP/instance)");
         return Ok(None);
     }
+    // Explicit WvW exclusion. The infobox `within` field on every WvW
+    // zone reads "World vs. World"; rejecting it here drops Eternal
+    // Battlegrounds, the three borderlands, Edge of the Mists, and the
+    // Mists Rift sub-zones from the YAML in one place. PvE travel
+    // planning shouldn't surface these — they share a continent id
+    // with Janthir/Castora, so the GW2 API alone doesn't disambiguate.
+    if let Some(within) = params.get("within") {
+        let lower = within.to_lowercase();
+        if lower.contains("world vs. world") || lower.contains("world vs world") {
+            eprintln!("    skipped {page}: WvW map (within = {within})");
+            return Ok(None);
+        }
+    }
     let source_name = maps
         .get(&source_id)
         .map(|m| m.name.clone())
@@ -328,9 +485,15 @@ async fn parse_zone_page(
         .map(|s| parse_connections(s))
         .unwrap_or_default();
 
+    let requires_raw = params
+        .get("requires")
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+
     Ok(Some(ZoneEntry {
         source_id,
         source_name,
+        requires_raw,
         raw_connections,
     }))
 }
@@ -525,7 +688,7 @@ Body text below.
         let body = extract_location_infobox(wikitext).expect("found");
         assert!(body.contains("connections"));
         assert!(body.contains("Brisban Wildlands"));
-        assert!(body.contains("Body text") == false);
+        assert!(!body.contains("Body text"));
     }
 
     #[test]
@@ -544,6 +707,89 @@ Body text below.
             p.get("connections")
                 .map(|s| s.contains("Brisban Wildlands"))
                 .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn infer_connection_type_uses_direction_signal() {
+        assert_eq!(infer_connection_type(Some("NW")), "physical");
+        assert_eq!(infer_connection_type(Some("SW, S")), "physical");
+        assert_eq!(infer_connection_type(None), "asura_gate");
+        assert_eq!(infer_connection_type(Some("   ")), "asura_gate");
+    }
+
+    #[test]
+    fn pick_expansion_handles_single_tag() {
+        assert_eq!(
+            pick_expansion(Some("hot")).as_deref(),
+            Some("heart_of_thorns")
+        );
+        assert_eq!(pick_expansion(Some("pof")).as_deref(), Some("path_of_fire"));
+        assert_eq!(
+            pick_expansion(Some("eod")).as_deref(),
+            Some("end_of_dragons")
+        );
+        assert_eq!(
+            pick_expansion(Some("soto")).as_deref(),
+            Some("secrets_of_the_obscure")
+        );
+        assert_eq!(pick_expansion(Some("jw")).as_deref(), Some("janthir_wilds"));
+        assert_eq!(pick_expansion(Some("voe")).as_deref(), Some("castora"));
+        assert_eq!(
+            pick_expansion(Some("lws5")).as_deref(),
+            Some("icebrood_saga")
+        );
+        assert_eq!(
+            pick_expansion(Some("ibs")).as_deref(),
+            Some("icebrood_saga")
+        );
+    }
+
+    #[test]
+    fn pick_expansion_returns_latest_tag_when_multiple() {
+        // Bitterfrost Frontier: `requires = hot, lws3` — LWS3 is later
+        // than HoT, so the player needs LWS3 access (which already
+        // implies HoT).
+        assert_eq!(
+            pick_expansion(Some("hot, lws3")).as_deref(),
+            Some("living_world_season3")
+        );
+        // Domain of Istan: `requires = pof, lws4`
+        assert_eq!(
+            pick_expansion(Some("pof, lws4")).as_deref(),
+            Some("living_world_season4")
+        );
+        // Hypothetical late expansion combo
+        assert_eq!(
+            pick_expansion(Some("soto, jw")).as_deref(),
+            Some("janthir_wilds")
+        );
+    }
+
+    #[test]
+    fn pick_expansion_ignores_unknown_tags() {
+        assert_eq!(pick_expansion(Some("nonsense")).as_deref(), None);
+        assert_eq!(pick_expansion(Some("")).as_deref(), None);
+        assert_eq!(pick_expansion(None).as_deref(), None);
+    }
+
+    #[test]
+    fn expansion_with_core_default_falls_back() {
+        // Core maps don't carry `requires` at all on the wiki.
+        assert_eq!(expansion_with_core_default(None).as_deref(), Some("core"));
+        assert_eq!(
+            expansion_with_core_default(Some("")).as_deref(),
+            Some("core")
+        );
+        // Present-but-unknown values keep us honest about uncertainty.
+        assert_eq!(
+            expansion_with_core_default(Some("nonsense_tag")).as_deref(),
+            None
+        );
+        // Known values work end-to-end.
+        assert_eq!(
+            expansion_with_core_default(Some("hot")).as_deref(),
+            Some("heart_of_thorns")
         );
     }
 }
