@@ -6,7 +6,7 @@
 
 use super::{Service, ServiceError};
 use crate::ports::{
-    AchievementRef, AchievementSearchFilter, IndexStatus, ItemRef, ItemSearchFilter, SkillRef,
+    AchievementRef, AchievementSearchFilter, IndexStatusView, ItemRef, ItemSearchFilter, SkillRef,
     SkillSearchFilter, SpecRef, SpecSearchFilter, TraitRef, TraitSearchFilter,
 };
 
@@ -63,7 +63,9 @@ impl Service {
             .await?)
     }
 
-    pub async fn get_index_status(&self) -> Result<IndexStatus, ServiceError> {
-        Ok(self.search_index()?.index_status().await?)
+    pub async fn get_index_status(&self) -> Result<IndexStatusView, ServiceError> {
+        Ok(IndexStatusView::from(
+            self.search_index()?.index_status().await?,
+        ))
     }
 }

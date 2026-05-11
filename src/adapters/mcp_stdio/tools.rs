@@ -733,11 +733,11 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .annotate(read_only_closed_world("Search Achievements")),
         Tool::new(
             "get_index_status",
-            "Inspect the search index: per-kind row counts, last-refreshed timestamps, current GW2 build number stamped into the index. Useful when search results return \"still indexing\" — tells you progress.",
+            "Inspect the search index: per-kind row counts, last-refreshed timestamps, current GW2 build number stamped into the index, and a `state` flag (`\"ready\"` once `indexed == total`; `\"indexing\"` while still populating). Use to distinguish \"empty corpus\" from \"still indexing\" when a `search_*` tool returns no hits. Also returns an `overall` rollup field.",
             empty_args,
         )
         .annotate(read_only_closed_world("Search Index Status"))
-        .with_output_schema::<crate::ports::IndexStatus>(),
+        .with_output_schema::<crate::ports::IndexStatusView>(),
     ]
 }
 

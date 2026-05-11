@@ -845,9 +845,78 @@ pub struct KindStatus {
     pub build_number: Option<u32>,
 }
 
+impl KindStatus {
+    /// Stringly-typed health label derived from `total` + `indexed`.
+    /// Distinguishes "indexing still running, please retry" from
+    /// "fully populated" — the feedback agent saw `items: 0/0` and
+    /// concluded the corpus was empty; this label removes the
+    /// ambiguity.
+    ///
+    /// - `"ready"` — every upstream id is reflected in the local index.
+    /// - `"indexing"` — index is empty or partial; the background
+    ///   indexer will fill it. Retry the search in a few seconds.
+    #[must_use]
+    pub fn state(&self) -> &'static str {
+        if self.total > 0 && self.indexed >= self.total {
+            "ready"
+        } else {
+            "indexing"
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct IndexStatus {
     pub kinds: Vec<KindStatus>,
+}
+
+/// Wire-side wrapper around [`IndexStatus`] with derived `state`
+/// per kind baked in — so the LLM doesn't have to compute it from
+/// `indexed`/`total`. This is what `get_index_status` returns.
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
+pub struct IndexStatusView {
+    pub kinds: Vec<KindStatusView>,
+    /// Convenience rollup: `"ready"` iff every kind is ready,
+    /// `"indexing"` otherwise.
+    pub overall: &'static str,
+}
+
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
+pub struct KindStatusView {
+    pub name: String,
+    pub total: u32,
+    pub indexed: u32,
+    /// Derived: `"ready"` or `"indexing"`. See [`KindStatus::state`].
+    pub state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_refreshed_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_number: Option<u32>,
+}
+
+impl From<IndexStatus> for IndexStatusView {
+    fn from(s: IndexStatus) -> Self {
+        let overall = if s.kinds.iter().all(|k| k.state() == "ready") {
+            "ready"
+        } else {
+            "indexing"
+        };
+        Self {
+            kinds: s
+                .kinds
+                .into_iter()
+                .map(|k| KindStatusView {
+                    state: k.state(),
+                    name: k.name,
+                    total: k.total,
+                    indexed: k.indexed,
+                    last_refreshed_at: k.last_refreshed_at,
+                    build_number: k.build_number,
+                })
+                .collect(),
+            overall,
+        }
+    }
 }
 
 /// Local search index over the GW2 reference corpus. Implementations are
@@ -911,4 +980,56 @@ pub trait SearchIndex: Send + Sync + 'static {
     async fn set_build_number(&self, build: u32) -> Result<(), SearchError>;
 
     async fn index_status(&self) -> Result<IndexStatus, SearchError>;
+}
+
+#[cfg(test)]
+mod kind_status_tests {
+    use super::{IndexStatus, IndexStatusView, KindStatus};
+
+    fn kind(name: &str, total: u32, indexed: u32) -> KindStatus {
+        KindStatus {
+            name: name.to_owned(),
+            total,
+            indexed,
+            last_refreshed_at: None,
+            build_number: None,
+        }
+    }
+
+    #[test]
+    fn state_ready_when_fully_indexed() {
+        assert_eq!(kind("skills", 100, 100).state(), "ready");
+        assert_eq!(kind("skills", 100, 101).state(), "ready");
+    }
+
+    #[test]
+    fn state_indexing_when_partial() {
+        assert_eq!(kind("items", 1000, 250).state(), "indexing");
+    }
+
+    #[test]
+    fn state_indexing_when_both_zero() {
+        // The agent's confusion: "items: 0/0" reads as empty corpus
+        // but actually means "indexing hasn't finished probing
+        // upstream yet". State makes this explicit.
+        assert_eq!(kind("items", 0, 0).state(), "indexing");
+    }
+
+    #[test]
+    fn overall_rolls_up_to_indexing_if_any_kind_indexing() {
+        let status = IndexStatus {
+            kinds: vec![kind("skills", 100, 100), kind("items", 1000, 0)],
+        };
+        let view: IndexStatusView = status.into();
+        assert_eq!(view.overall, "indexing");
+    }
+
+    #[test]
+    fn overall_ready_when_every_kind_ready() {
+        let status = IndexStatus {
+            kinds: vec![kind("skills", 100, 100), kind("items", 5, 5)],
+        };
+        let view: IndexStatusView = status.into();
+        assert_eq!(view.overall, "ready");
+    }
 }
