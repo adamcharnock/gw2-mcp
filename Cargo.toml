@@ -108,6 +108,13 @@ directories = "5"
 [target.aarch64-unknown-linux-gnu.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"] }
 
+# macOS-only: `fs2` provides safe wrappers around `flock(2)` for the
+# holder-supervisor lockfile, which coordinates "exactly one in-bottle
+# holder per bottle" across concurrent gw2-mcp instances. Scoped to
+# macOS because Linux/Windows have no holder.
+[target.'cfg(target_os = "macos")'.dependencies]
+fs2 = "0.4"
+
 # Windows-only shared-memory access for the MumbleLink named-mapping. Behind a
 # target_os = "windows" cfg so non-Windows builds don't pull it in.
 [target.'cfg(target_os = "windows")'.dependencies]

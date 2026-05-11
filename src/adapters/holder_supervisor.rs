@@ -22,12 +22,15 @@
 //! callers in `main.rs` don't need cfg gymnastics.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "macos")]
 use std::path::Path;
 
 #[cfg(target_os = "macos")]
-use crate::adapters::{bottle_discovery, holder_format};
+use crate::adapters::{bottle_discovery, holder_format, holder_lock::HolderLock};
+
+use crate::adapters::mumble_link::MirrorRescuer;
 
 /// Default install location of Whisky's bundled wine binary. Used when
 /// the supervisor decides a bottle is a Whisky bottle. Override via
@@ -40,14 +43,6 @@ const DEFAULT_WHISKY_WINE_PATH: &str =
 /// [`HolderSupervisorOpts::cxstart_path`].
 const DEFAULT_CXSTART_PATH: &str =
     "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/cxstart";
-
-/// Substring that appears in every holder process's argv on the host
-/// (both `CrossOver` and Whisky spawns include `--bin-path` literally).
-/// Used by [`HolderSupervisor::spawn`] to identify and kill orphan
-/// holders from a prior gw2-mcp run that exited abnormally. Specific
-/// enough that we won't false-positive on other wine apps.
-#[cfg(target_os = "macos")]
-const HOLDER_ORPHAN_MARKER: &str = "holder.exe --bin-path";
 
 /// Length of the random session-token in bytes (encoded as hex it
 /// becomes 16 chars — 64 bits of entropy, more than enough to uniquely
@@ -103,39 +98,124 @@ impl Default for HolderSupervisorOpts {
     }
 }
 
-/// Owns the spawned holder child process; kills it on Drop.
-#[derive(Debug)]
+/// Multi-instance coordinator for the in-bottle Mumble Link holder.
+///
+/// **Cloneable.** Internals are `Arc<Mutex<State>>` so the supervisor can
+/// be shared between `main` (which holds it as a lifetime guard) and the
+/// `FileMumbleLink` reader (which calls `try_promote` on stale-mirror).
+/// The holder is killed when the last clone drops.
+///
+/// ## Multi-instance model
+///
+/// One holder per bottle, regardless of how many gw2-mcp instances are
+/// running. Coordination is via an advisory `flock` on a per-bottle
+/// lockfile:
+/// `<bottle>/drive_c/users/Public/gw2-mcp/holder.lock`. Whoever wins
+/// the lock at startup is the leader and spawns the holder; everyone
+/// else is a follower and just reads the shared mirror file. If the
+/// leader exits (clean or crash), the kernel releases the flock and
+/// the next reader to see a stale mirror promotes itself via
+/// [`HolderSupervisor::try_promote`].
+///
+/// The previous (now-defunct) leader's orphan holder process — if any
+/// survived — is identified by the session token recorded in the
+/// lockfile and cleaned up with a `pgrep -f <token>` kill chain.
+/// That replaces the old "kill anything matching `holder.exe`" sweep,
+/// which would false-positive on a *live* concurrent leader's holder.
+#[derive(Clone)]
 pub struct HolderSupervisor {
-    inner: Option<Inner>,
+    inner: Arc<Mutex<State>>,
 }
 
-#[derive(Debug)]
-#[cfg(target_os = "macos")]
-struct Inner {
-    /// The cxstart/wine64 process we spawned directly. With `CrossOver`'s
-    /// `--no-wait` this is a fire-and-forget launcher that exits almost
-    /// immediately — so `child.kill()` alone is *not* enough to terminate
-    /// the actual holder.exe (which gets reparented to PID 1). The
-    /// `session_token` below is the reliable kill mechanism.
-    child: std::process::Child,
-    /// Random hex passed to the holder via `--session-token`. The token
-    /// shows up in the holder's argv on the host, so `pgrep -f <token>`
-    /// finds the exact host PID running our holder. Drop kills by token
-    /// regardless of whether the immediate `child` is still alive.
-    session_token: String,
+/// Internal state. `Drop` on this enum (not on `HolderSupervisor`) means
+/// the holder is terminated exactly once, when the last `Arc` clone
+/// goes away.
+enum State {
+    /// No coordination. Used on non-macOS, when the user opted out, or
+    /// when bottle discovery failed at startup (in which case
+    /// `try_promote` does nothing — restart is required).
+    Disabled,
+
+    #[cfg(target_os = "macos")]
+    /// Lock was contended at startup, OR a promotion attempt failed.
+    /// Carries the opts and lock path so a subsequent promotion can
+    /// retry without re-running bottle discovery.
+    Follower {
+        opts: HolderSupervisorOpts,
+        lock_path: PathBuf,
+    },
+
+    #[cfg(target_os = "macos")]
+    /// We are the active holder owner. Drop kills the child + chases
+    /// the holder by session token + releases the flock (via `_lock`).
+    Leader {
+        child: std::process::Child,
+        session_token: String,
+        /// Holds the flock open. Dropped → flock released → next
+        /// reader's `try_promote` can succeed.
+        _lock: HolderLock,
+        /// Retained so a future "leader → follower → leader" cycle is
+        /// possible (e.g. if we ever add health-check-driven demotion).
+        /// Today only Drop reads this — feel free to remove if the
+        /// state machine stays purely upward-monotonic.
+        #[allow(dead_code)]
+        opts: HolderSupervisorOpts,
+        #[allow(dead_code)]
+        lock_path: PathBuf,
+    },
 }
 
-#[derive(Debug)]
-#[cfg(not(target_os = "macos"))]
-struct Inner;
+impl Drop for State {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        if let State::Leader {
+            child,
+            session_token,
+            ..
+        } = self
+        {
+            // Step 1: try to kill the immediate child we spawned. For
+            // Whisky (direct `wine64` invocation) this IS the holder, so
+            // this is sufficient. For CrossOver (`cxstart --no-wait`) the
+            // child is the launcher process which has long since exited;
+            // this kill is a no-op there.
+            let _ = child.kill();
+            let _ = child.wait();
+
+            // Step 2: chase the real holder via its session token, which
+            // we passed via `--session-token` and which is visible in the
+            // host process's argv. This is the reliable path for both
+            // runners — orphans cannot survive it short of pgrep itself
+            // being unavailable on the host (extremely unlikely on macOS).
+            let killed = kill_processes_matching(session_token);
+            if killed > 0 {
+                tracing::debug!(
+                    session = %session_token,
+                    count = killed,
+                    "terminated in-bottle holder"
+                );
+            } else {
+                tracing::debug!(
+                    session = %session_token,
+                    "no holder process matched session token at Drop time \
+                     (already exited?)"
+                );
+            }
+            // `_lock` drops naturally here, releasing the flock so the
+            // next leader can claim it.
+        }
+    }
+}
 
 impl HolderSupervisor {
     /// No-op supervisor used when we deliberately don't want to manage a
     /// holder (e.g. user passed `--no-mumble-holder`, or platform isn't
-    /// macOS). Drop is a no-op.
+    /// macOS).
     #[must_use]
     pub fn disabled() -> Self {
-        Self { inner: None }
+        Self {
+            inner: Arc::new(Mutex::new(State::Disabled)),
+        }
     }
 
     /// Spawn the in-bottle holder. On non-macOS targets this returns
@@ -146,131 +226,200 @@ impl HolderSupervisor {
         Self::disabled()
     }
 
-    /// Spawn the in-bottle holder. Pure-best-effort: every failure mode
-    /// is logged and downgrades to a disabled supervisor when
-    /// `soft_failure = true`. Otherwise the error propagates.
+    /// Spawn the in-bottle holder. Pure best-effort: every failure mode
+    /// is logged and downgrades when `soft_failure = true`.
     ///
-    /// ## Multi-instance interaction
-    ///
-    /// On startup we sweep every host process whose argv matches
-    /// [`HOLDER_ORPHAN_MARKER`]. The marker is "holder.exe --bin-path",
-    /// which is specific enough to dodge unrelated wine processes —
-    /// but it does NOT distinguish "previous me" from "another
-    /// gw2-mcp instance running right now." If you launch two gw2-mcp
-    /// processes concurrently against the same host (e.g. one in
-    /// Claude Desktop, one in Claude Code), the second one's spawn
-    /// will TERM/KILL the first one's live holder. The first will
-    /// quietly stop receiving Mumble Link snapshots until its own
-    /// supervisor's keep-alive notices and re-spawns (it currently
-    /// doesn't keep-alive, so in practice nav tools just return
-    /// `NotConnected` from then on).
-    ///
-    /// Workaround for now: run one gw2-mcp at a time. The orphan
-    /// sweep is intentionally a coarse hammer that errs on the side
-    /// of cleaning up. If multi-instance becomes a real use case,
-    /// scope the sweep to processes whose argv ALSO contains a
-    /// fingerprint of this binary's path (e.g. exe-path or installer
-    /// id) rather than the generic marker.
+    /// Flow:
+    /// 1. Discover the bottle. Failure here is terminal (Disabled) —
+    ///    the user needs to install GW2 / set `GW2_BOTTLE` and restart.
+    /// 2. Attempt the per-bottle flock. If contended, become a Follower
+    ///    (another gw2-mcp instance owns the holder; we just read its
+    ///    mirror).
+    /// 3. If the lock is ours, kill any orphans from the previous
+    ///    leader (identified by the token recorded in the lockfile),
+    ///    then spawn a fresh holder. If the spawn fails, downgrade to
+    ///    Follower so `try_promote` may succeed later.
     #[cfg(target_os = "macos")]
     pub fn spawn(opts: HolderSupervisorOpts) -> Self {
-        // Best-effort: kill any orphan holder processes from a previous
-        // gw2-mcp run that exited abnormally (panic, SIGKILL, OOM).
-        // The `holder.exe --bin-path` substring is specific enough to
-        // our supervisor's spawn invocation that we won't false-positive
-        // on unrelated wine processes the user may be running, but it
-        // WILL false-positive on a concurrent gw2-mcp's live holder.
-        // See the doc-comment on this method.
-        let orphans = kill_processes_matching(HOLDER_ORPHAN_MARKER);
-        if orphans > 0 {
-            tracing::info!(
-                killed = orphans,
-                "cleaned up {orphans} orphan holder process(es) from a previous run"
-            );
-        }
-
-        let session_token = generate_session_token();
-        match spawn_macos(&opts, &session_token) {
-            Ok(SpawnResult { child, bottle }) => {
-                tracing::info!(
-                    bottle = %bottle.name,
-                    runner = bottle.runner.as_str(),
-                    pid = child.id(),
-                    session = %session_token,
-                    "in-bottle Mumble Link holder spawned"
-                );
-                Self {
-                    inner: Some(Inner {
-                        child,
-                        session_token,
-                    }),
-                }
-            }
-            Err(e) if opts.soft_failure => {
-                // ?e (Debug) preserves the anyhow source chain in the
-                // log so users see the full reason, not just the outermost
-                // wrapper. Per CLAUDE.rust.md error-logging rules.
+        let Some(bottle) = bottle_discovery::pick_gw2_bottle(opts.bottle_override.as_deref())
+        else {
+            let err = no_bottle_error(&opts);
+            if opts.soft_failure {
                 tracing::warn!(
-                    error = ?e,
+                    error = ?err,
                     bottle_override = ?opts.bottle_override,
                     "could not start in-bottle Mumble Link holder; navigation tools \
-                     will return NotConnected until the holder is reachable. \
+                     will return NotConnected until a bottle is reachable. \
                      Run `gw2-mcp doctor` to diagnose."
                 );
-                Self::disabled()
+                return Self::disabled();
             }
-            Err(e) => {
-                // Hard-failure path; only used by tests / explicit callers.
-                panic!("holder supervisor: {e}");
-            }
+            panic!("holder supervisor: {err}");
+        };
+        let lock_path = compute_lock_path(&bottle);
+
+        let state = acquire_lock_or_follow(&opts, &lock_path);
+        Self {
+            inner: Arc::new(Mutex::new(state)),
         }
     }
 
-    /// Returns `true` if a child process was spawned and is being managed
-    /// by this supervisor (informational; the holder lifetime is tied to
-    /// the supervisor's `Drop`).
+    /// Returns `true` if this supervisor currently owns the in-bottle
+    /// holder process (i.e. is the Leader). Informational.
     #[must_use]
     pub fn is_active(&self) -> bool {
-        self.inner.is_some()
-    }
-}
-
-impl Drop for HolderSupervisor {
-    fn drop(&mut self) {
+        let state = self.inner.lock().expect("HolderSupervisor mutex poisoned");
         #[cfg(target_os = "macos")]
-        if let Some(mut inner) = self.inner.take() {
-            // Step 1: try to kill the immediate child we spawned. For
-            // Whisky (direct `wine64` invocation) this IS the holder, so
-            // this is sufficient. For CrossOver (`cxstart --no-wait`) the
-            // child is the launcher process which has long since exited;
-            // this kill is a no-op there.
-            let _ = inner.child.kill();
-            let _ = inner.child.wait();
+        return matches!(*state, State::Leader { .. });
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = state;
+            false
+        }
+    }
 
-            // Step 2: chase the real holder via its session token, which
-            // we passed via `--session-token` and which is visible in the
-            // host process's argv. This is the reliable path for both
-            // runners — orphans cannot survive it short of pgrep itself
-            // being unavailable on the host (extremely unlikely on macOS).
-            let killed = kill_processes_matching(&inner.session_token);
-            if killed > 0 {
-                tracing::debug!(
-                    session = %inner.session_token,
-                    count = killed,
-                    "terminated in-bottle holder"
-                );
-            } else {
-                tracing::debug!(
-                    session = %inner.session_token,
-                    "no holder process matched session token at Drop time \
-                     (already exited?)"
-                );
+    /// Attempt to promote this supervisor from Follower → Leader. Called
+    /// by [`FileMumbleLink`](crate::adapters::mumble_link::FileMumbleLink)
+    /// on stale-mirror detection.
+    ///
+    /// Returns `true` if a fresh holder was spawned (caller should
+    /// surface a transient "restarting" message and retry), `false` if
+    /// another instance still owns the lock or the spawn itself
+    /// failed (caller should surface the existing stale-mirror error).
+    pub fn try_promote(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let mut state = self.inner.lock().expect("HolderSupervisor mutex poisoned");
+            match &*state {
+                State::Leader { .. } => true, // Already leader; nothing to do.
+                State::Disabled => false,     // Terminal state; no retry path.
+                State::Follower { opts, lock_path } => {
+                    let opts = opts.clone();
+                    let lock_path = lock_path.clone();
+                    let new_state = acquire_lock_or_follow(&opts, &lock_path);
+                    let promoted = matches!(new_state, State::Leader { .. });
+                    *state = new_state;
+                    promoted
+                }
             }
         }
         #[cfg(not(target_os = "macos"))]
-        {
-            self.inner = None;
+        false
+    }
+}
+
+impl MirrorRescuer for HolderSupervisor {
+    fn try_rescue(&self) -> bool {
+        self.try_promote()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn compute_lock_path(bottle: &bottle_discovery::Bottle) -> PathBuf {
+    bottle
+        .root
+        .join("drive_c")
+        .join(holder_format::HOLDER_SUBDIR)
+        .join("holder.lock")
+}
+
+/// Try to acquire the per-bottle lock; on success, sweep previous-leader
+/// orphans and spawn a fresh holder. On any failure (contention or spawn
+/// error) returns a Follower state so a subsequent `try_promote` may
+/// succeed.
+#[cfg(target_os = "macos")]
+fn acquire_lock_or_follow(opts: &HolderSupervisorOpts, lock_path: &Path) -> State {
+    match HolderLock::try_acquire(lock_path) {
+        Ok(Some(lock)) => match become_leader_macos(opts, lock, lock_path) {
+            Ok((child, session_token, lock)) => State::Leader {
+                child,
+                session_token,
+                _lock: lock,
+                opts: opts.clone(),
+                lock_path: lock_path.to_path_buf(),
+            },
+            Err(e) => {
+                if opts.soft_failure {
+                    tracing::warn!(
+                        error = ?e,
+                        bottle_override = ?opts.bottle_override,
+                        "leader spawn failed; falling back to follower mode (next stale-mirror \
+                         detection will retry promotion)"
+                    );
+                    State::Follower {
+                        opts: opts.clone(),
+                        lock_path: lock_path.to_path_buf(),
+                    }
+                } else {
+                    panic!("holder supervisor: {e}");
+                }
+            }
+        },
+        Ok(None) => {
+            tracing::info!(
+                lock = %lock_path.display(),
+                "another gw2-mcp instance owns the in-bottle holder for this bottle; \
+                 this instance will read its mirror file directly"
+            );
+            State::Follower {
+                opts: opts.clone(),
+                lock_path: lock_path.to_path_buf(),
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = ?e,
+                lock = %lock_path.display(),
+                "lockfile error; in-bottle holder coordination unavailable"
+            );
+            State::Disabled
         }
     }
+}
+
+/// Lock-in-hand → spawned-holder transition. Reads the previous
+/// leader's session token from the lockfile, kills any matching
+/// orphans, generates a new token, writes it back, and launches the
+/// holder. Returns the new (child, token, lock) trio on success.
+#[cfg(target_os = "macos")]
+fn become_leader_macos(
+    opts: &HolderSupervisorOpts,
+    mut lock: HolderLock,
+    lock_path: &Path,
+) -> anyhow::Result<(std::process::Child, String, HolderLock)> {
+    // Fingerprint-scoped sweep of the previous leader's orphans.
+    if let Ok(Some(prev_token)) = lock.read_previous_token() {
+        let killed = kill_processes_matching(&prev_token);
+        if killed > 0 {
+            tracing::info!(
+                prev_session = %prev_token,
+                killed,
+                "cleaned up {killed} orphan holder process(es) from a previous leader"
+            );
+        }
+    }
+
+    let session_token = generate_session_token();
+    // Record the new token *before* spawning so a crash mid-spawn still
+    // leaves the next leader with a known token to clean up.
+    if let Err(e) = lock.write_token(&session_token) {
+        tracing::warn!(
+            error = ?e,
+            lock = %lock_path.display(),
+            "failed to record session token in lockfile; coordination still works \
+             but future orphan-sweep will skip this run's holder"
+        );
+    }
+
+    let SpawnResult { child, bottle } = spawn_macos(opts, &session_token)?;
+    tracing::info!(
+        bottle = %bottle.name,
+        runner = bottle.runner.as_str(),
+        pid = child.id(),
+        session = %session_token,
+        "in-bottle Mumble Link holder spawned (leader)"
+    );
+    Ok((child, session_token, lock))
 }
 
 /// What [`spawn_macos`] returns on success: the running child plus the
@@ -519,12 +668,13 @@ fn generate_session_token() -> String {
 /// signal to. Best-effort: if `pgrep` itself is unavailable we log at
 /// debug-level and return 0, letting the caller continue.
 ///
-/// Used in two places:
-/// 1. [`HolderSupervisor::spawn`] — sweeps orphans matching the generic
-///    `HOLDER_ORPHAN_MARKER` from a previous gw2-mcp run that didn't
-///    Drop cleanly.
-/// 2. The supervisor's `Drop` — kills the specific holder we own by
-///    matching the per-instance session token we passed via `--session-token`.
+/// Used in two places, always with a session token as the pattern:
+/// 1. [`become_leader_macos`] — sweeps the *previous leader's* holder
+///    using the session token recorded in the lockfile. Won't match
+///    any concurrent live leader's holder because the lockfile is
+///    rewritten before the new spawn.
+/// 2. [`State`]'s `Drop` — kills the specific holder we own by matching
+///    the per-instance session token we passed via `--session-token`.
 ///
 /// Lives on macOS only because that's the only platform where the
 /// holder runs and the in-bottle/host PID gap exists. POSIX `pgrep` is

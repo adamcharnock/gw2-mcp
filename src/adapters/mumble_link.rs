@@ -295,12 +295,30 @@ fn unix_candidate_paths() -> Vec<PathBuf> {
     out
 }
 
+/// Callback the reader uses when it finds the mirror file stale. Whoever
+/// supplies this — currently `HolderSupervisor` on macOS — promises that
+/// `try_rescue` will attempt to re-establish a fresh writer (e.g. by
+/// re-electing this process as the in-bottle holder leader) and return
+/// `true` if the attempt succeeded so the caller can surface a transient
+/// "restarting" message instead of the permanent stale-mirror one.
+///
+/// Lives here rather than in the supervisor module to keep the
+/// dependency direction clean: the reader is the consumer, the
+/// supervisor is the implementor.
+pub trait MirrorRescuer: Send + Sync {
+    fn try_rescue(&self) -> bool;
+}
+
 /// File-backed reader: opens (and re-opens) `path` on every snapshot.
 /// memmap2 internally uses platform mmap calls (no `unsafe` exposed in
 /// our codebase) and this works for `/dev/shm/MumbleLink` on Linux.
 #[cfg(unix)]
 pub struct FileMumbleLink {
     path: PathBuf,
+    /// Optional rescuer invoked on stale-mirror detection. Used to
+    /// promote this gw2-mcp instance to in-bottle holder leader when
+    /// the previous leader's process has died.
+    rescuer: Option<Arc<dyn MirrorRescuer>>,
 }
 
 #[cfg(unix)]
@@ -314,7 +332,10 @@ impl FileMumbleLink {
                 continue;
             }
             // Try reading once to confirm the region looks sane.
-            let reader = Self { path: p.clone() };
+            let reader = Self {
+                path: p.clone(),
+                rescuer: None,
+            };
             match reader.snapshot() {
                 // Either it's working OR `NotConnected` (the file
                 // exists but `ui_tick==0` because the player hasn't
@@ -339,6 +360,14 @@ impl FileMumbleLink {
             unix_candidate_paths()
         )))
     }
+
+    /// Attach a rescuer that's consulted when a stale mirror is detected.
+    /// Builder so wiring stays a one-liner in main.rs.
+    #[must_use]
+    pub fn with_rescuer(mut self, rescuer: Arc<dyn MirrorRescuer>) -> Self {
+        self.rescuer = Some(rescuer);
+        self
+    }
 }
 
 #[cfg(unix)]
@@ -361,7 +390,12 @@ impl MumbleLink for FileMumbleLink {
         let is_holder = mmap.len() >= holder_format::HOLDER_HEADER_LEN
             && &mmap[..holder_format::HOLDER_MAGIC.len()] == holder_format::HOLDER_MAGIC;
         let payload = if is_holder {
-            stripped_holder_payload(&mmap, &self.path)?
+            match stripped_holder_payload(&mmap)? {
+                StripResult::Fresh(p) => p,
+                StripResult::Stale { age, pid } => {
+                    return Err(self.build_stale_mirror_error(age, pid));
+                }
+            }
         } else {
             &mmap[..]
         };
@@ -391,16 +425,22 @@ impl MumbleLink for FileMumbleLink {
     }
 }
 
-/// Strip the 16-byte holder header and return a slice over the embedded
-/// `LinkedMem` payload. Returns [`MumbleError::NotConnected`] when the
-/// timestamp says the writing holder is gone (>5s since last write) so
-/// the caller surfaces a clean "holder is dead" error rather than stale
-/// position data.
+/// Result of inspecting the holder-mirror header: either the inner
+/// `LinkedMem` payload, or "stale" metadata for the caller to build a
+/// failure message around. Pulled out so the snapshot path can consult
+/// the optional [`MirrorRescuer`] before deciding what to tell the user.
 #[cfg(unix)]
-fn stripped_holder_payload<'a>(
-    mmap: &'a [u8],
-    path: &std::path::Path,
-) -> Result<&'a [u8], MumbleError> {
+enum StripResult<'a> {
+    Fresh(&'a [u8]),
+    Stale { age: u64, pid: u32 },
+}
+
+/// Strip the 16-byte holder header. Returns [`StripResult::Stale`] when
+/// the timestamp says the writing holder is gone (>5s since last write)
+/// so the caller can attempt rescue + tailor the message; returns
+/// [`MumbleError::Decode`] for bad-magic / malformed headers.
+#[cfg(unix)]
+fn stripped_holder_payload(mmap: &[u8]) -> Result<StripResult<'_>, MumbleError> {
     let h = holder_format::parse_header(mmap)
         .map_err(|e| MumbleError::Decode(format!("holder header: {e}")))?;
     let now = std::time::SystemTime::now()
@@ -409,15 +449,42 @@ fn stripped_holder_payload<'a>(
     let written = u64::from(h.write_unix_seconds);
     let age = now.saturating_sub(written);
     if age > holder_format::HOLDER_STALE_AFTER_SECONDS {
-        return Err(MumbleError::NotConnected(format!(
-            "Mumble Link mirror at {} is stale (last write {age}s ago, holder pid={pid}). \
-             The in-bottle helper appears to have crashed — restart gw2-mcp, or run \
-             `gw2-mcp doctor` for diagnostics.",
-            path.display(),
-            pid = h.holder_pid
-        )));
+        return Ok(StripResult::Stale {
+            age,
+            pid: h.holder_pid,
+        });
     }
-    Ok(&mmap[holder_format::HOLDER_HEADER_LEN..])
+    Ok(StripResult::Fresh(
+        &mmap[holder_format::HOLDER_HEADER_LEN..],
+    ))
+}
+
+#[cfg(unix)]
+impl FileMumbleLink {
+    /// Build the user-facing error for a stale mirror. If a rescuer is
+    /// wired up *and* its attempt succeeds, return a transient
+    /// "restarting" message so the LLM retries naturally; otherwise
+    /// fall back to the original "crashed; restart gw2-mcp" message
+    /// that points at `gw2-mcp doctor`.
+    fn build_stale_mirror_error(&self, age: u64, pid: u32) -> MumbleError {
+        let rescued = self.rescuer.as_ref().is_some_and(|r| r.try_rescue());
+        let msg = if rescued {
+            format!(
+                "Mumble Link mirror at {} was stale (last write {age}s ago, previous holder \
+                 pid={pid}). This gw2-mcp instance has just spawned a fresh in-bottle \
+                 helper — retry the call in ~1s for live data.",
+                self.path.display()
+            )
+        } else {
+            format!(
+                "Mumble Link mirror at {} is stale (last write {age}s ago, holder pid={pid}). \
+                 The in-bottle helper appears to have crashed — restart gw2-mcp, or run \
+                 `gw2-mcp doctor` for diagnostics.",
+                self.path.display()
+            )
+        };
+        MumbleError::NotConnected(msg)
+    }
 }
 
 #[cfg(unix)]
@@ -537,7 +604,15 @@ pub use windows_impl::WindowsMumbleLink;
 ///
 /// `disabled` short-circuits to a `Unsupported`-flavoured stub when the
 /// user passed `--no-mumble-link`.
-pub fn probe_default(disabled: bool) -> Arc<dyn MumbleLink> {
+///
+/// `rescuer` is consulted on macOS when a stale mirror is detected —
+/// the supervisor uses it to re-elect a holder leader if the previous
+/// one's process died. Pass `None` to opt out (Linux/Windows callers,
+/// or `--no-mumble-holder` on macOS).
+pub fn probe_default(
+    disabled: bool,
+    rescuer: Option<Arc<dyn MirrorRescuer>>,
+) -> Arc<dyn MumbleLink> {
     if disabled {
         return StubMumbleLink::unsupported("--no-mumble-link flag set").into_arc();
     }
@@ -545,12 +620,17 @@ pub fn probe_default(disabled: bool) -> Arc<dyn MumbleLink> {
     #[cfg(unix)]
     {
         match FileMumbleLink::probe() {
-            Ok(r) => Arc::new(r),
+            Ok(r) => match rescuer {
+                Some(rs) => Arc::new(r.with_rescuer(rs)),
+                None => Arc::new(r),
+            },
             Err(e) => StubMumbleLink::new(format!("auto-probe failed: {e}")).into_arc(),
         }
     }
     #[cfg(target_os = "windows")]
     {
+        // Rescuer is macOS-only — Windows has no in-bottle holder to re-elect.
+        let _ = rescuer;
         match windows_impl::WindowsMumbleLink::probe() {
             Ok(r) => Arc::new(r),
             Err(e) => StubMumbleLink::new(format!("auto-probe failed: {e}")).into_arc(),
@@ -558,6 +638,7 @@ pub fn probe_default(disabled: bool) -> Arc<dyn MumbleLink> {
     }
     #[cfg(not(any(unix, target_os = "windows")))]
     {
+        let _ = rescuer;
         StubMumbleLink::unsupported(format!(
             "no Mumble Link adapter for target_os = {}",
             std::env::consts::OS
@@ -712,7 +793,7 @@ mod tests {
 
     #[test]
     fn probe_default_disabled_returns_unsupported_stub() {
-        let adapter = probe_default(true);
+        let adapter = probe_default(true, None);
         let err = adapter.snapshot().unwrap_err();
         assert!(matches!(err, MumbleError::Unsupported(_)));
     }
@@ -757,7 +838,10 @@ mod tests {
             });
         write_holder_mirror_fixture(&p, now, 42).expect("write fixture");
 
-        let reader = FileMumbleLink { path: p };
+        let reader = FileMumbleLink {
+            path: p,
+            rescuer: None,
+        };
         let snap = reader.snapshot().expect("decode");
         assert_eq!(snap.ui_tick, 42);
         assert!((snap.context.player_x - 100.0).abs() < 1e-6);
@@ -777,7 +861,10 @@ mod tests {
         let stale = now - 3600;
         write_holder_mirror_fixture(&p, stale, 100).expect("write fixture");
 
-        let reader = FileMumbleLink { path: p };
+        let reader = FileMumbleLink {
+            path: p,
+            rescuer: None,
+        };
         let err = reader.snapshot().expect_err("expected stale rejection");
         match err {
             MumbleError::NotConnected(s) => {
@@ -798,7 +885,10 @@ mod tests {
         let bytes = make_header_bytes(7, "{}", 1.0, 2.0, 3);
         std::fs::write(&p, &bytes).expect("write fixture");
 
-        let reader = FileMumbleLink { path: p };
+        let reader = FileMumbleLink {
+            path: p,
+            rescuer: None,
+        };
         let snap = reader.snapshot().expect("decode");
         assert_eq!(snap.ui_tick, 7);
     }
@@ -819,7 +909,10 @@ mod tests {
             });
         write_holder_mirror_fixture(&p, now, 0).expect("write fixture");
 
-        let reader = FileMumbleLink { path: p };
+        let reader = FileMumbleLink {
+            path: p,
+            rescuer: None,
+        };
         let err = reader.snapshot().expect_err("ui_tick=0 should error");
         match err {
             MumbleError::NotConnected(s) => {
@@ -851,12 +944,82 @@ mod tests {
             });
         write_holder_mirror_fixture(&p, now - 3600, 100).expect("write fixture");
 
-        let reader = FileMumbleLink { path: p.clone() };
+        let reader = FileMumbleLink {
+            path: p.clone(),
+            rescuer: None,
+        };
         let err = reader.snapshot().expect_err("expected stale rejection");
         let MumbleError::NotConnected(s) = err else {
             panic!("expected NotConnected");
         };
         assert!(s.contains("gw2-mcp doctor"), "got: {s}");
         assert!(s.contains(&p.display().to_string()), "got: {s}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_reader_consults_rescuer_on_stale_mirror() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        struct CountingRescuer {
+            calls: AtomicUsize,
+            succeed: AtomicBool,
+        }
+        impl MirrorRescuer for CountingRescuer {
+            fn try_rescue(&self) -> bool {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                self.succeed.load(Ordering::SeqCst)
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("mumble.bin");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u32, |d| {
+                u32::try_from(d.as_secs() & 0xFFFF_FFFF).unwrap_or(0)
+            });
+        write_holder_mirror_fixture(&p, now - 3600, 100).expect("write fixture");
+
+        // Failing rescue: caller sees the existing "crashed; restart" message.
+        let rescuer = Arc::new(CountingRescuer {
+            calls: AtomicUsize::new(0),
+            succeed: AtomicBool::new(false),
+        });
+        let reader = FileMumbleLink {
+            path: p.clone(),
+            rescuer: Some(rescuer.clone() as Arc<dyn MirrorRescuer>),
+        };
+        let err = reader
+            .snapshot()
+            .expect_err("stale + failed-rescue should error");
+        let MumbleError::NotConnected(s) = err else {
+            panic!("expected NotConnected");
+        };
+        assert!(s.contains("crashed"), "expected crashed message; got: {s}");
+        assert_eq!(
+            rescuer.calls.load(Ordering::SeqCst),
+            1,
+            "rescuer called once"
+        );
+
+        // Succeeding rescue: caller sees the transient "restarting" message.
+        rescuer.succeed.store(true, Ordering::SeqCst);
+        let err = reader
+            .snapshot()
+            .expect_err("stale + ok-rescue still errors this call");
+        let MumbleError::NotConnected(s) = err else {
+            panic!("expected NotConnected");
+        };
+        assert!(
+            s.contains("spawned a fresh in-bottle helper"),
+            "expected restart message; got: {s}"
+        );
+        assert!(s.contains("retry"), "should advise retry; got: {s}");
+        assert_eq!(
+            rescuer.calls.load(Ordering::SeqCst),
+            2,
+            "rescuer called again"
+        );
     }
 }

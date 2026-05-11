@@ -11,7 +11,7 @@ use gw2_mcp::adapters::probe_default;
 use gw2_mcp::adapters::{
     ChatrDecoder, DiscretizeCatalog, HolderSupervisor, HolderSupervisorOpts, HttpGw2Api,
     HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer, MemoryCache, MetaBattleCatalog,
-    SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
+    MirrorRescuer, SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
 };
 use gw2_mcp::cli::{doctor, print_config};
 use gw2_mcp::domain::ApiKey;
@@ -189,8 +189,14 @@ async fn main() -> anyhow::Result<ExitCode> {
     // something pre-creates the named mapping. We launch an in-bottle
     // holder via cxstart that does so and mirrors snapshots out to a
     // host-visible file the FileMumbleLink reader picks up. The supervisor
-    // owns the child process — when it drops at process exit, the holder
-    // dies with it. On Linux/Windows this is a no-op.
+    // owns the child process — when its last clone drops at process exit,
+    // the holder dies with it. On Linux/Windows this is a no-op.
+    //
+    // Concurrent gw2-mcp instances against the same bottle coordinate via
+    // an advisory flock on a per-bottle lockfile: whoever wins it owns
+    // the holder; everyone else just reads the shared mirror. If the
+    // leader exits, the next reader to see a stale mirror promotes
+    // itself via the rescuer wired into FileMumbleLink below.
     let holder_supervisor: HolderSupervisor = if cli.no_mumble_link || cli.no_mumble_holder {
         HolderSupervisor::disabled()
     } else {
@@ -199,7 +205,12 @@ async fn main() -> anyhow::Result<ExitCode> {
 
     // Mumble Link adapter — auto-probe unless --no-mumble-link is set.
     // probe_default never fails: it returns a stub on missing region.
-    let mumble: Arc<dyn MumbleLink> = probe_default(cli.no_mumble_link);
+    // The supervisor is also the MirrorRescuer the reader consults on
+    // stale-mirror detection (macOS only — on Linux/Windows the rescuer
+    // is unused even when passed).
+    let rescuer: Option<Arc<dyn MirrorRescuer>> =
+        Some(Arc::new(holder_supervisor.clone()) as Arc<dyn MirrorRescuer>);
+    let mumble: Arc<dyn MumbleLink> = probe_default(cli.no_mumble_link, rescuer);
 
     // Diagnostic log at startup. When the in-bottle supervisor is active
     // (macOS + bottle detected), the helper has only just been spawned

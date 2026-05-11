@@ -13,6 +13,7 @@ pub mod error_body;
 pub mod gw2_http;
 pub mod gw2_map;
 pub mod holder_format;
+pub mod holder_lock;
 pub mod holder_supervisor;
 pub mod mcp_stdio;
 pub mod memory_cache;
@@ -31,7 +32,9 @@ pub use gw2_map::HttpMapData;
 pub use holder_supervisor::{HolderSupervisor, HolderSupervisorOpts};
 pub use mcp_stdio::McpServer;
 pub use memory_cache::MemoryCache;
-pub use mumble_link::{MUMBLE_HEADER_LEN, StubMumbleLink, parse_header, probe_default};
+pub use mumble_link::{
+    MUMBLE_HEADER_LEN, MirrorRescuer, StubMumbleLink, parse_header, probe_default,
+};
 pub use sqlite_index::{INDEX_FILE_NAME, SqliteSearchIndex};
 pub use system_clock::SystemClock;
 pub use wiki_http::HttpWiki;

@@ -345,11 +345,16 @@ What the supervisor does on first launch:
 a bottle. The supervisor doesn't install GW2 — it just plugs into your
 existing bottle.
 
-**Run one gw2-mcp at a time on macOS.** The startup sweep that cleans
-up orphan holders from a crashed previous run will also TERM/KILL the
-*live* holder of any other gw2-mcp instance running concurrently. If you
-need both Claude Desktop and Claude Code to expose nav tools at the same
-time, point them at separate hosts.
+**Multiple gw2-mcp instances per bottle are supported.** When several
+MCP clients (Claude Desktop, Claude Code, ChatGPT Desktop, …) each spawn
+their own gw2-mcp process pointing at the same bottle, the instances
+coordinate via an advisory `flock` on a per-bottle lockfile
+(`<bottle>/drive_c/users/Public/gw2-mcp/holder.lock`). Whoever wins the
+lock at startup spawns and owns the holder; the others become followers
+that simply read the shared mirror file. If the leader's gw2-mcp process
+exits (clean or crash), the kernel releases the lock and the next
+follower whose nav-tool call sees a stale mirror promotes itself
+automatically — no manual restart required.
 
 If anything fails (no CrossOver/Whisky, no bottle, missing launcher), the
 server logs a warning and continues without nav-tool support — every other
