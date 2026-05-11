@@ -11,7 +11,11 @@ pub mod build_slug;
 pub mod character;
 pub mod currency;
 pub mod error;
+pub mod instances;
+pub mod mastery;
 pub mod reference;
+pub mod reset;
+pub mod snake_case;
 pub mod wallet;
 pub mod wiki;
 
@@ -24,8 +28,12 @@ pub use build_slug::BuildSlug;
 pub use character::CharacterName;
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
+pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};
+pub use mastery::{Mastery, MasteryId, MasteryLevel};
 pub use reference::{
     Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,
 };
+pub use reset::{next_daily_reset, next_raid_reset};
+pub use snake_case::title_case;
 pub use wallet::{WalletEntry, WalletInfo};
 pub use wiki::{SearchLimit, SearchQuery, SearchResponse, SearchResult};

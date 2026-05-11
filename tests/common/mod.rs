@@ -14,8 +14,9 @@ use chrono::{DateTime, Utc};
 use gw2_mcp::adapters::{ChatrDecoder, StubMumbleLink};
 use gw2_mcp::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, BuildSlug,
-    CharacterName, Currency, CurrencyId, Dailies, Item, ItemId, SearchLimit, SearchQuery,
-    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    CharacterName, Currency, CurrencyId, Dailies, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
+    SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization, SpecializationId,
+    Trait, TraitId, WalletEntry,
 };
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
@@ -292,6 +293,12 @@ pub struct FakeGw2Api {
     pub specs: Mutex<BTreeMap<SpecializationId, Specialization>>,
     pub items: Mutex<BTreeMap<ItemId, Item>>,
     pub achievements: Mutex<BTreeMap<AchievementId, Achievement>>,
+    pub mastery_metadata: Mutex<BTreeMap<MasteryId, Mastery>>,
+    pub mastery_meta_calls: Mutex<usize>,
+    pub raid_metadata: Mutex<BTreeMap<String, Raid>>,
+    pub raid_meta_calls: Mutex<usize>,
+    pub dungeon_metadata: Mutex<BTreeMap<String, Dungeon>>,
+    pub dungeon_meta_calls: Mutex<usize>,
     pub build_number: Mutex<u32>,
     pub buildtabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
     pub equipmenttabs: Mutex<BTreeMap<String, Vec<serde_json::Value>>>,
@@ -332,6 +339,12 @@ impl FakeGw2Api {
             specs: Mutex::new(BTreeMap::new()),
             items: Mutex::new(BTreeMap::new()),
             achievements: Mutex::new(BTreeMap::new()),
+            mastery_metadata: Mutex::new(BTreeMap::new()),
+            mastery_meta_calls: Mutex::new(0),
+            raid_metadata: Mutex::new(BTreeMap::new()),
+            raid_meta_calls: Mutex::new(0),
+            dungeon_metadata: Mutex::new(BTreeMap::new()),
+            dungeon_meta_calls: Mutex::new(0),
             build_number: Mutex::new(123_456),
             buildtabs: Mutex::new(BTreeMap::new()),
             equipmenttabs: Mutex::new(BTreeMap::new()),
@@ -628,14 +641,71 @@ impl Gw2Api for FakeGw2Api {
         Ok(self.masteries_response.lock().unwrap().clone())
     }
 
+    async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
+        Ok(self
+            .mastery_metadata
+            .lock()
+            .unwrap()
+            .keys()
+            .copied()
+            .collect())
+    }
+
+    async fn fetch_masteries(
+        &self,
+        ids: &[MasteryId],
+    ) -> Result<BTreeMap<MasteryId, Mastery>, Gw2ApiError> {
+        *self.mastery_meta_calls.lock().unwrap() += 1;
+        let store = self.mastery_metadata.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|m| (*id, m.clone())))
+            .collect())
+    }
+
     async fn fetch_account_raids(&self, _key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
         *self.raids_calls.lock().unwrap() += 1;
         Ok(self.raids_response.lock().unwrap().clone())
     }
 
+    async fn fetch_all_raid_ids(&self) -> Result<Vec<String>, Gw2ApiError> {
+        Ok(self.raid_metadata.lock().unwrap().keys().cloned().collect())
+    }
+
+    async fn fetch_raids(&self, ids: &[String]) -> Result<BTreeMap<String, Raid>, Gw2ApiError> {
+        *self.raid_meta_calls.lock().unwrap() += 1;
+        let store = self.raid_metadata.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|r| (id.clone(), r.clone())))
+            .collect())
+    }
+
     async fn fetch_account_dungeons(&self, _key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
         *self.dungeons_calls.lock().unwrap() += 1;
         Ok(self.dungeons_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_all_dungeon_ids(&self) -> Result<Vec<String>, Gw2ApiError> {
+        Ok(self
+            .dungeon_metadata
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect())
+    }
+
+    async fn fetch_dungeons(
+        &self,
+        ids: &[String],
+    ) -> Result<BTreeMap<String, Dungeon>, Gw2ApiError> {
+        *self.dungeon_meta_calls.lock().unwrap() += 1;
+        let store = self.dungeon_metadata.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| store.get(id).map(|d| (id.clone(), d.clone())))
+            .collect())
     }
 
     async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError> {

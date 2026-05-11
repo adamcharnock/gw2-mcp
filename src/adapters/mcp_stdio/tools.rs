@@ -573,35 +573,34 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .annotate(read_only_open_world("List Characters")),
         Tool::new(
             "get_account_achievements",
-            "Fetch per-account achievement progress. Heavy: 2000–3000 entries on a long-lived account, so summary mode (default true) drops both completed and not-started entries — what's left is the player's in-flight work. Requires an API key with `account` + `progression` scopes. Pass `summary=false` for the raw list (e.g. when checking for a specific achievement id by hand).",
+            "Fetch per-account achievement progress, each row enriched with the achievement's `name` and `description` so you don't need a follow-up `get_achievements` to identify entries. Heavy: 2000–3000 entries on a long-lived account, so summary mode (default true) drops both completed and not-started entries — what's left is the player's in-flight work. Requires an API key with `account` + `progression` scopes. Pass `summary=false` for the raw list.",
             get_account_achievements,
         )
         .annotate(read_only_open_world("Get Account Achievements")),
         Tool::new(
             "get_account_masteries",
-            "Fetch unlocked-mastery progress per track ({id, level}). Requires an API key with `account` + `progression` scopes. Useful for recommending zones/collections gated by mastery levels (gliding, mounts, fishing, jade-bot, etc.).",
+            "Fetch unlocked-mastery progress per track, enriched with the track's `name`, `region`, and `current_level_name`. Requires an API key with `account` + `progression` scopes. Useful for recommending zones/collections gated by mastery levels (gliding, mounts, fishing, jade-bot, etc.).",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("Get Account Masteries")),
         Tool::new(
             "get_account_raids",
-            "Fetch the list of raid encounter ids the account has cleared this reset week (e.g. `vale_guardian`, `sabetha`). Resets every Monday 07:30 UTC. Requires an API key with `account` + `progression` scopes.",
+            "Fetch raid clears + the full encounter list so the LLM can answer 'what raids do I still have left this week?' from one call. Returns every encounter with a `cleared: bool` flag, encounter/wing/raid names (e.g. Vale Guardian / Spirit Vale / Forsaken Thicket), `cleared_count` + `total_count`, and the next `weekly_reset_at` (Monday 07:30 UTC). Requires an API key with `account` + `progression` scopes.",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("Get Account Raids")),
         Tool::new(
             "get_account_dungeons",
-            "Fetch the list of dungeon-path ids the account has cleared *today* (resets daily, NOT weekly — different from `get_account_raids`). Requires an API key with `account` + `progression` scopes.",
+            "Fetch dungeon-path clears for today + the full path list. Same shape as `get_account_raids` but on the daily cadence: every path is returned with a `cleared: bool` flag, dungeon name + path name, `cleared_count` + `total_count`, and the next `daily_reset_at` (00:00 UTC). Requires an API key with `account` + `progression` scopes.",
             authed_no_args,
         )
         .annotate(read_only_open_world("Get Account Dungeons")),
         Tool::new(
             "get_dailies",
-            "Fetch today's (or tomorrow's) Guild Wars 2 daily achievement IDs partitioned by category (pve, pvp, wvw, fractals, special). Public — no API key required. Pair with `get_account_achievements` to compute which dailies the player has already finished today.",
+            "Fetch today's (or tomorrow's) Guild Wars 2 daily achievements, partitioned by category (pve, pvp, wvw, fractals, special) and enriched with each achievement's `name` and `description`. Public — no API key required. Pair with `get_account_achievements` to compute which dailies the player has already finished today.",
             get_dailies,
         )
-        .annotate(read_only_open_world("Get Dailies"))
-        .with_output_schema::<crate::domain::Dailies>(),
+        .annotate(read_only_open_world("Get Dailies")),
         // -- Tier 6B: navigation tools (Mumble Link + map data) -----------
         // All four are openWorld=true: Mumble Link state changes every
         // frame, and POI lookups touch the live GW2 API. They're still
@@ -609,7 +608,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         // never changes server-side state.
         Tool::new(
             "get_my_location",
-            "Return where the player currently is: character name, profession, map name + region, 2D map coordinates, and the 16-point compass bearing they're facing. Reads live state from the Guild Wars 2 client via Mumble Link; requires GW2 to be running on the same host as this MCP server.",
+            "Return where the player currently is: character name, profession, race, map name + region, 2D map coordinates, the 16-point compass bearing they're facing, and whether they're on a mount (`mount.index == 0` means dismounted; otherwise `mount.name` carries the mount name — Springer, Skyscale, etc.). Reads live state from the Guild Wars 2 client via Mumble Link; requires GW2 to be running on the same host as this MCP server.",
             empty_args.clone(),
         )
         .annotate(read_only_open_world("Get My Location"))

@@ -14,8 +14,9 @@ use thiserror::Error;
 
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, BuildSlug,
-    CharacterName, Currency, CurrencyId, Dailies, Item, ItemId, SearchLimit, SearchQuery,
-    SearchResult, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    CharacterName, Currency, CurrencyId, Dailies, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
+    SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization, SpecializationId,
+    Trait, TraitId, WalletEntry,
 };
 
 // ---------------------------------------------------------------------------
@@ -229,14 +230,42 @@ pub trait Gw2Api: Send + Sync + 'static {
         key: &ApiKey,
     ) -> Result<Vec<AccountMastery>, Gw2ApiError>;
 
+    /// `/v2/masteries` — public, no key. Returns the full id list.
+    async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError>;
+
+    /// `/v2/masteries?ids=…` — public, no key.
+    async fn fetch_masteries(
+        &self,
+        ids: &[MasteryId],
+    ) -> Result<BTreeMap<MasteryId, Mastery>, Gw2ApiError>;
+
     /// `/v2/account/raids` — requires `progression` scope. Returns the raid
     /// encounter ids cleared this reset week (e.g. `vale_guardian`,
     /// `sabetha`).
     async fn fetch_account_raids(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError>;
 
+    /// `/v2/raids` — public, no key. Returns the list of raid release ids
+    /// (e.g. `forsaken_thicket`, `bastion_of_the_penitent`).
+    async fn fetch_all_raid_ids(&self) -> Result<Vec<String>, Gw2ApiError>;
+
+    /// `/v2/raids?ids=…` — public, no key. Returns the wing + encounter
+    /// breakdown for each raid release.
+    async fn fetch_raids(&self, ids: &[String]) -> Result<BTreeMap<String, Raid>, Gw2ApiError>;
+
     /// `/v2/account/dungeons` — requires `progression` scope. Returns the
     /// dungeon-path ids cleared today (resets daily, **not** weekly).
     async fn fetch_account_dungeons(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError>;
+
+    /// `/v2/dungeons` — public, no key. Returns the list of dungeon ids
+    /// (e.g. `ascalon_catacombs`).
+    async fn fetch_all_dungeon_ids(&self) -> Result<Vec<String>, Gw2ApiError>;
+
+    /// `/v2/dungeons?ids=…` — public, no key. Returns the path breakdown
+    /// for each dungeon.
+    async fn fetch_dungeons(
+        &self,
+        ids: &[String],
+    ) -> Result<BTreeMap<String, Dungeon>, Gw2ApiError>;
 
     /// `/v2/achievements/daily` — public, no key. `tomorrow=true` hits the
     /// twin endpoint at `/v2/achievements/daily/tomorrow`.

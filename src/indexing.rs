@@ -405,11 +405,41 @@ mod tests {
         ) -> Result<Vec<crate::domain::AccountMastery>, Gw2ApiError> {
             Ok(Vec::new())
         }
+        async fn fetch_all_mastery_ids(
+            &self,
+        ) -> Result<Vec<crate::domain::MasteryId>, Gw2ApiError> {
+            Ok(Vec::new())
+        }
+        async fn fetch_masteries(
+            &self,
+            _: &[crate::domain::MasteryId],
+        ) -> Result<BTreeMap<crate::domain::MasteryId, crate::domain::Mastery>, Gw2ApiError>
+        {
+            Ok(BTreeMap::new())
+        }
         async fn fetch_account_raids(&self, _: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
             Ok(Vec::new())
         }
+        async fn fetch_all_raid_ids(&self) -> Result<Vec<String>, Gw2ApiError> {
+            Ok(Vec::new())
+        }
+        async fn fetch_raids(
+            &self,
+            _: &[String],
+        ) -> Result<BTreeMap<String, crate::domain::Raid>, Gw2ApiError> {
+            Ok(BTreeMap::new())
+        }
         async fn fetch_account_dungeons(&self, _: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
             Ok(Vec::new())
+        }
+        async fn fetch_all_dungeon_ids(&self) -> Result<Vec<String>, Gw2ApiError> {
+            Ok(Vec::new())
+        }
+        async fn fetch_dungeons(
+            &self,
+            _: &[String],
+        ) -> Result<BTreeMap<String, crate::domain::Dungeon>, Gw2ApiError> {
+            Ok(BTreeMap::new())
         }
         async fn fetch_dailies(&self, _: bool) -> Result<crate::domain::Dailies, Gw2ApiError> {
             Err(Gw2ApiError::Decode(

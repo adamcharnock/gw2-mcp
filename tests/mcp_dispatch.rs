@@ -17,7 +17,7 @@ use gw2_mcp::ports::{
 };
 use gw2_mcp::service::Service;
 use serde_json::{Value, json};
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::common::{FakeMapData, valid_api_key};
@@ -841,11 +841,29 @@ async fn dispatch_get_account_achievements_summary_false_returns_full_list() {
 }
 
 #[tokio::test]
-async fn dispatch_get_account_raids_returns_string_array() {
+async fn dispatch_get_account_raids_returns_enriched_snapshot() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/account/raids"))
         .respond_with(ResponseTemplate::new(200).set_body_string(RAIDS_FIXTURE))
+        .mount(&server)
+        .await;
+    // /v2/raids returns the wing+encounter structure; mock just enough
+    // for the enrichment path to find "vale_guardian" and report it as
+    // cleared while leaving "gorseval_the_multifarious" uncleared.
+    // Mount the more-specific (?ids=...) mock first so wiremock's
+    // first-match-wins picks it over the bare id-list mock.
+    Mock::given(method("GET"))
+        .and(path("/raids"))
+        .and(query_param("ids", "forsaken_thicket"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"[{"id":"forsaken_thicket","wings":[{"id":"spirit_vale","events":[{"id":"vale_guardian","type":"Boss"},{"id":"gorseval_the_multifarious","type":"Boss"}]}]}]"#,
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/raids"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"["forsaken_thicket"]"#))
         .mount(&server)
         .await;
     let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
@@ -856,16 +874,40 @@ async fn dispatch_get_account_raids_returns_string_array() {
         )
         .await
         .unwrap();
-    let arr = v.as_array().unwrap();
-    assert!(arr.iter().any(|n| n == "vale_guardian"));
+    let encounters = v["encounters"].as_array().expect("encounters array");
+    let vg = encounters
+        .iter()
+        .find(|e| e["id"] == "vale_guardian")
+        .expect("vale_guardian present");
+    assert_eq!(vg["name"], "Vale Guardian");
+    assert_eq!(vg["cleared"], true);
+    let gorseval = encounters
+        .iter()
+        .find(|e| e["id"] == "gorseval_the_multifarious")
+        .expect("gorseval present");
+    assert_eq!(gorseval["cleared"], false);
+    assert!(v["weekly_reset_at"].is_string(), "reset timestamp present");
 }
 
 #[tokio::test]
-async fn dispatch_get_account_dungeons_returns_string_array() {
+async fn dispatch_get_account_dungeons_returns_enriched_snapshot() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/account/dungeons"))
         .respond_with(ResponseTemplate::new(200).set_body_string(DUNGEONS_FIXTURE))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/dungeons"))
+        .and(query_param("ids", "ascalonian_catacombs"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"[{"id":"ascalonian_catacombs","paths":[{"id":"ascalonian_catacombs_story","type":"Story"},{"id":"ascalonian_catacombs_hodgins","type":"Explorable"},{"id":"ascalonian_catacombs_detha","type":"Explorable"}]}]"#,
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/dungeons"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"["ascalonian_catacombs"]"#))
         .mount(&server)
         .await;
     let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
@@ -876,7 +918,19 @@ async fn dispatch_get_account_dungeons_returns_string_array() {
         )
         .await
         .unwrap();
-    assert_eq!(v.as_array().unwrap().len(), 2);
+    let paths = v["paths"].as_array().expect("paths array");
+    assert_eq!(paths.len(), 3, "all paths listed regardless of clear state");
+    let story = paths
+        .iter()
+        .find(|p| p["id"] == "ascalonian_catacombs_story")
+        .unwrap();
+    assert_eq!(story["cleared"], true);
+    let detha = paths
+        .iter()
+        .find(|p| p["id"] == "ascalonian_catacombs_detha")
+        .unwrap();
+    assert_eq!(detha["cleared"], false);
+    assert!(v["daily_reset_at"].is_string(), "reset timestamp present");
 }
 
 #[tokio::test]

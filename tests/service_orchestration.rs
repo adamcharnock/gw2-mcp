@@ -852,7 +852,7 @@ async fn account_achievements_summary_drops_done_and_not_started() {
     let key = valid_api_key();
 
     let summary = svc.get_account_achievements(&key, true).await.unwrap();
-    let summary_ids: Vec<u32> = summary.iter().map(|a| a.id).collect();
+    let summary_ids: Vec<u32> = summary.iter().map(|a| a.progress.id).collect();
     assert_eq!(
         summary_ids,
         vec![200, 500],

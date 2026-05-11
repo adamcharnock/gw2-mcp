@@ -13,8 +13,8 @@ use tracing::warn;
 
 use super::{STATIC_TTL, Service, ServiceError};
 use crate::domain::{
-    Currency, CurrencyId, Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait,
-    TraitId,
+    Achievement, AchievementId, Currency, CurrencyId, Item, ItemId, Skill, SkillId, Specialization,
+    SpecializationId, Trait, TraitId,
 };
 use crate::ports::Cache;
 
@@ -118,6 +118,24 @@ impl Service {
             |missing| async move {
                 self.gw2
                     .fetch_specializations(&missing)
+                    .await
+                    .map_err(Into::into)
+            },
+        )
+        .await
+    }
+
+    pub async fn get_achievements(
+        &self,
+        ids: &[AchievementId],
+    ) -> Result<BTreeMap<AchievementId, Achievement>, ServiceError> {
+        cached_by_id(
+            self.cache.as_ref(),
+            ids,
+            |id| format!("achievement:{id}"),
+            |missing| async move {
+                self.gw2
+                    .fetch_achievements(&missing)
                     .await
                     .map_err(Into::into)
             },

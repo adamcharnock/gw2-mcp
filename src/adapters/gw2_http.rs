@@ -10,8 +10,8 @@ use serde::Deserialize;
 use crate::adapters::error_body::truncate_error_body;
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, CharacterName,
-    Currency, CurrencyId, Dailies, Item, ItemId, Skill, SkillId, Specialization, SpecializationId,
-    Trait, TraitId, WalletEntry,
+    Currency, CurrencyId, Dailies, Dungeon, Item, ItemId, Mastery, MasteryId, Raid, Skill, SkillId,
+    Specialization, SpecializationId, Trait, TraitId, WalletEntry,
 };
 use crate::ports::{Gw2Api, Gw2ApiError};
 
@@ -245,14 +245,49 @@ impl Gw2Api for HttpGw2Api {
         self.fetch_authed_json(&url, key, None).await
     }
 
+    async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
+        self.fetch_id_list("masteries", MasteryId::new).await
+    }
+
+    async fn fetch_masteries(
+        &self,
+        ids: &[MasteryId],
+    ) -> Result<BTreeMap<MasteryId, Mastery>, Gw2ApiError> {
+        self.fetch_by_ids("masteries", ids, |m: Mastery| (m.id, m))
+            .await
+    }
+
     async fn fetch_account_raids(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
         let url = format!("{}/account/raids", self.base_url);
         self.fetch_authed_json(&url, key, None).await
     }
 
+    async fn fetch_all_raid_ids(&self) -> Result<Vec<String>, Gw2ApiError> {
+        let url = format!("{}/raids", self.base_url);
+        self.fetch_public_json(&url).await
+    }
+
+    async fn fetch_raids(&self, ids: &[String]) -> Result<BTreeMap<String, Raid>, Gw2ApiError> {
+        self.fetch_by_ids("raids", ids, |r: Raid| (r.id.clone(), r))
+            .await
+    }
+
     async fn fetch_account_dungeons(&self, key: &ApiKey) -> Result<Vec<String>, Gw2ApiError> {
         let url = format!("{}/account/dungeons", self.base_url);
         self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_all_dungeon_ids(&self) -> Result<Vec<String>, Gw2ApiError> {
+        let url = format!("{}/dungeons", self.base_url);
+        self.fetch_public_json(&url).await
+    }
+
+    async fn fetch_dungeons(
+        &self,
+        ids: &[String],
+    ) -> Result<BTreeMap<String, Dungeon>, Gw2ApiError> {
+        self.fetch_by_ids("dungeons", ids, |d: Dungeon| (d.id.clone(), d))
+            .await
     }
 
     async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError> {
@@ -273,6 +308,27 @@ impl Gw2Api for HttpGw2Api {
 }
 
 impl HttpGw2Api {
+    /// GET an unauthenticated GW2 v2 endpoint and decode the JSON body
+    /// into `T`. Mirrors `fetch_authed_json` minus the bearer header.
+    /// Used by the raid / dungeon enumeration paths where the endpoint
+    /// is public and the response shape is an arbitrary JSON value
+    /// (not the numeric-id-list convention `fetch_id_list` handles).
+    async fn fetch_public_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        url: &str,
+    ) -> Result<T, Gw2ApiError> {
+        let req = self
+            .client
+            .get(url)
+            .build()
+            .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
+        let resp = self.send_request(req).await?;
+        let resp = check_status(resp).await?;
+        resp.json::<T>()
+            .await
+            .map_err(|e| Gw2ApiError::Decode(e.to_string()))
+    }
+
     /// Generic helper for `/v2/<endpoint>` with no `?ids=` parameter — the
     /// GW2 v2 convention is that omitting `ids` returns the full id list as
     /// a JSON array of integers. Used by the Tier-6C indexer to enumerate
