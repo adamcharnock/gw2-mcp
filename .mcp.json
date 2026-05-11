@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "gw2": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--release",
+        "--quiet",
+        "--bin",
+        "gw2-mcp"
+      ]
+    }
+  }
+}
