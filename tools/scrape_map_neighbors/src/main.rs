@@ -249,6 +249,13 @@ async fn main() -> Result<()> {
         );
     }
 
+    eprintln!("[3.75/4] Normalizing symmetry — adding reverse edges …");
+    let added = symmetrize(&mut output);
+    eprintln!(
+        "    added {} reverse edges (skipped one-way + unmodelled endpoints).",
+        added
+    );
+
     eprintln!("[4/4] Writing YAML to {} …", args.out.display());
     let yaml = serde_yaml_bw::to_string(&output)?;
     std::fs::write(&args.out, yaml).with_context(|| format!("writing {}", args.out.display()))?;
@@ -657,6 +664,122 @@ fn strip_wiki_chrome(s: &str) -> String {
     re.replace_all(s, "").trim().to_owned()
 }
 
+/// Round-2-feedback symmetry pass. For every neighbor edge `src → dst`
+/// in `output`, ensure a matching `dst → src` exists. This closes the
+/// asymmetry where the wiki only lists one direction (typically city
+/// pages listing every zone the city has a gate to, but the zone
+/// pages omitting the city back-reference).
+///
+/// Skips edges flagged `one_way: true` (none seeded today; reserved
+/// for legitimately unidirectional portals like dungeon entrances
+/// that hand-curators may add later).
+///
+/// Reverse-edge metadata: direction is computed via compass reversal
+/// (`NE → SW`, `SSW → NNE`, etc.); connection / min_level / max_level
+/// / expansion are copied from the source side. gate_location and
+/// note are left blank — the original source page's hint doesn't
+/// translate to the new direction without a second scrape.
+///
+/// Returns the count of edges added so the caller can log it.
+fn symmetrize(output: &mut YamlOutput) -> usize {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // Snapshot every modelled source so the reverse can be added.
+    let modelled: BTreeSet<u32> = output.maps.keys().copied().collect();
+
+    // Existing edge set; we don't want to add a reverse if it's
+    // already there with potentially different metadata (hand-curated
+    // entries win).
+    let mut existing: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for (src, entry) in &output.maps {
+        for n in &entry.neighbors {
+            existing.insert((*src, n.map_id));
+        }
+    }
+
+    // (target_id, reverse_edge) pairs to insert. We can't mutate
+    // `output.maps` while iterating it, so accumulate then apply.
+    let mut to_add: BTreeMap<u32, Vec<YamlNeighbor>> = BTreeMap::new();
+    for (src_id, src_entry) in &output.maps {
+        for n in &src_entry.neighbors {
+            if !modelled.contains(&n.map_id) {
+                continue;
+            }
+            if existing.contains(&(n.map_id, *src_id)) {
+                continue;
+            }
+            let reverse = YamlNeighbor {
+                map_id: *src_id,
+                name: src_entry.name.clone(),
+                direction: n.direction.as_deref().and_then(reverse_direction),
+                connection: n.connection.clone(),
+                min_level: src_entry.min_level,
+                max_level: src_entry.max_level,
+                expansion: src_entry.expansion.clone(),
+            };
+            to_add.entry(n.map_id).or_default().push(reverse);
+        }
+    }
+
+    let mut added = 0;
+    for (target_id, reverses) in to_add {
+        if let Some(entry) = output.maps.get_mut(&target_id) {
+            for r in reverses {
+                added += 1;
+                entry.neighbors.push(r);
+            }
+            // Keep YAML diffs stable.
+            entry.neighbors.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+    }
+    added
+}
+
+/// Reverse a compass-direction string. Handles 16-point bearings
+/// (N/NE/ENE/etc.) and comma-separated multi-bearings ("NW, N" →
+/// "SE, S"). Returns `None` if any token doesn't reverse cleanly.
+fn reverse_direction(d: &str) -> Option<String> {
+    let parts: Vec<&str> = d
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(parts.len());
+    for p in parts {
+        out.push(reverse_bearing(p)?);
+    }
+    Some(out.join(", "))
+}
+
+/// Reverse a single 16-point compass bearing.
+fn reverse_bearing(b: &str) -> Option<String> {
+    match b.to_uppercase().as_str() {
+        "N" => Some("S".to_owned()),
+        "NNE" => Some("SSW".to_owned()),
+        "NE" => Some("SW".to_owned()),
+        "ENE" => Some("WSW".to_owned()),
+        "E" => Some("W".to_owned()),
+        "ESE" => Some("WNW".to_owned()),
+        "SE" => Some("NW".to_owned()),
+        "SSE" => Some("NNW".to_owned()),
+        "S" => Some("N".to_owned()),
+        "SSW" => Some("NNE".to_owned()),
+        "SW" => Some("NE".to_owned()),
+        "WSW" => Some("ENE".to_owned()),
+        "W" => Some("E".to_owned()),
+        "WNW" => Some("ESE".to_owned()),
+        "NW" => Some("SE".to_owned()),
+        "NNW" => Some("SSE".to_owned()),
+        // "C" (contained) is sometimes used by guild halls etc; the
+        // semantic doesn't have a directional reverse, so just echo.
+        "C" => Some("C".to_owned()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,6 +912,169 @@ Body text below.
         assert_eq!(pick_expansion(Some("nonsense")).as_deref(), None);
         assert_eq!(pick_expansion(Some("")).as_deref(), None);
         assert_eq!(pick_expansion(None).as_deref(), None);
+    }
+
+    #[test]
+    fn reverse_bearing_round_trips_8_point_compass() {
+        for (b, expected) in [
+            ("N", "S"),
+            ("NE", "SW"),
+            ("E", "W"),
+            ("SE", "NW"),
+            ("S", "N"),
+            ("SW", "NE"),
+            ("W", "E"),
+            ("NW", "SE"),
+        ] {
+            assert_eq!(reverse_bearing(b).as_deref(), Some(expected));
+            // Lowercase tolerance.
+            assert_eq!(
+                reverse_bearing(&b.to_lowercase()).as_deref(),
+                Some(expected)
+            );
+            // Round-trip via reverse_direction.
+            assert_eq!(reverse_direction(b).as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn reverse_bearing_handles_16_point_compass() {
+        for (b, expected) in [
+            ("NNE", "SSW"),
+            ("ENE", "WSW"),
+            ("ESE", "WNW"),
+            ("SSE", "NNW"),
+            ("SSW", "NNE"),
+            ("WSW", "ENE"),
+            ("WNW", "ESE"),
+            ("NNW", "SSE"),
+        ] {
+            assert_eq!(reverse_bearing(b).as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn reverse_direction_handles_comma_separated() {
+        // From the round-1 YAML: Queensdale points to Kessex as "SW, S".
+        // The reverse from Kessex should be "NE, N".
+        assert_eq!(reverse_direction("SW, S").as_deref(), Some("NE, N"));
+        assert_eq!(reverse_direction("NW, N").as_deref(), Some("SE, S"));
+    }
+
+    #[test]
+    fn reverse_direction_returns_none_on_garbage() {
+        assert_eq!(reverse_direction("not a bearing").as_deref(), None);
+        assert_eq!(reverse_direction("").as_deref(), None);
+    }
+
+    #[test]
+    fn symmetrize_adds_missing_reverse_with_flipped_direction() {
+        let mut out = YamlOutput {
+            maps: BTreeMap::new(),
+        };
+        out.maps.insert(
+            1,
+            YamlMapEntry {
+                name: "Alpha".into(),
+                region_name: None,
+                min_level: Some(1),
+                max_level: Some(15),
+                expansion: Some("core".into()),
+                neighbors: vec![YamlNeighbor {
+                    map_id: 2,
+                    name: "Beta".into(),
+                    direction: Some("NE".into()),
+                    connection: Some("physical".into()),
+                    min_level: Some(20),
+                    max_level: Some(30),
+                    expansion: Some("core".into()),
+                }],
+            },
+        );
+        // Beta exists but doesn't list Alpha yet — symmetrize should
+        // insert the reverse.
+        out.maps.insert(
+            2,
+            YamlMapEntry {
+                name: "Beta".into(),
+                region_name: None,
+                min_level: Some(20),
+                max_level: Some(30),
+                expansion: Some("core".into()),
+                neighbors: vec![],
+            },
+        );
+
+        let added = symmetrize(&mut out);
+        assert_eq!(added, 1);
+        let beta = out.maps.get(&2).unwrap();
+        assert_eq!(beta.neighbors.len(), 1);
+        let reverse = &beta.neighbors[0];
+        assert_eq!(reverse.map_id, 1);
+        assert_eq!(reverse.name, "Alpha");
+        assert_eq!(reverse.direction.as_deref(), Some("SW"));
+        assert_eq!(reverse.connection.as_deref(), Some("physical"));
+        assert_eq!(reverse.min_level, Some(1));
+    }
+
+    #[test]
+    fn symmetrize_skips_unmodelled_endpoint() {
+        // Alpha points to map id 999 which isn't in the table; the
+        // reverse can't be inserted (we have nothing to insert it
+        // into).
+        let mut out = YamlOutput {
+            maps: BTreeMap::new(),
+        };
+        out.maps.insert(
+            1,
+            YamlMapEntry {
+                name: "Alpha".into(),
+                region_name: None,
+                min_level: None,
+                max_level: None,
+                expansion: None,
+                neighbors: vec![YamlNeighbor {
+                    map_id: 999,
+                    name: "Unmodelled".into(),
+                    direction: Some("N".into()),
+                    connection: Some("physical".into()),
+                    min_level: None,
+                    max_level: None,
+                    expansion: None,
+                }],
+            },
+        );
+        let added = symmetrize(&mut out);
+        assert_eq!(added, 0);
+    }
+
+    #[test]
+    fn symmetrize_preserves_existing_reverse() {
+        // Both directions already exist; no double-add.
+        let mut out = YamlOutput {
+            maps: BTreeMap::new(),
+        };
+        let make =
+            |_id: u32, name: &str, neighbor_id: u32, neighbor_name: &str, dir: &str| YamlMapEntry {
+                name: name.into(),
+                region_name: None,
+                min_level: None,
+                max_level: None,
+                expansion: None,
+                neighbors: vec![YamlNeighbor {
+                    map_id: neighbor_id,
+                    name: neighbor_name.into(),
+                    direction: Some(dir.into()),
+                    connection: Some("physical".into()),
+                    min_level: None,
+                    max_level: None,
+                    expansion: None,
+                }],
+            };
+        out.maps.insert(1, make(1, "Alpha", 2, "Beta", "N"));
+        out.maps.insert(2, make(2, "Beta", 1, "Alpha", "S"));
+        let added = symmetrize(&mut out);
+        assert_eq!(added, 0);
     }
 
     #[test]

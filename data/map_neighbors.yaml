@@ -79,6 +79,11 @@
     min_level: 80
     max_level: 80
     expansion: janthir_wilds
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
   - map_id: 1575
     name: Mistburned Barrens
     connection: asura_gate
@@ -91,6 +96,12 @@
     connection: physical
     min_level: 1
     max_level: 15
+    expansion: core
+  - map_id: 929
+    name: The Crown Pavilion
+    connection: asura_gate
+    min_level: 80
+    max_level: 80
     expansion: core
 19:
   name: Plains of Ashford
@@ -175,6 +186,12 @@
     connection: physical
     min_level: 40
     max_level: 50
+    expansion: core
+  - map_id: 18
+    name: Divinity's Reach
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
     expansion: core
 22:
   name: Fireheart Rise
@@ -273,6 +290,12 @@
     min_level: 25
     max_level: 40
     expansion: core
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    direction: S, SW
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 15
     name: Queensdale
     direction: NW
@@ -706,10 +729,22 @@
     min_level: 25
     max_level: 35
     expansion: core
+  - map_id: 350
+    name: Heart of the Mists
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
+    expansion: core
   - map_id: 326
     name: Hoelbrak
     connection: asura_gate
     min_level: 0
+    max_level: 80
+    expansion: core
+  - map_id: 922
+    name: Labyrinthine Cliffs
+    connection: asura_gate
+    min_level: 1
     max_level: 80
     expansion: core
   - map_id: 1155
@@ -929,6 +964,12 @@
     min_level: 25
     max_level: 40
     expansion: core
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    direction: N
+    connection: physical
+    min_level: 0
+    max_level: 80
   - map_id: 53
     name: Sparkfly Fen
     direction: SE, SW
@@ -956,6 +997,11 @@
     min_level: 0
     max_level: 80
     expansion: core
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
 111:
   name: Victory or Death
   region_name: Ruins of Orr
@@ -976,11 +1022,22 @@
     min_level: 0
     max_level: 80
     expansion: core
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
   - map_id: 35
     name: Metrica Province
     connection: asura_gate
     min_level: 1
     max_level: 15
+    expansion: core
+  - map_id: 935
+    name: Super Adventure Box
+    connection: asura_gate
+    min_level: 1
+    max_level: 80
     expansion: core
 218:
   name: Black Citadel
@@ -1002,6 +1059,11 @@
     min_level: 0
     max_level: 80
     expansion: core
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
   - map_id: 19
     name: Plains of Ashford
     direction: E
@@ -1029,6 +1091,11 @@
     min_level: 0
     max_level: 80
     expansion: core
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
   - map_id: 28
     name: Wayfarer Foothills
     direction: E
@@ -1068,6 +1135,11 @@
     min_level: 0
     max_level: 80
     expansion: core
+  - map_id: 1483
+    name: Memory of Old Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
 922:
   name: Labyrinthine Cliffs
   region_name: Tarnished Coast
@@ -1384,6 +1456,12 @@
     min_level: 80
     max_level: 80
     expansion: path_of_fire
+  - map_id: 50
+    name: Lion's Arch
+    connection: asura_gate
+    min_level: 0
+    max_level: 80
+    expansion: core
 1211:
   name: Desert Highlands
   region_name: Crystal Desert
@@ -1822,6 +1900,13 @@
   max_level: 80
   expansion: secrets_of_the_obscure
   neighbors:
+  - map_id: 19
+    name: Plains of Ashford
+    direction: N
+    connection: physical
+    min_level: 1
+    max_level: 15
+    expansion: core
   - map_id: 1509
     name: The Wizard's Tower
     direction: SE
