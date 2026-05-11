@@ -278,12 +278,17 @@ pub(super) fn build_tools() -> Vec<Tool> {
     let get_dailies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
+        "required": ["api_key"],
         "properties": {
+            "api_key": {
+                "type": "string",
+                "description": "Guild Wars 2 API key with `account` + `progression` scopes. Wizard's Vault is a per-account endpoint, so the public-no-key behaviour of the old `/v2/achievements/daily` no longer applies."
+            },
             "which": {
                 "type": "string",
-                "enum": ["today", "tomorrow"],
-                "default": "today",
-                "description": "Which day's dailies to fetch. `today` (default) hits `/v2/achievements/daily`; `tomorrow` hits `/v2/achievements/daily/tomorrow` — useful for planning ahead near reset."
+                "enum": ["daily", "weekly", "special"],
+                "default": "daily",
+                "description": "Which Wizard's Vault track to fetch. `daily` (default) hits `/v2/account/wizardsvault/daily`; `weekly` hits the weekly track; `special` hits the current limited-time / seasonal track."
             }
         }
     }))
@@ -600,10 +605,11 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .annotate(read_only_open_world("Get Account Dungeons")),
         Tool::new(
             "get_dailies",
-            "Fetch today's (or tomorrow's) Guild Wars 2 daily achievements, partitioned by category (pve, pvp, wvw, fractals, special) and enriched with each achievement's `name` and `description`. Public — no API key required. Pair with `get_account_achievements` to compute which dailies the player has already finished today.",
+            "Fetch the player's current Wizard's Vault track (`daily` by default; `weekly` or `special` also available). Each objective embeds its `title`, `track` (PvE/PvP/WvW), Astral Acclaim `acclaim`, and per-objective `progress_current/progress_complete/claimed` — so a single call answers 'what's left for me today?'. Also returns `meta_progress_*` for the bonus chest and `meta_reward_astral/_item_id/_claimed`. Replaces the deprecated `/v2/achievements/daily` endpoint, which ArenaNet retired when Wizard's Vault launched. Requires an API key with `account` + `progression` scopes.",
             get_dailies,
         )
-        .annotate(read_only_open_world("Get Dailies")),
+        .annotate(read_only_open_world("Get Dailies"))
+        .with_output_schema::<crate::domain::WizardsVaultTrack>(),
         // -- Tier 6B: navigation tools (Mumble Link + map data) -----------
         // All four are openWorld=true: Mumble Link state changes every
         // frame, and POI lookups touch the live GW2 API. They're still

@@ -1,8 +1,8 @@
 //! Account-scoped endpoints — wallet, account, achievements, masteries,
-//! raid/dungeon clears, dailies. All cached on `WALLET_TTL` (5 min)
-//! except `get_dailies` which uses `DAILIES_TTL` (1 hour). Cache keys
-//! derive from `key.fingerprint()` — the raw API key never touches a
-//! cache key.
+//! raid/dungeon clears, Wizard's Vault objectives. All cached on
+//! `WALLET_TTL` (5 min) except `get_dailies` which uses `DAILIES_TTL`
+//! (1 hour). Cache keys derive from `key.fingerprint()` — the raw API
+//! key never touches a cache key.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,18 +13,19 @@ use tracing::{debug, warn};
 use super::{DAILIES_TTL, STATIC_TTL, Service, ServiceError, WALLET_TTL};
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, Currency,
-    CurrencyId, Dailies, DailyEntry, DailyLevel, Dungeon, Raid, WalletEntry, WalletInfo,
-    next_daily_reset, next_raid_reset, title_case,
+    CurrencyId, Dungeon, Raid, WalletEntry, WalletInfo, WizardsVaultTrack, next_daily_reset,
+    next_raid_reset, title_case,
 };
 
-/// Which day's dailies to fetch — `Today` hits `/v2/achievements/daily`,
-/// `Tomorrow` hits `/v2/achievements/daily/tomorrow`. Defaults to today
-/// because "what should I do?" almost always means right now.
+/// Which Wizard's Vault track to fetch — `Daily`, `Weekly`, or
+/// `Special` (limited-time / seasonal). Defaults to `Daily` because
+/// "what should I do?" almost always means right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DailiesWhich {
     #[default]
-    Today,
-    Tomorrow,
+    Daily,
+    Weekly,
+    Special,
 }
 
 impl Service {
@@ -410,61 +411,46 @@ impl Service {
         map
     }
 
-    /// Fetch today's or tomorrow's dailies, enriched with achievement
-    /// names + descriptions. Public endpoint — no key. Cached
-    /// `DAILIES_TTL` (1 hour) for the raw shape; name resolution
-    /// happens on each call against the per-id achievement cache.
-    pub async fn get_dailies(&self, which: DailiesWhich) -> Result<DailiesEnriched, ServiceError> {
-        let cache_key = match which {
-            DailiesWhich::Today => "dailies:today".to_owned(),
-            DailiesWhich::Tomorrow => "dailies:tomorrow".to_owned(),
+    /// Fetch the daily / weekly / special Wizard's Vault track for the
+    /// account. The per-account endpoints already embed
+    /// title/track/acclaim so no catalog join is needed. Per-track
+    /// cached `DAILIES_TTL` (1 hour) per key fingerprint — short enough
+    /// that the rollover gets picked up promptly, long enough that we
+    /// don't hammer the API on bursts of LLM tool calls.
+    ///
+    /// Replaces the deprecated `/v2/achievements/daily` endpoint, which
+    /// returns 503 ("API not active") since the Wizard's Vault launch.
+    pub async fn get_dailies(
+        &self,
+        key: &ApiKey,
+        which: DailiesWhich,
+    ) -> Result<WizardsVaultTrack, ServiceError> {
+        let (track_label, cache_key) = match which {
+            DailiesWhich::Daily => ("daily", format!("wizardsvault:daily:{}", key.fingerprint())),
+            DailiesWhich::Weekly => (
+                "weekly",
+                format!("wizardsvault:weekly:{}", key.fingerprint()),
+            ),
+            DailiesWhich::Special => (
+                "special",
+                format!("wizardsvault:special:{}", key.fingerprint()),
+            ),
         };
-        let raw: Dailies = if let Some(json) = self.cache.get(&cache_key).await
-            && let Ok(d) = serde_json::from_str::<Dailies>(&json)
+        if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(t) = serde_json::from_str::<WizardsVaultTrack>(&json)
         {
-            d
-        } else {
-            let d = self
-                .gw2
-                .fetch_dailies(matches!(which, DailiesWhich::Tomorrow))
-                .await?;
-            if let Ok(json) = serde_json::to_string(&d) {
-                self.cache.set(&cache_key, json, DAILIES_TTL).await;
-            }
-            d
+            debug!(track = track_label, "wizards-vault cache hit");
+            return Ok(t);
+        }
+        let t = match which {
+            DailiesWhich::Daily => self.gw2.fetch_wizards_vault_daily(key).await?,
+            DailiesWhich::Weekly => self.gw2.fetch_wizards_vault_weekly(key).await?,
+            DailiesWhich::Special => self.gw2.fetch_wizards_vault_special(key).await?,
         };
-
-        let all_ids = raw
-            .pve
-            .iter()
-            .chain(raw.pvp.iter())
-            .chain(raw.wvw.iter())
-            .chain(raw.fractals.iter())
-            .chain(raw.special.iter())
-            .map(|e| e.id);
-        let metadata = self.achievement_metadata_for_ids(all_ids).await;
-        let enrich_each = |entries: Vec<DailyEntry>| -> Vec<DailyEntryEnriched> {
-            entries
-                .into_iter()
-                .map(|e| {
-                    let (name, description) = lookup_name_description(&metadata, e.id);
-                    DailyEntryEnriched {
-                        id: e.id,
-                        name,
-                        description,
-                        level: e.level,
-                        required_access: e.required_access,
-                    }
-                })
-                .collect()
-        };
-        Ok(DailiesEnriched {
-            pve: enrich_each(raw.pve),
-            pvp: enrich_each(raw.pvp),
-            wvw: enrich_each(raw.wvw),
-            fractals: enrich_each(raw.fractals),
-            special: enrich_each(raw.special),
-        })
+        if let Ok(json) = serde_json::to_string(&t) {
+            self.cache.set(&cache_key, json, DAILIES_TTL).await;
+        }
+        Ok(t)
     }
 
     pub(super) async fn fetch_currencies_for(
@@ -686,36 +672,6 @@ fn total_mastery_points_earned(
             m.levels.iter().take(take).map(|l| l.point_cost).sum()
         })
         .sum()
-}
-
-/// `Dailies` with each entry enriched by the resolved achievement name +
-/// description. Shape mirrors `Dailies` field-for-field so callers can
-/// substitute it transparently.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct DailiesEnriched {
-    #[serde(default)]
-    pub pve: Vec<DailyEntryEnriched>,
-    #[serde(default)]
-    pub pvp: Vec<DailyEntryEnriched>,
-    #[serde(default)]
-    pub wvw: Vec<DailyEntryEnriched>,
-    #[serde(default)]
-    pub fractals: Vec<DailyEntryEnriched>,
-    #[serde(default)]
-    pub special: Vec<DailyEntryEnriched>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct DailyEntryEnriched {
-    pub id: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub level: Option<DailyLevel>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub required_access: Option<serde_json::Value>,
 }
 
 fn wallet_cache_key(key: &ApiKey) -> String {

@@ -1,0 +1,45 @@
+{
+  "meta_progress_current": 2,
+  "meta_progress_complete": 4,
+  "meta_reward_item_id": 102479,
+  "meta_reward_astral": 50,
+  "meta_reward_claimed": false,
+  "objectives": [
+    {
+      "id": 1,
+      "title": "Complete an Event",
+      "track": "PvE",
+      "acclaim": 25,
+      "progress_current": 1,
+      "progress_complete": 1,
+      "claimed": true
+    },
+    {
+      "id": 2,
+      "title": "Defeat a World Boss",
+      "track": "PvE",
+      "acclaim": 25,
+      "progress_current": 0,
+      "progress_complete": 1,
+      "claimed": false
+    },
+    {
+      "id": 3,
+      "title": "Earn 10 Pips in WvW",
+      "track": "WvW",
+      "acclaim": 25,
+      "progress_current": 10,
+      "progress_complete": 10,
+      "claimed": true
+    },
+    {
+      "id": 4,
+      "title": "Win a PvP Match",
+      "track": "PvP",
+      "acclaim": 25,
+      "progress_current": 0,
+      "progress_complete": 1,
+      "claimed": false
+    }
+  ]
+}

@@ -10,8 +10,8 @@ use serde::Deserialize;
 use crate::adapters::error_body::truncate_error_body;
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, CharacterName,
-    Currency, CurrencyId, Dailies, Dungeon, Item, ItemId, Mastery, MasteryId, Raid, Skill, SkillId,
-    Specialization, SpecializationId, Trait, TraitId, WalletEntry,
+    Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid, Skill, SkillId,
+    Specialization, SpecializationId, Trait, TraitId, WalletEntry, WizardsVaultTrack,
 };
 use crate::ports::{Gw2Api, Gw2ApiError};
 
@@ -290,20 +290,28 @@ impl Gw2Api for HttpGw2Api {
             .await
     }
 
-    async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError> {
-        let suffix = if tomorrow { "/tomorrow" } else { "" };
-        let url = format!("{}/achievements/daily{suffix}", self.base_url);
-        // Public endpoint — no auth header needed.
-        let req = self
-            .client
-            .get(&url)
-            .build()
-            .map_err(|e| Gw2ApiError::Transport(e.to_string()))?;
-        let resp = self.send_request(req).await?;
-        let resp = check_status(resp).await?;
-        resp.json::<Dailies>()
-            .await
-            .map_err(|e| Gw2ApiError::Decode(e.to_string()))
+    async fn fetch_wizards_vault_daily(
+        &self,
+        key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError> {
+        let url = format!("{}/account/wizardsvault/daily", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_wizards_vault_weekly(
+        &self,
+        key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError> {
+        let url = format!("{}/account/wizardsvault/weekly", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_wizards_vault_special(
+        &self,
+        key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError> {
+        let url = format!("{}/account/wizardsvault/special", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
     }
 }
 

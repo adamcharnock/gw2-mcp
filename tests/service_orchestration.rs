@@ -12,9 +12,9 @@ use std::time::Duration;
 use std::collections::BTreeMap;
 
 use gw2_mcp::domain::{
-    Account, AccountAchievement, AccountMastery, BuildChatCode, CharacterName, CurrencyId, Dailies,
-    DailyEntry, SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization,
-    SpecializationId, Trait, TraitId, WalletEntry,
+    Account, AccountAchievement, AccountMastery, BuildChatCode, CharacterName, CurrencyId,
+    SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization, SpecializationId,
+    Trait, TraitId, WalletEntry, WizardsVaultObjective, WizardsVaultTrack,
 };
 use gw2_mcp::service::{DAILIES_TTL, DailiesWhich, Service, TabSelector, WALLET_TTL};
 use pretty_assertions::assert_eq;
@@ -916,61 +916,78 @@ async fn account_raids_and_dungeons_cache_independently() {
 }
 
 #[tokio::test]
-async fn dailies_today_and_tomorrow_use_separate_cache_entries() {
+async fn wizards_vault_tracks_use_separate_cache_entries() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());
     let gw2 = FakeGw2Api::new();
     let wiki = FakeWiki::new();
 
-    let today = Dailies {
-        pve: vec![DailyEntry {
-            id: 1827,
-            level: None,
-            required_access: None,
+    let daily = WizardsVaultTrack {
+        meta_progress_current: 1,
+        meta_progress_complete: 4,
+        meta_reward_item_id: None,
+        meta_reward_astral: 50,
+        meta_reward_claimed: false,
+        objectives: vec![WizardsVaultObjective {
+            id: 1,
+            title: "Complete an event".to_owned(),
+            track: "PvE".to_owned(),
+            acclaim: 25,
+            progress_current: 0,
+            progress_complete: 1,
+            claimed: false,
         }],
-        ..Dailies::default()
     };
-    let tomorrow = Dailies {
-        pve: vec![DailyEntry {
-            id: 1828,
-            level: None,
-            required_access: None,
+    let weekly = WizardsVaultTrack {
+        meta_progress_current: 0,
+        meta_progress_complete: 8,
+        meta_reward_item_id: None,
+        meta_reward_astral: 450,
+        meta_reward_claimed: false,
+        objectives: vec![WizardsVaultObjective {
+            id: 2,
+            title: "Defeat 50 enemies".to_owned(),
+            track: "PvE".to_owned(),
+            acclaim: 50,
+            progress_current: 0,
+            progress_complete: 50,
+            claimed: false,
         }],
-        ..Dailies::default()
     };
-    gw2.set_dailies_today(today);
-    gw2.set_dailies_tomorrow(tomorrow);
+    gw2.set_wizards_vault_daily(daily);
+    gw2.set_wizards_vault_weekly(weekly);
 
     let svc = build(gw2.clone(), wiki, cache, clock);
-    let t = svc.get_dailies(DailiesWhich::Today).await.unwrap();
-    let n = svc.get_dailies(DailiesWhich::Tomorrow).await.unwrap();
-    assert_eq!(t.pve[0].id, 1827);
-    assert_eq!(n.pve[0].id, 1828);
+    let key = valid_api_key();
+    let d = svc.get_dailies(&key, DailiesWhich::Daily).await.unwrap();
+    let w = svc.get_dailies(&key, DailiesWhich::Weekly).await.unwrap();
+    assert_eq!(d.objectives[0].id, 1);
+    assert_eq!(w.objectives[0].id, 2);
     assert_eq!(
-        gw2.dailies_calls(),
+        gw2.wizards_vault_calls(),
         2,
-        "today and tomorrow are independent cache entries"
+        "daily and weekly are independent cache entries"
     );
 
     // Second calls must hit the cache.
-    svc.get_dailies(DailiesWhich::Today).await.unwrap();
-    svc.get_dailies(DailiesWhich::Tomorrow).await.unwrap();
-    assert_eq!(gw2.dailies_calls(), 2, "both cached on second access");
+    svc.get_dailies(&key, DailiesWhich::Daily).await.unwrap();
+    svc.get_dailies(&key, DailiesWhich::Weekly).await.unwrap();
+    assert_eq!(gw2.wizards_vault_calls(), 2, "both cached on second access");
 }
 
 #[tokio::test]
-async fn dailies_refetch_after_dailies_ttl_expiry() {
+async fn wizards_vault_refetches_after_dailies_ttl_expiry() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());
     let gw2 = FakeGw2Api::new();
     let wiki = FakeWiki::new();
-    gw2.set_dailies_today(Dailies::default());
 
     let svc = build(gw2.clone(), wiki, cache, clock.clone());
-    svc.get_dailies(DailiesWhich::Today).await.unwrap();
+    let key = valid_api_key();
+    svc.get_dailies(&key, DailiesWhich::Daily).await.unwrap();
     clock.advance(DAILIES_TTL + Duration::from_secs(1));
-    svc.get_dailies(DailiesWhich::Today).await.unwrap();
-    assert_eq!(gw2.dailies_calls(), 2);
+    svc.get_dailies(&key, DailiesWhich::Daily).await.unwrap();
+    assert_eq!(gw2.wizards_vault_calls(), 2);
 }
 
 #[tokio::test]

@@ -116,42 +116,6 @@ pub struct AccountMastery {
     pub level: u32,
 }
 
-/// Today's daily achievement IDs partitioned by category. Public endpoint —
-/// no API key required. Returned by `/v2/achievements/daily` (and the
-/// identically-shaped `/v2/achievements/daily/tomorrow`).
-///
-/// Each entry is a wrapper around the achievement id plus its level
-/// requirements; LLMs typically only care about `id`.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
-pub struct Dailies {
-    #[serde(default)]
-    pub pve: Vec<DailyEntry>,
-    #[serde(default)]
-    pub pvp: Vec<DailyEntry>,
-    #[serde(default)]
-    pub wvw: Vec<DailyEntry>,
-    #[serde(default)]
-    pub fractals: Vec<DailyEntry>,
-    #[serde(default)]
-    pub special: Vec<DailyEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DailyEntry {
-    pub id: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub level: Option<DailyLevel>,
-    /// `required_access` carries expansion gating like `{"product": "EndOfDragons", "condition": "HasAccess"}`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub required_access: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DailyLevel {
-    pub min: i32,
-    pub max: i32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,20 +191,5 @@ mod tests {
         };
         assert!(done_flag.is_completed());
         assert!(!done_flag.is_not_started());
-    }
-
-    #[test]
-    fn dailies_deserialises_partial_payload() {
-        let raw = r#"{
-            "pve": [{"id": 100, "level": {"min": 1, "max": 80}}],
-            "pvp": [],
-            "wvw": [],
-            "fractals": [{"id": 200, "level": {"min": 80, "max": 80}}],
-            "special": []
-        }"#;
-        let d: Dailies = serde_json::from_str(raw).unwrap();
-        assert_eq!(d.pve.len(), 1);
-        assert_eq!(d.pve[0].id, 100);
-        assert_eq!(d.fractals[0].id, 200);
     }
 }

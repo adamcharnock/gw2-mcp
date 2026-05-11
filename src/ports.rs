@@ -14,9 +14,9 @@ use thiserror::Error;
 
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, BuildSlug,
-    CharacterName, Currency, CurrencyId, Dailies, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
+    CharacterName, Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
     SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization, SpecializationId,
-    Trait, TraitId, WalletEntry,
+    Trait, TraitId, WalletEntry, WizardsVaultTrack,
 };
 
 // ---------------------------------------------------------------------------
@@ -267,9 +267,30 @@ pub trait Gw2Api: Send + Sync + 'static {
         ids: &[String],
     ) -> Result<BTreeMap<String, Dungeon>, Gw2ApiError>;
 
-    /// `/v2/achievements/daily` — public, no key. `tomorrow=true` hits the
-    /// twin endpoint at `/v2/achievements/daily/tomorrow`.
-    async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError>;
+    /// `/v2/account/wizardsvault/daily` — per-account daily Wizard's
+    /// Vault objectives. Authenticated (scopes: `account` +
+    /// `progression`). Replaces the deprecated
+    /// `/v2/achievements/daily` endpoint, which returns 503 since the
+    /// Vault launch.
+    async fn fetch_wizards_vault_daily(
+        &self,
+        key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError>;
+
+    /// `/v2/account/wizardsvault/weekly` — per-account weekly Wizard's
+    /// Vault objectives. Same shape and scopes as `_daily`.
+    async fn fetch_wizards_vault_weekly(
+        &self,
+        key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError>;
+
+    /// `/v2/account/wizardsvault/special` — per-account special
+    /// (limited-time / seasonal) Vault objectives. Same shape as the
+    /// other two.
+    async fn fetch_wizards_vault_special(
+        &self,
+        key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError>;
 }
 
 // ---------------------------------------------------------------------------

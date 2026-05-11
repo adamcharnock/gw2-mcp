@@ -18,8 +18,9 @@ pub mod reset;
 pub mod snake_case;
 pub mod wallet;
 pub mod wiki;
+pub mod wizards_vault;
 
-pub use account::{Account, AccountAchievement, AccountMastery, Dailies, DailyEntry, DailyLevel};
+pub use account::{Account, AccountAchievement, AccountMastery};
 pub use achievement::{Achievement, AchievementId};
 pub use api_key::ApiKey;
 pub use bearing::{Bearing16, METERS_PER_GW2_UNIT, bearing, distance_meters, distance_units};
@@ -37,3 +38,4 @@ pub use reset::{next_daily_reset, next_raid_reset};
 pub use snake_case::title_case;
 pub use wallet::{WalletEntry, WalletInfo};
 pub use wiki::{SearchLimit, SearchQuery, SearchResponse, SearchResult};
+pub use wizards_vault::{WizardsVaultObjective, WizardsVaultTrack};

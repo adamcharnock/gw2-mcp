@@ -610,7 +610,7 @@ const ACHIEVEMENTS_FIXTURE: &str = include_str!("fixtures/account_achievements.j
 const MASTERIES_FIXTURE: &str = include_str!("fixtures/account_masteries.json");
 const RAIDS_FIXTURE: &str = include_str!("fixtures/account_raids.json");
 const DUNGEONS_FIXTURE: &str = include_str!("fixtures/account_dungeons.json");
-const DAILIES_FIXTURE: &str = include_str!("fixtures/account_dailies_today.json");
+const WIZARDS_VAULT_FIXTURE: &str = include_str!("fixtures/wizards_vault_daily.json");
 const CHAR_LIST_FIXTURE: &str = include_str!("fixtures/account_characters_list.json");
 
 #[tokio::test]
@@ -715,33 +715,55 @@ async fn fetch_account_dungeons_returns_string_ids() {
 }
 
 #[tokio::test]
-async fn fetch_dailies_today_uses_correct_path_and_no_auth() {
+async fn fetch_wizards_vault_daily_uses_correct_path_and_sends_bearer() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/achievements/daily"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .and(path("/account/wizardsvault/daily"))
+        .and(header(
+            "authorization",
+            format!("Bearer {}", valid_api_key().expose()).as_str(),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_string(WIZARDS_VAULT_FIXTURE))
         .expect(1)
         .mount(&server)
         .await;
 
     let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
-    let d = api.fetch_dailies(false).await.unwrap();
-    assert_eq!(d.pve.len(), 2);
-    assert_eq!(d.fractals.len(), 1);
+    let t = api
+        .fetch_wizards_vault_daily(&valid_api_key())
+        .await
+        .unwrap();
+    assert_eq!(t.objectives.len(), 4);
+    assert_eq!(t.objectives[0].title, "Complete an Event");
+    assert_eq!(t.meta_reward_astral, 50);
+    assert!(t.objectives[0].claimed);
 }
 
 #[tokio::test]
-async fn fetch_dailies_tomorrow_uses_tomorrow_path() {
+async fn fetch_wizards_vault_weekly_and_special_hit_their_paths() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/achievements/daily/tomorrow"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .and(path("/account/wizardsvault/weekly"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(WIZARDS_VAULT_FIXTURE))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/account/wizardsvault/special"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(WIZARDS_VAULT_FIXTURE))
         .expect(1)
         .mount(&server)
         .await;
 
     let api = HttpGw2Api::with_base_url(server.uri()).unwrap();
-    let _d = api.fetch_dailies(true).await.unwrap();
+    let _w = api
+        .fetch_wizards_vault_weekly(&valid_api_key())
+        .await
+        .unwrap();
+    let _s = api
+        .fetch_wizards_vault_special(&valid_api_key())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

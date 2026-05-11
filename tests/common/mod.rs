@@ -14,9 +14,9 @@ use chrono::{DateTime, Utc};
 use gw2_mcp::adapters::{ChatrDecoder, StubMumbleLink};
 use gw2_mcp::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, BuildSlug,
-    CharacterName, Currency, CurrencyId, Dailies, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
+    CharacterName, Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
     SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization, SpecializationId,
-    Trait, TraitId, WalletEntry,
+    Trait, TraitId, WalletEntry, WizardsVaultTrack,
 };
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
@@ -285,7 +285,6 @@ pub struct FakeGw2Api {
     pub masteries_calls: Mutex<usize>,
     pub raids_calls: Mutex<usize>,
     pub dungeons_calls: Mutex<usize>,
-    pub dailies_calls: Mutex<usize>,
     pub wallet_response: Mutex<Result<Vec<WalletEntry>, Gw2ApiError>>,
     pub currencies: Mutex<BTreeMap<CurrencyId, Currency>>,
     pub skills: Mutex<BTreeMap<SkillId, Skill>>,
@@ -308,8 +307,10 @@ pub struct FakeGw2Api {
     pub masteries_response: Mutex<Vec<AccountMastery>>,
     pub raids_response: Mutex<Vec<String>>,
     pub dungeons_response: Mutex<Vec<String>>,
-    pub dailies_today: Mutex<Dailies>,
-    pub dailies_tomorrow: Mutex<Dailies>,
+    pub wizards_vault_daily: Mutex<WizardsVaultTrack>,
+    pub wizards_vault_weekly: Mutex<WizardsVaultTrack>,
+    pub wizards_vault_special: Mutex<WizardsVaultTrack>,
+    pub wizards_vault_calls: Mutex<usize>,
 }
 
 impl FakeGw2Api {
@@ -331,7 +332,6 @@ impl FakeGw2Api {
             masteries_calls: Mutex::new(0),
             raids_calls: Mutex::new(0),
             dungeons_calls: Mutex::new(0),
-            dailies_calls: Mutex::new(0),
             wallet_response: Mutex::new(Ok(Vec::new())),
             currencies: Mutex::new(BTreeMap::new()),
             skills: Mutex::new(BTreeMap::new()),
@@ -354,8 +354,10 @@ impl FakeGw2Api {
             masteries_response: Mutex::new(Vec::new()),
             raids_response: Mutex::new(Vec::new()),
             dungeons_response: Mutex::new(Vec::new()),
-            dailies_today: Mutex::new(Dailies::default()),
-            dailies_tomorrow: Mutex::new(Dailies::default()),
+            wizards_vault_daily: Mutex::new(default_vault_track()),
+            wizards_vault_weekly: Mutex::new(default_vault_track()),
+            wizards_vault_special: Mutex::new(default_vault_track()),
+            wizards_vault_calls: Mutex::new(0),
         })
     }
 
@@ -447,8 +449,18 @@ impl FakeGw2Api {
     pub fn dungeons_calls(&self) -> usize {
         *self.dungeons_calls.lock().unwrap()
     }
-    pub fn dailies_calls(&self) -> usize {
-        *self.dailies_calls.lock().unwrap()
+    pub fn wizards_vault_calls(&self) -> usize {
+        *self.wizards_vault_calls.lock().unwrap()
+    }
+
+    pub fn set_wizards_vault_daily(&self, t: WizardsVaultTrack) {
+        *self.wizards_vault_daily.lock().unwrap() = t;
+    }
+    pub fn set_wizards_vault_weekly(&self, t: WizardsVaultTrack) {
+        *self.wizards_vault_weekly.lock().unwrap() = t;
+    }
+    pub fn set_wizards_vault_special(&self, t: WizardsVaultTrack) {
+        *self.wizards_vault_special.lock().unwrap() = t;
     }
 
     pub fn set_account(&self, acc: Account) {
@@ -469,11 +481,16 @@ impl FakeGw2Api {
     pub fn set_dungeons(&self, items: Vec<String>) {
         *self.dungeons_response.lock().unwrap() = items;
     }
-    pub fn set_dailies_today(&self, d: Dailies) {
-        *self.dailies_today.lock().unwrap() = d;
-    }
-    pub fn set_dailies_tomorrow(&self, d: Dailies) {
-        *self.dailies_tomorrow.lock().unwrap() = d;
+}
+
+fn default_vault_track() -> WizardsVaultTrack {
+    WizardsVaultTrack {
+        meta_progress_current: 0,
+        meta_progress_complete: 0,
+        meta_reward_item_id: None,
+        meta_reward_astral: 0,
+        meta_reward_claimed: false,
+        objectives: Vec::new(),
     }
 }
 
@@ -708,14 +725,28 @@ impl Gw2Api for FakeGw2Api {
             .collect())
     }
 
-    async fn fetch_dailies(&self, tomorrow: bool) -> Result<Dailies, Gw2ApiError> {
-        *self.dailies_calls.lock().unwrap() += 1;
-        let d = if tomorrow {
-            self.dailies_tomorrow.lock().unwrap().clone()
-        } else {
-            self.dailies_today.lock().unwrap().clone()
-        };
-        Ok(d)
+    async fn fetch_wizards_vault_daily(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError> {
+        *self.wizards_vault_calls.lock().unwrap() += 1;
+        Ok(self.wizards_vault_daily.lock().unwrap().clone())
+    }
+
+    async fn fetch_wizards_vault_weekly(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError> {
+        *self.wizards_vault_calls.lock().unwrap() += 1;
+        Ok(self.wizards_vault_weekly.lock().unwrap().clone())
+    }
+
+    async fn fetch_wizards_vault_special(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<WizardsVaultTrack, Gw2ApiError> {
+        *self.wizards_vault_calls.lock().unwrap() += 1;
+        Ok(self.wizards_vault_special.lock().unwrap().clone())
     }
 }
 

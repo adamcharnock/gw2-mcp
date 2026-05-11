@@ -622,20 +622,22 @@ impl McpServer {
         &self,
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
         let which = match args.get("which").and_then(|v| v.as_str()) {
-            None => DailiesWhich::Today,
-            Some(s) if s.eq_ignore_ascii_case("today") => DailiesWhich::Today,
-            Some(s) if s.eq_ignore_ascii_case("tomorrow") => DailiesWhich::Tomorrow,
+            None => DailiesWhich::Daily,
+            Some(s) if s.eq_ignore_ascii_case("daily") => DailiesWhich::Daily,
+            Some(s) if s.eq_ignore_ascii_case("weekly") => DailiesWhich::Weekly,
+            Some(s) if s.eq_ignore_ascii_case("special") => DailiesWhich::Special,
             Some(_) => {
                 return Err(CallError::BadArg {
                     name: "which",
-                    expected: "\"today\" or \"tomorrow\"",
+                    expected: "\"daily\", \"weekly\", or \"special\"",
                 });
             }
         };
         let d = self
             .service
-            .get_dailies(which)
+            .get_dailies(&key, which)
             .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&d)?)

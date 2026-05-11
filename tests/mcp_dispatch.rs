@@ -748,7 +748,7 @@ const ACCOUNT_FIXTURE: &str = include_str!("fixtures/account_basic.json");
 const ACHIEVEMENTS_FIXTURE: &str = include_str!("fixtures/account_achievements.json");
 const RAIDS_FIXTURE: &str = include_str!("fixtures/account_raids.json");
 const DUNGEONS_FIXTURE: &str = include_str!("fixtures/account_dungeons.json");
-const DAILIES_FIXTURE: &str = include_str!("fixtures/account_dailies_today.json");
+const WIZARDS_VAULT_FIXTURE: &str = include_str!("fixtures/wizards_vault_daily.json");
 const CHAR_LIST_FIXTURE: &str = include_str!("fixtures/account_characters_list.json");
 
 #[tokio::test]
@@ -947,31 +947,58 @@ async fn dispatch_get_account_dungeons_returns_enriched_snapshot() {
 }
 
 #[tokio::test]
-async fn dispatch_get_dailies_today_returns_partitioned_categories() {
+async fn dispatch_get_dailies_daily_returns_wizards_vault_objectives() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/achievements/daily"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .and(path("/account/wizardsvault/daily"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(WIZARDS_VAULT_FIXTURE))
         .mount(&server)
         .await;
     let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
-    let v = mcp.dispatch_tool("get_dailies", json!({})).await.unwrap();
-    assert_eq!(v["pve"].as_array().unwrap().len(), 2);
-    assert_eq!(v["fractals"].as_array().unwrap().len(), 1);
+    let v = mcp
+        .dispatch_tool("get_dailies", json!({"api_key": valid_api_key().expose()}))
+        .await
+        .unwrap();
+    let objectives = v["objectives"].as_array().expect("objectives array");
+    assert_eq!(objectives.len(), 4);
+    assert_eq!(objectives[0]["title"], "Complete an Event");
+    assert_eq!(v["meta_reward_astral"], 50);
 }
 
 #[tokio::test]
-async fn dispatch_get_dailies_tomorrow_hits_tomorrow_endpoint() {
+async fn dispatch_get_dailies_weekly_hits_weekly_endpoint() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/achievements/daily/tomorrow"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .and(path("/account/wizardsvault/weekly"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(WIZARDS_VAULT_FIXTURE))
         .expect(1)
         .mount(&server)
         .await;
     let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
     let _v = mcp
-        .dispatch_tool("get_dailies", json!({"which": "tomorrow"}))
+        .dispatch_tool(
+            "get_dailies",
+            json!({"api_key": valid_api_key().expose(), "which": "weekly"}),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn dispatch_get_dailies_special_hits_special_endpoint() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/account/wizardsvault/special"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(WIZARDS_VAULT_FIXTURE))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
+    let _v = mcp
+        .dispatch_tool(
+            "get_dailies",
+            json!({"api_key": valid_api_key().expose(), "which": "special"}),
+        )
         .await
         .unwrap();
 }
@@ -981,7 +1008,10 @@ async fn dispatch_get_dailies_rejects_invalid_which() {
     let server = MockServer::start().await;
     let mcp = build_server(server.uri(), "http://unused.invalid/".to_owned());
     let err = mcp
-        .dispatch_tool("get_dailies", json!({"which": "yesterday"}))
+        .dispatch_tool(
+            "get_dailies",
+            json!({"api_key": valid_api_key().expose(), "which": "tomorrow"}),
+        )
         .await
         .unwrap_err();
     assert!(err.contains("which"), "got: {err}");
@@ -1024,8 +1054,8 @@ async fn tier_6a_tools_are_present_in_build_tools_list() {
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/achievements/daily"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(DAILIES_FIXTURE))
+        .and(path("/account/wizardsvault/daily"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(WIZARDS_VAULT_FIXTURE))
         .mount(&server)
         .await;
 
@@ -1039,11 +1069,7 @@ async fn tier_6a_tools_are_present_in_build_tools_list() {
         "get_account_dungeons",
         "get_dailies",
     ] {
-        let args = if name == "get_dailies" {
-            json!({})
-        } else {
-            json!({"api_key": valid_api_key().expose()})
-        };
+        let args = { json!({"api_key": valid_api_key().expose()}) };
         let _ = mcp
             .dispatch_tool(name, args)
             .await

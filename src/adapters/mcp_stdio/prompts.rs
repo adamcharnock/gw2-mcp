@@ -392,12 +392,12 @@ fn render_daily_routine(
 
     let character_step = if let Some(ref name) = character {
         format!(
-            "4. Call `get_character_build` with `character=\"{name}\"` and \
+            "5. Call `get_character_build` with `character=\"{name}\"` and \
              `api_key=\"{api_key}\"` to know what setup the player will be running.\n\
              "
         )
     } else {
-        "4. (No character was specified — skip the build lookup; if a particular \
+        "5. (No character was specified — skip the build lookup; if a particular \
          activity needs a build choice, ask the user which character to run.)\n"
             .to_owned()
     };
@@ -406,24 +406,29 @@ fn render_daily_routine(
         "You are helping the user plan today's Guild Wars 2 routine. The server itself \
          has no memory of this user — anything you 'know' about them comes from your \
          own conversation history with them. Workflow:\n\n\
-         1. Call `get_dailies` (the default `which=\"today\"`) for today's PvE/PvP/WvW/\
-         fractal achievement IDs.\n\
-         2. Call `get_account_achievements` with `api_key=\"{api_key}\"` and the default \
-         `summary=true`. Cross-reference with the daily IDs from step 1 to see which \
-         dailies the player has already completed today.\n\
-         3. Call `get_account_raids` and `get_account_dungeons` (both with \
+         1. Call `get_dailies` with `api_key=\"{api_key}\"` (default `which=\"daily\"`) \
+         for today's Wizard's Vault objectives. Each objective embeds `title`, `track` \
+         (PvE/PvP/WvW), Astral Acclaim `acclaim`, and `progress_current`/\
+         `progress_complete`/`claimed` — so you can directly see what's left to do.\n\
+         2. (Optional) Call `get_dailies` again with `which=\"weekly\"` for the weekly \
+         track — useful when the user has time for a longer session.\n\
+         3. Call `get_account_achievements` with `api_key=\"{api_key}\"` and the default \
+         `summary=true` to see the player's broader in-flight achievement progress — \
+         not strictly required for daily routine but lets you spot collections that are \
+         close to completion.\n\
+         4. Call `get_account_raids` and `get_account_dungeons` (both with \
          `api_key=\"{api_key}\"`) to see what's been cleared this week (raids) and \
          today (dungeons). Note the cadence difference: raids reset Monday 07:30 UTC, \
          dungeon paths reset daily.\n\
          {character_step}\
-         5. **Recall what you know about this player from your previous conversations \
+         6. **Recall what you know about this player from your previous conversations \
          with them**: their preferred game modes, how much time they typically have, \
          what long-term goal they're working toward (legendary, mastery, achievement, \
          collection). Do NOT ask the API server for this — it stores nothing about \
          users.\n\
-         6. Produce a checklist for today, ordered by reward-per-time, scoped to the \
+         7. Produce a checklist for today, ordered by reward-per-time, scoped to the \
          player's available time and stated preferences. Mark items they have already \
-         completed today.\n\n\
+         completed (`claimed=true`).\n\n\
          If you have no prior context for this player, ask: \"How much time do you have \
          today, and what do you feel like — open world, instanced PvE, PvP, WvW?\" \
          before producing the checklist."

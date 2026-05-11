@@ -441,7 +441,26 @@ mod tests {
         ) -> Result<BTreeMap<String, crate::domain::Dungeon>, Gw2ApiError> {
             Ok(BTreeMap::new())
         }
-        async fn fetch_dailies(&self, _: bool) -> Result<crate::domain::Dailies, Gw2ApiError> {
+        async fn fetch_wizards_vault_daily(
+            &self,
+            _: &ApiKey,
+        ) -> Result<crate::domain::WizardsVaultTrack, Gw2ApiError> {
+            Err(Gw2ApiError::Decode(
+                "FakeApi: not used in indexing tests".into(),
+            ))
+        }
+        async fn fetch_wizards_vault_weekly(
+            &self,
+            _: &ApiKey,
+        ) -> Result<crate::domain::WizardsVaultTrack, Gw2ApiError> {
+            Err(Gw2ApiError::Decode(
+                "FakeApi: not used in indexing tests".into(),
+            ))
+        }
+        async fn fetch_wizards_vault_special(
+            &self,
+            _: &ApiKey,
+        ) -> Result<crate::domain::WizardsVaultTrack, Gw2ApiError> {
             Err(Gw2ApiError::Decode(
                 "FakeApi: not used in indexing tests".into(),
             ))
