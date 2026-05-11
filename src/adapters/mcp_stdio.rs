@@ -1475,7 +1475,7 @@ fn build_tools() -> Vec<Tool> {
             "gamemode": {
                 "type": "string",
                 "enum": ["fractals", "raids", "strikes", "open_world", "wvw", "pvp"],
-                "description": "Optional game-mode filter. Source coverage: `discretize` → fractals only; `snowcrows` → raids/strikes; `metabattle` → everything else (WvW, PvP, open-world; some fractals as secondary)."
+                "description": "Optional game-mode filter. Source coverage: `discretize` → fractals (authoritative); `snowcrows` → raids (authoritative) plus `open_world`/`pvp`/`wvw` (curated meta picks); `metabattle` → broadest community-wiki coverage across all gamemodes. Note: `list_catalog_builds(source=\"snowcrows\")` with no `gamemode` returns only raids — pass `gamemode` explicitly for the other Snow Crows categories. Both `open_world` and `open-world` spellings are accepted."
             },
             "page_size": {
                 "type": "integer",
@@ -2025,7 +2025,8 @@ fn concrete_resources() -> Vec<rmcp::model::Resource> {
 
     let mut snowcrows = RawResource::new(BUILDS_SNOWCROWS_URI, "Snow Crows Builds");
     snowcrows.description = Some(
-        "Listing of curated raid/strike builds from Snow Crows (https://snowcrows.com).".to_owned(),
+        "Listing of curated builds from Snow Crows (https://snowcrows.com). Returns raids only by default (cold-start cost is one HTTP request); pass `gamemode=open_world|pvp|wvw` to list_catalog_builds for those categories."
+            .to_owned(),
     );
     snowcrows.mime_type = Some(RESOURCE_JSON_MIME.to_owned());
 
@@ -2364,8 +2365,9 @@ fn render_compare_to_meta(
              `api_key=\"{api_key}\"` to capture the current build (the response \
              pre-resolves skill/trait/spec names).\n\
              2. Pick the catalog source that fits `gamemode=\"{gm}\"`: \
-             `discretize` for fractals, `snowcrows` for raids/strikes, `metabattle` for \
-             anything else.\n\
+             `discretize` for fractals, `snowcrows` for raids / open_world / pvp / wvw \
+             (curated meta picks), `metabattle` for anything else or as a fallback when \
+             Snow Crows returns no builds for that profession.\n\
              3. Call `list_catalog_builds` with that source, the character's \
              profession (lower-cased), and `gamemode=\"{gm}\"`. Pick the best match \
              (highest rating if present, otherwise the closest role/elite-spec match).\n\
@@ -2386,7 +2388,8 @@ fn render_compare_to_meta(
              1. Call `get_character_build` with `character=\"{character}\"` and \
              `api_key=\"{api_key}\"`.\n\
              2. Pick the catalog source that fits the user's gamemode: `discretize` for \
-             fractals, `snowcrows` for raids/strikes, `metabattle` otherwise.\n\
+             fractals, `snowcrows` for raids / open_world / pvp / wvw, `metabattle` for \
+             strikes or as a fallback when Snow Crows is empty for that profession.\n\
              3. Call `list_catalog_builds` with that source plus the profession and \
              gamemode filters, then `get_catalog_build` with the best match's slug.\n\
              4. Produce a gap analysis: traits + skills that differ, equipment / stat \
@@ -2430,9 +2433,16 @@ fn render_recommend_build(
     let profession = require_arg(args, PROMPT_RECOMMEND_BUILD, "profession")?;
     let gamemode = require_arg(args, PROMPT_RECOMMEND_BUILD, "gamemode")?;
     let experience = optional_arg(args, "experience").unwrap_or_else(|| "intermediate".to_owned());
+    // Source routing:
+    // - fractals → Discretize (authoritative).
+    // - raids / open_world / pvp / wvw → Snow Crows (curated meta picks).
+    // - strikes → MetaBattle (Snow Crows dropped its top-level strikes page).
+    // - anything else → MetaBattle (broadest coverage).
+    // The prompt body instructs the LLM to fall back to MetaBattle if the
+    // primary source returns nothing for the requested profession.
     let source = match gamemode.as_str() {
         "fractals" => "discretize",
-        "raids" | "strikes" => "snowcrows",
+        "raids" | "open_world" | "open-world" | "pvp" | "wvw" => "snowcrows",
         _ => "metabattle",
     };
     let body = format!(
@@ -2441,7 +2451,8 @@ fn render_recommend_build(
          1. Call `list_catalog_builds` with `source=\"{source}\"`, \
          `profession=\"{profession}\"`, and `gamemode=\"{gamemode}\"`. Pick the \
          top-rated match (or the closest role match if the catalog doesn't carry \
-         ratings).\n\
+         ratings). If the result is empty, retry once with `source=\"metabattle\"` \
+         — its community-wiki coverage is broader.\n\
          2. Call `get_catalog_build` with the chosen `source` and `slug` to \
          fetch the full build detail.\n\
          3. Explain the build to a {experience} player. For `beginner`, lead with \

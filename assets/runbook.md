@@ -60,10 +60,13 @@ those resolved ids if the user wants prose explanations.
 **"What's the meta build for X?" / "Recommend me a build"** → use the
 catalog tools. Pick the source by gamemode:
 
-- `discretize` → fractals only;
-- `snowcrows` → raids and strikes only;
-- `metabattle` → everything else (WvW, PvP, open-world; some fractals as
-  secondary).
+- `discretize` → fractals (authoritative);
+- `snowcrows` → raids (authoritative); also covers `open-world`, `pvp`,
+  `wvw` as of 2026 — prefer it over MetaBattle for those when the user
+  wants curated meta picks rather than community-wiki breadth;
+- `metabattle` → broadest coverage across all gamemodes; use when the
+  user wants alternatives, off-meta, or when Snow Crows / Discretize
+  return nothing for the profession.
 
 Workflow: `list_catalog_builds(source, profession, gamemode)` to find a
 build, then `get_catalog_build(source, slug)` for the full detail.
@@ -71,6 +74,12 @@ Pagination is cursor-based: pass `next_cursor` from the previous response
 back as `cursor` to continue. The cursor binds to (source, profession,
 gamemode) — changing any of them mid-paginate raises an error; restart
 from the beginning.
+
+**Snow Crows default-category gotcha.** `list_catalog_builds(source="snowcrows")`
+**with no `gamemode` filter returns only raids builds** — Snow Crows is
+primarily a raids site and we limit the cold-start cost to one HTTP
+request. Pass `gamemode="open_world"`, `"pvp"`, or `"wvw"` explicitly to
+fetch those categories. (Both `open_world` and `open-world` spellings work.)
 
 **"What is X in GW2?"** (any wiki concept — bosses, achievements, story
 content, mechanics) → call `wiki_search` with the user's phrase as `query`.
