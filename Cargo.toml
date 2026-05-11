@@ -90,6 +90,17 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # OS-standard cache directory resolution.
 directories = "5"
 
+# Linux-only: pin `openssl-sys`'s `vendored` feature so the build
+# compiles OpenSSL from source instead of relying on a system libssl-dev.
+# We don't use openssl-sys directly — it's pulled in transitively by
+# `chatr -> reqwest 0.11 -> native-tls` on Linux only (native-tls uses
+# Apple's Security framework on macOS and SChannel on Windows). Without
+# this pin, `cross build --target aarch64-unknown-linux-gnu` fails
+# because the stock cross image no longer ships libssl-dev:arm64.
+# Cost: ~3 MB extra in the static link, accepted.
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl-sys = { version = "0.9", features = ["vendored"] }
+
 # Windows-only shared-memory access for the MumbleLink named-mapping. Behind a
 # target_os = "windows" cfg so non-Windows builds don't pull it in.
 [target.'cfg(target_os = "windows")'.dependencies]
