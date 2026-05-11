@@ -776,7 +776,7 @@ async fn dispatch_get_account_returns_structured_payload() {
 }
 
 #[tokio::test]
-async fn dispatch_list_characters_returns_array_of_names() {
+async fn dispatch_list_characters_returns_object_with_characters_array() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/characters"))
@@ -791,9 +791,14 @@ async fn dispatch_list_characters_returns_array_of_names() {
         )
         .await
         .unwrap();
-    let arr = v.as_array().unwrap();
+    assert!(
+        v.is_object(),
+        "list_characters response must be an object (MCP rejects bare arrays)"
+    );
+    let arr = v["characters"].as_array().expect("characters array");
     assert!(arr.iter().any(|n| n == "Snowflake"));
     assert!(arr.iter().any(|n| n == "Vesta Vey"));
+    assert_eq!(v["total"].as_u64().unwrap(), arr.len() as u64);
 }
 
 #[tokio::test]
@@ -812,13 +817,19 @@ async fn dispatch_get_account_achievements_summary_drops_done_and_not_started() 
         )
         .await
         .unwrap();
-    let arr = v.as_array().unwrap();
+    assert!(
+        v.is_object(),
+        "response must be an object, not a bare array"
+    );
+    let arr = v["achievements"].as_array().expect("achievements array");
     let ids: Vec<u64> = arr.iter().map(|e| e["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
         vec![200u64, 500],
         "summary mode keeps only id 200 (5/10) and id 500 (7/25); 100/600 not started, 300/400 done"
     );
+    assert_eq!(v["summary"], true);
+    assert_eq!(v["total"], 2);
 }
 
 #[tokio::test]
@@ -837,7 +848,9 @@ async fn dispatch_get_account_achievements_summary_false_returns_full_list() {
         )
         .await
         .unwrap();
-    assert_eq!(v.as_array().unwrap().len(), 6);
+    assert_eq!(v["achievements"].as_array().unwrap().len(), 6);
+    assert_eq!(v["summary"], false);
+    assert_eq!(v["total"], 6);
 }
 
 #[tokio::test]

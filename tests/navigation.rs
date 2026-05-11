@@ -197,16 +197,23 @@ async fn find_nearby_sorts_by_distance_and_respects_filter() {
         .find_nearby(NearbyFilter::Waypoint, LocationRef::Here, 5)
         .await
         .expect("nearby");
-    let names: Vec<_> = waypoints.iter().map(|w| w.poi.name.as_str()).collect();
+    let names: Vec<_> = waypoints
+        .results
+        .iter()
+        .map(|w| w.poi.name.as_str())
+        .collect();
     assert_eq!(names, vec!["Near Waypoint", "Far Waypoint"]);
-    assert!(waypoints[0].distance_units < waypoints[1].distance_units);
+    assert!(waypoints.results[0].distance_units < waypoints.results[1].distance_units);
+    assert_eq!(waypoints.filter, "waypoint");
+    assert_eq!(waypoints.total, 2);
 
     let any = svc
         .find_nearby(NearbyFilter::Any, LocationRef::Here, 5)
         .await
         .expect("nearby any");
-    assert_eq!(any.len(), 4);
-    let dists: Vec<f64> = any.iter().map(|w| w.distance_units).collect();
+    assert_eq!(any.results.len(), 4);
+    assert_eq!(any.total, 4);
+    let dists: Vec<f64> = any.results.iter().map(|w| w.distance_units).collect();
     assert!(
         dists.windows(2).all(|w| w[0] <= w[1]),
         "nearby must be sorted"
@@ -238,7 +245,8 @@ async fn find_nearby_clamps_limit() {
         .find_nearby(NearbyFilter::Any, LocationRef::Here, 3)
         .await
         .expect("nearby");
-    assert_eq!(three.len(), 3);
+    assert_eq!(three.results.len(), 3);
+    assert_eq!(three.total, 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,9 +367,11 @@ async fn mcp_dispatch_find_nearby_defaults_around_to_here() {
         .dispatch_tool("find_nearby", serde_json::json!({ "filter": "waypoint" }))
         .await
         .expect("ok");
-    let arr = v.as_array().expect("array");
-    assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["poi"]["name"], "A");
+    let results = v["results"].as_array().expect("results array");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["poi"]["name"], "A");
+    assert_eq!(v["filter"], "waypoint");
+    assert_eq!(v["total"], 1);
 }
 
 #[tokio::test]

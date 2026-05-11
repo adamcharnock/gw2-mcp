@@ -89,18 +89,26 @@ impl Service {
     }
 
     /// Fetch character names only (`/v2/characters`). Cached `WALLET_TTL`.
-    pub async fn list_characters(&self, key: &ApiKey) -> Result<Vec<String>, ServiceError> {
+    ///
+    /// Wraps the bare API array in a [`CharacterList`] so MCP's
+    /// `structuredContent` (object-only) schema accepts it.
+    pub async fn list_characters(&self, key: &ApiKey) -> Result<CharacterList, ServiceError> {
         let cache_key = format!("characters:{}", key.fingerprint());
-        if let Some(json) = self.cache.get(&cache_key).await
+        let names: Vec<String> = if let Some(json) = self.cache.get(&cache_key).await
             && let Ok(v) = serde_json::from_str::<Vec<String>>(&json)
         {
-            return Ok(v);
-        }
-        let v = self.gw2.fetch_characters_list(key).await?;
-        if let Ok(json) = serde_json::to_string(&v) {
-            self.cache.set(&cache_key, json, WALLET_TTL).await;
-        }
-        Ok(v)
+            v
+        } else {
+            let v = self.gw2.fetch_characters_list(key).await?;
+            if let Ok(json) = serde_json::to_string(&v) {
+                self.cache.set(&cache_key, json, WALLET_TTL).await;
+            }
+            v
+        };
+        Ok(CharacterList {
+            total: names.len(),
+            characters: names,
+        })
     }
 
     /// Fetch the per-account achievement progress list, enriched with
@@ -121,7 +129,7 @@ impl Service {
         &self,
         key: &ApiKey,
         summary: bool,
-    ) -> Result<Vec<AccountAchievementEntry>, ServiceError> {
+    ) -> Result<AccountAchievementsSnapshot, ServiceError> {
         let cache_key = format!("account_achievements:{}", key.fingerprint());
         let raw: Vec<AccountAchievement> = if let Some(json) = self.cache.get(&cache_key).await
             && let Ok(v) = serde_json::from_str(&json)
@@ -144,7 +152,7 @@ impl Service {
         let metadata = self
             .achievement_metadata_for_ids(filtered.iter().map(|a| a.id))
             .await;
-        Ok(filtered
+        let achievements: Vec<AccountAchievementEntry> = filtered
             .into_iter()
             .map(|progress| {
                 let (name, description) = lookup_name_description(&metadata, progress.id);
@@ -154,7 +162,13 @@ impl Service {
                     description,
                 }
             })
-            .collect())
+            .collect();
+        Ok(AccountAchievementsSnapshot {
+            total: achievements.len(),
+            summary,
+            achievements,
+            fetched_at: self.clock.now(),
+        })
     }
 
     /// Fetch unlocked-mastery progress per track, enriched with track
@@ -164,7 +178,7 @@ impl Service {
     pub async fn get_account_masteries(
         &self,
         key: &ApiKey,
-    ) -> Result<Vec<AccountMasteryEntry>, ServiceError> {
+    ) -> Result<AccountMasteriesSnapshot, ServiceError> {
         let cache_key = format!("account_masteries:{}", key.fingerprint());
         let progress: Vec<AccountMastery> = if let Some(json) = self.cache.get(&cache_key).await
             && let Ok(v) = serde_json::from_str::<Vec<AccountMastery>>(&json)
@@ -178,10 +192,17 @@ impl Service {
             v
         };
         let metadata = self.mastery_metadata_table().await;
-        Ok(progress
+        let total_points_earned = total_mastery_points_earned(&progress, &metadata);
+        let masteries: Vec<AccountMasteryEntry> = progress
             .into_iter()
             .map(|p| enrich_mastery(p, &metadata))
-            .collect())
+            .collect();
+        Ok(AccountMasteriesSnapshot {
+            total: masteries.len(),
+            total_points_earned,
+            masteries,
+            fetched_at: self.clock.now(),
+        })
     }
 
     /// Fetch + cache the full `/v2/masteries` table. Mastery tracks are
@@ -611,6 +632,60 @@ pub struct AccountAchievementEntry {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+/// Object wrapper around `Vec<String>` so the response is a JSON object
+/// (MCP's `structuredContent` rejects bare arrays).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CharacterList {
+    pub characters: Vec<String>,
+    pub total: usize,
+}
+
+/// Object wrapper around the per-account achievement list. `summary`
+/// echoes the request parameter so the LLM can tell whether it's
+/// looking at the filtered (in-progress only) or full list.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AccountAchievementsSnapshot {
+    pub achievements: Vec<AccountAchievementEntry>,
+    pub total: usize,
+    pub summary: bool,
+    pub fetched_at: DateTime<Utc>,
+}
+
+/// Object wrapper around the per-account mastery list.
+/// `total_points_earned` sums the `point_cost` of every unlocked tier
+/// across every track — when a track's metadata wasn't available, its
+/// contribution falls back to 0 (the per-entry `current_level_name`
+/// signal lets the LLM detect partial resolution).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AccountMasteriesSnapshot {
+    pub masteries: Vec<AccountMasteryEntry>,
+    pub total: usize,
+    pub total_points_earned: u32,
+    pub fetched_at: DateTime<Utc>,
+}
+
+fn total_mastery_points_earned(
+    progress: &[AccountMastery],
+    metadata: &BTreeMap<crate::domain::MasteryId, crate::domain::Mastery>,
+) -> u32 {
+    use crate::domain::MasteryId;
+    progress
+        .iter()
+        .map(|p| {
+            let Ok(typed) = MasteryId::new(i64::from(p.id)) else {
+                return 0u32;
+            };
+            let Some(m) = metadata.get(&typed) else {
+                return 0u32;
+            };
+            let Ok(take) = usize::try_from(p.level) else {
+                return 0u32;
+            };
+            m.levels.iter().take(take).map(|l| l.point_cost).sum()
+        })
+        .sum()
 }
 
 /// `Dailies` with each entry enriched by the resolved achievement name +

@@ -567,22 +567,25 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::domain::Account>(),
         Tool::new(
             "list_characters",
-            "List the names of all characters on the account. Cheap — returns just the names, not their builds. Requires an API key with `characters` scope. Pair with `get_character_build` to fetch a specific character's setup.",
+            "List the names of all characters on the account. Cheap — returns just the names, not their builds. Response shape: `{characters: string[], total: number}`. Requires an API key with `characters` scope. Pair with `get_character_build` to fetch a specific character's setup.",
             authed_no_args.clone(),
         )
-        .annotate(read_only_open_world("List Characters")),
+        .annotate(read_only_open_world("List Characters"))
+        .with_output_schema::<crate::service::CharacterList>(),
         Tool::new(
             "get_account_achievements",
-            "Fetch per-account achievement progress, each row enriched with the achievement's `name` and `description` so you don't need a follow-up `get_achievements` to identify entries. Heavy: 2000–3000 entries on a long-lived account, so summary mode (default true) drops both completed and not-started entries — what's left is the player's in-flight work. Requires an API key with `account` + `progression` scopes. Pass `summary=false` for the raw list.",
+            "Fetch per-account achievement progress, each row enriched with the achievement's `name` and `description` so you don't need a follow-up `get_achievements` to identify entries. Response shape: `{achievements: [...], total, summary, fetched_at}`. Heavy: 2000–3000 entries on a long-lived account, so summary mode (default true) drops both completed and not-started entries — what's left is the player's in-flight work. Requires an API key with `account` + `progression` scopes. Pass `summary=false` for the raw list.",
             get_account_achievements,
         )
-        .annotate(read_only_open_world("Get Account Achievements")),
+        .annotate(read_only_open_world("Get Account Achievements"))
+        .with_output_schema::<crate::service::AccountAchievementsSnapshot>(),
         Tool::new(
             "get_account_masteries",
-            "Fetch unlocked-mastery progress per track, enriched with the track's `name`, `region`, and `current_level_name`. Requires an API key with `account` + `progression` scopes. Useful for recommending zones/collections gated by mastery levels (gliding, mounts, fishing, jade-bot, etc.).",
+            "Fetch unlocked-mastery progress per track, enriched with the track's `name`, `region`, and `current_level_name`. Response shape: `{masteries: [...], total, total_points_earned, fetched_at}`. Requires an API key with `account` + `progression` scopes. Useful for recommending zones/collections gated by mastery levels (gliding, mounts, fishing, jade-bot, etc.).",
             authed_no_args.clone(),
         )
-        .annotate(read_only_open_world("Get Account Masteries")),
+        .annotate(read_only_open_world("Get Account Masteries"))
+        .with_output_schema::<crate::service::AccountMasteriesSnapshot>(),
         Tool::new(
             "get_account_raids",
             "Fetch raid clears + the full encounter list so the LLM can answer 'what raids do I still have left this week?' from one call. Returns every encounter with a `cleared: bool` flag, encounter/wing/raid names (e.g. Vale Guardian / Spirit Vale / Forsaken Thicket), `cleared_count` + `total_count`, and the next `weekly_reset_at` (Monday 07:30 UTC). Requires an API key with `account` + `progression` scopes.",
@@ -622,10 +625,11 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::DirectionsResult>(),
         Tool::new(
             "find_nearby",
-            "List the closest POIs to `around` (defaults to the player's current location). `filter` narrows by kind: `waypoint`, `poi` (landmarks + unlocks), `vista`, `hero_point`, `task` (renown hearts), or `any`. Up to 25 results sorted nearest-first.",
+            "List the closest POIs to `around` (defaults to the player's current location). `filter` narrows by kind: `waypoint`, `poi` (landmarks + unlocks), `vista`, `hero_point`, `task` (renown hearts), or `any`. Up to 25 results sorted nearest-first. Response shape: `{results: [...], origin, map_id, filter, total}`.",
             find_nearby_schema,
         )
-        .annotate(read_only_open_world("Find Nearby")),
+        .annotate(read_only_open_world("Find Nearby"))
+        .with_output_schema::<crate::service::NearbySearchResult>(),
         Tool::new(
             "describe_facing",
             "Describe which way the player is facing in plain English plus the closest landmark in that direction. No arguments — reads live state from Mumble Link.",

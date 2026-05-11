@@ -772,7 +772,8 @@ async fn list_characters_returns_names_and_caches() {
     let svc = build(gw2.clone(), wiki, cache, clock);
     let key = valid_api_key();
     let first = svc.list_characters(&key).await.unwrap();
-    assert_eq!(first.len(), 2);
+    assert_eq!(first.characters.len(), 2);
+    assert_eq!(first.total, 2);
     svc.list_characters(&key).await.unwrap();
     assert_eq!(gw2.characters_list_calls(), 1, "cached on second call");
 }
@@ -852,15 +853,22 @@ async fn account_achievements_summary_drops_done_and_not_started() {
     let key = valid_api_key();
 
     let summary = svc.get_account_achievements(&key, true).await.unwrap();
-    let summary_ids: Vec<u32> = summary.iter().map(|a| a.progress.id).collect();
+    let summary_ids: Vec<u32> = summary.achievements.iter().map(|a| a.progress.id).collect();
     assert_eq!(
         summary_ids,
         vec![200, 500],
         "summary keeps only in-progress"
     );
+    assert!(summary.summary, "summary flag echoes the request");
+    assert_eq!(summary.total, 2);
 
     let raw = svc.get_account_achievements(&key, false).await.unwrap();
-    assert_eq!(raw.len(), 6, "summary=false returns the full list");
+    assert_eq!(
+        raw.achievements.len(),
+        6,
+        "summary=false returns the full list"
+    );
+    assert!(!raw.summary);
 
     // Both calls share the cached upstream payload.
     assert_eq!(gw2.achievements_calls(), 1);
@@ -880,7 +888,8 @@ async fn account_masteries_caches() {
     let svc = build(gw2.clone(), wiki, cache, clock);
     let key = valid_api_key();
     let m = svc.get_account_masteries(&key).await.unwrap();
-    assert_eq!(m.len(), 2);
+    assert_eq!(m.masteries.len(), 2);
+    assert_eq!(m.total, 2);
     svc.get_account_masteries(&key).await.unwrap();
     assert_eq!(gw2.masteries_calls(), 1);
 }

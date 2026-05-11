@@ -10,11 +10,13 @@ mod reference;
 mod search;
 mod wiki;
 
-pub use account::DailiesWhich;
+pub use account::{
+    AccountAchievementsSnapshot, AccountMasteriesSnapshot, CharacterList, DailiesWhich,
+};
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 pub use navigation::{
     DirectionsResult, FacingDescription, LocationRef, MapSummary, MountInfo, MyLocationSnapshot,
-    NearbyFilter, ResolvedLocation,
+    NearbyFilter, NearbySearchResult, ResolvedLocation,
 };
 pub use wiki::wiki_page_url;
 

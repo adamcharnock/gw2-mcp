@@ -90,12 +90,15 @@ impl Service {
 
     /// Top `limit` POIs near `around`, optionally filtered by kind.
     /// Defaults to the player's current location if `around` is `Here`.
+    ///
+    /// Wraps the result list in a [`NearbySearchResult`] so MCP's
+    /// `structuredContent` schema (object-only) accepts it.
     pub async fn find_nearby(
         &self,
         filter: NearbyFilter,
         around: LocationRef,
         limit: usize,
-    ) -> Result<Vec<NearbyResult>, ServiceError> {
+    ) -> Result<NearbySearchResult, ServiceError> {
         let here = self.resolve_location(&around).await?;
         // We need *some* map id to enumerate POIs. If the caller passed
         // literal coords without a map context, we fall back to the
@@ -105,7 +108,7 @@ impl Service {
             None => self.mumble.snapshot()?.context.map_id,
         };
         let pois = self.list_pois_cached(map_id).await?;
-        let mut filtered: Vec<NearbyResult> = pois
+        let mut results: Vec<NearbyResult> = pois
             .into_iter()
             .filter(|p| filter.matches(&p.kind))
             .map(|p| {
@@ -122,14 +125,20 @@ impl Service {
         // Stable sort by distance ascending; ties broken by id for
         // determinism so paginated callers get the same order across
         // requests.
-        filtered.sort_by(|a, b| {
+        results.sort_by(|a, b| {
             a.distance_units
                 .partial_cmp(&b.distance_units)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.poi.id.cmp(&b.poi.id))
         });
-        filtered.truncate(limit);
-        Ok(filtered)
+        results.truncate(limit);
+        Ok(NearbySearchResult {
+            total: results.len(),
+            results,
+            origin: here.coord,
+            map_id,
+            filter: filter.label().to_owned(),
+        })
     }
 
     /// One-shot description of which way the avatar is currently facing,
@@ -297,6 +306,21 @@ impl NearbyFilter {
             Self::Task => kind == "task",
         }
     }
+
+    /// Lowercase wire-format label matching the MCP tool parameter
+    /// names, so we can echo the requested filter back to the caller
+    /// inside [`NearbySearchResult`].
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Waypoint => "waypoint",
+            Self::Poi => "poi",
+            Self::Vista => "vista",
+            Self::HeroPoint => "hero_point",
+            Self::Task => "task",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
@@ -372,6 +396,26 @@ pub struct NearbyResult {
     pub bearing_label: String,
     pub distance_units: f64,
     pub distance_meters: f64,
+}
+
+/// Object wrapper around the `find_nearby` result list. MCP's
+/// `structuredContent` schema rejects bare arrays, so the dispatcher
+/// needs a single object at the top. The extra fields (`origin`,
+/// `map_id`, `filter`, `total`) double as request echoes so the LLM
+/// can reason about the response without re-reading its own call args.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct NearbySearchResult {
+    pub results: Vec<NearbyResult>,
+    /// Resolved continent-coordinate origin the search was performed
+    /// from (`(x, y)`).
+    pub origin: (f64, f64),
+    /// Map the search ran against — resolved from `around` or, for
+    /// literal-coord requests, the player's current Mumble Link map.
+    pub map_id: MapId,
+    /// Echoes the request filter (`waypoint` / `poi` / `vista` /
+    /// `hero_point` / `task` / `any`).
+    pub filter: String,
+    pub total: usize,
 }
 
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
