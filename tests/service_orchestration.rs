@@ -1150,3 +1150,38 @@ async fn list_maps_in_region_unknown_id_errors_with_helpful_message() {
     let msg = err.to_string();
     assert!(msg.contains("9999"), "must mention bogus id: {msg}");
 }
+
+#[tokio::test]
+async fn list_maps_in_region_reports_upstream_unavailable_not_not_found() {
+    // Regression: when /v2/continents fails for every continent, the
+    // old code synthesised a NotFound { name: "<index unavailable>",
+    // available: "GW2 continents API unreachable" } which read like a
+    // typo'd region name. New behaviour: distinct UpstreamUnavailable
+    // variant with a clear message.
+    use gw2_mcp::service::RegionQuery;
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    // Mark every continent as failing.
+    gw2.set_regions_on_floor_error(1, 1);
+    gw2.set_regions_on_floor_error(2, 1);
+
+    let svc = build(gw2, wiki, cache, clock);
+    for query in [RegionQuery::Name("Castora".to_owned()), RegionQuery::Id(99)] {
+        let err = svc.list_maps_in_region(query).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.to_lowercase().contains("unreachable"),
+            "must surface the upstream outage, not pretend it's a name lookup miss: {msg}"
+        );
+        assert!(
+            !msg.contains("<index unavailable>"),
+            "must not leak the old sentinel name into the message: {msg}"
+        );
+        assert!(
+            !msg.contains("Castora") && !msg.contains("99"),
+            "upstream-failure error must NOT pretend it was a name/id miss: {msg}"
+        );
+    }
+}

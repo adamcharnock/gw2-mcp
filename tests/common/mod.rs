@@ -4,7 +4,7 @@
 
 #![allow(dead_code)] // Each integration-test binary uses a different subset.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -313,6 +313,10 @@ pub struct FakeGw2Api {
     pub wizards_vault_calls: Mutex<usize>,
     /// Keyed by `(continent_id, floor_id)` → `region_id → Region`.
     pub regions_on_floor: Mutex<BTreeMap<(u32, u32), BTreeMap<u32, Region>>>,
+    /// Set of `(continent_id, floor_id)` pairs that should return an
+    /// upstream error instead of the stored regions. Lets tests simulate
+    /// "GW2 continents API unreachable" failure modes.
+    pub regions_on_floor_errors: Mutex<BTreeSet<(u32, u32)>>,
     pub regions_calls: Mutex<usize>,
 }
 
@@ -362,6 +366,7 @@ impl FakeGw2Api {
             wizards_vault_special: Mutex::new(default_vault_track()),
             wizards_vault_calls: Mutex::new(0),
             regions_on_floor: Mutex::new(BTreeMap::new()),
+            regions_on_floor_errors: Mutex::new(BTreeSet::new()),
             regions_calls: Mutex::new(0),
         })
     }
@@ -496,6 +501,15 @@ impl FakeGw2Api {
             .lock()
             .unwrap()
             .insert((continent_id, floor_id), regions);
+    }
+    /// Make this `(continent_id, floor_id)` pair return a transport
+    /// error from `fetch_regions_on_floor`, simulating an upstream
+    /// outage.
+    pub fn set_regions_on_floor_error(&self, continent_id: u32, floor_id: u32) {
+        self.regions_on_floor_errors
+            .lock()
+            .unwrap()
+            .insert((continent_id, floor_id));
     }
     pub fn regions_calls(&self) -> usize {
         *self.regions_calls.lock().unwrap()
@@ -774,6 +788,16 @@ impl Gw2Api for FakeGw2Api {
         floor_id: u32,
     ) -> Result<BTreeMap<u32, Region>, Gw2ApiError> {
         *self.regions_calls.lock().unwrap() += 1;
+        if self
+            .regions_on_floor_errors
+            .lock()
+            .unwrap()
+            .contains(&(continent_id, floor_id))
+        {
+            return Err(Gw2ApiError::Transport(format!(
+                "fake: continents/{continent_id}/floors/{floor_id} unreachable"
+            )));
+        }
         Ok(self
             .regions_on_floor
             .lock()

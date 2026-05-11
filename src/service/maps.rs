@@ -59,6 +59,16 @@ pub enum RegionLookupError {
     #[error("no region with id {id} in the GW2 continents catalogue")]
     UnknownId { id: u32 },
 
+    /// The GW2 `/v2/continents/.../regions` endpoints failed for every
+    /// continent we tried, so we couldn't build the lookup index at all.
+    /// Distinct from `NotFound` so the LLM doesn't mistake an upstream
+    /// outage for a typo'd region name.
+    #[error(
+        "the Guild Wars 2 continents API is unreachable, so list_maps_in_region can't build its \
+         region index. This is usually transient — retry in a few seconds."
+    )]
+    UpstreamUnavailable,
+
     #[error(
         "no adjacency data for map id {map_id}. The curated table only covers public open-world \
          maps; instances, fractals, and WvW maps that don't appear in the wiki Category:Zones \
@@ -216,10 +226,7 @@ impl Service {
             }
         }
         if !any_ok {
-            return Err(ServiceError::Region(RegionLookupError::NotFound {
-                name: "<index unavailable>".to_owned(),
-                available: "GW2 continents API unreachable".to_owned(),
-            }));
+            return Err(ServiceError::Region(RegionLookupError::UpstreamUnavailable));
         }
         let index = RegionIndex { entries };
         if let Ok(json) = serde_json::to_string(&index) {
