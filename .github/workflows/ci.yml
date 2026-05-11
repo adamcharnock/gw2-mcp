@@ -1,8 +1,15 @@
 name: CI
 
 on:
+  # Trigger on every push to any branch so feature branches produce
+  # downloadable binaries before a PR exists. Tag pushes are explicitly
+  # excluded because release.yml already covers those with versioned
+  # GitHub Release uploads — running ci.yml on tags would be duplicate
+  # work. PR events still fire on main-targeted PRs from forks (where
+  # push events in the fork don't reach this repo's CI). The concurrency
+  # group cancels stale runs on the same ref.
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -131,11 +138,11 @@ jobs:
         run: |
           echo '' | docker run --rm -i gw2-mcp:ci --version
 
-  # Build the full release matrix on every PR / main push, *without*
-  # uploading. The actual release artefacts are produced by release.yml
-  # when a vX.Y.Z tag is pushed; this job exists so cross-compile breakage
-  # (e.g. chatr's openssl-sys link on aarch64-linux) shows up in PRs
-  # rather than the first time someone cuts a release.
+  # Build the full release matrix on every push. Binaries are uploaded
+  # as workflow artefacts (14-day retention) so you can grab them from
+  # any CI run — handy for testing branches before releasing. The
+  # canonical tagged-release uploads still happen in release.yml when a
+  # vX.Y.Z tag lands; this job's artefacts are intentionally ephemeral.
   cross-build:
     name: cross build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -153,12 +160,15 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             cross: false
+            exe-suffix: .exe
           - target: aarch64-apple-darwin
             os: macos-latest
             cross: false
+            bundle-holder: true
           - target: x86_64-apple-darwin
             os: macos-15-intel
             cross: false
+            bundle-holder: true
           # Holder cross-compile smoke check. We don't ship this triple
           # as a standalone artefact, but the macOS release tarballs
           # bundle the holder.exe — keep CI honest about the target.
@@ -186,9 +196,21 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: Install mingw cross-toolchain
+      - name: Install mingw cross-toolchain (Linux holder)
         if: matrix.target == 'x86_64-pc-windows-gnu'
         run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      # macOS bundles need the holder.exe — install the mingw target
+      # alongside the macOS native one, then bring in Homebrew's mingw
+      # linker. Same setup as release.yml.
+      - name: Install mingw target (macOS holder bundle)
+        if: matrix.bundle-holder
+        run: rustup target add x86_64-pc-windows-gnu
+      - name: Install mingw linker (macOS holder bundle)
+        if: matrix.bundle-holder
+        run: brew install mingw-w64
+      - name: Pre-build gw2-mcp-holder.exe (macOS bundles)
+        if: matrix.bundle-holder
+        run: cargo build --release --locked --target x86_64-pc-windows-gnu --bin gw2-mcp-holder
       - name: Build (native)
         if: ${{ !matrix.cross && !matrix.holder-only }}
         run: cargo build --release --locked --target ${{ matrix.target }} --bin gw2-mcp
@@ -201,6 +223,38 @@ jobs:
       - name: Build (holder only)
         if: matrix.holder-only
         run: cargo build --release --locked --target ${{ matrix.target }} --bin gw2-mcp-holder
+
+      # Upload as a workflow artefact so the binary is downloadable from
+      # the run's summary page. Naming mirrors release.yml's archive
+      # convention with the commit sha standing in for the version tag.
+      - name: Stage artefact (server)
+        if: ${{ !matrix.holder-only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          cp "target/${{ matrix.target }}/release/gw2-mcp${{ matrix.exe-suffix }}" staging/
+          if [ "${{ matrix.bundle-holder }}" = "true" ]; then
+            cp target/x86_64-pc-windows-gnu/release/gw2-mcp-holder.exe staging/
+          fi
+          ls -la staging/
+      - name: Upload artefact (server)
+        if: ${{ !matrix.holder-only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gw2-mcp-${{ github.sha }}-${{ matrix.target }}
+          path: staging/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload artefact (holder-only)
+        if: matrix.holder-only
+        uses: actions/upload-artifact@v4
+        with:
+          name: gw2-mcp-holder-${{ github.sha }}-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/gw2-mcp-holder.exe
+          if-no-files-found: error
+          retention-days: 14
 
   ci-success:
     name: CI success
