@@ -10,7 +10,10 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use super::{STATIC_TTL, Service, ServiceError, profession_byte_to_name};
+use super::{
+    STATIC_TTL, Service, ServiceError, mount_index_to_name, profession_byte_to_name,
+    race_byte_to_name,
+};
 use crate::domain::bearing::{Bearing16, bearing, distance_meters, distance_units};
 use crate::ports::{MapId, MapInfo, MapPoi};
 
@@ -39,9 +42,20 @@ impl Service {
             .identity
             .profession
             .and_then(|p| profession_byte_to_name(p).map(str::to_owned));
+        let race_name = snap
+            .identity
+            .race
+            .and_then(|b| race_byte_to_name(b).map(str::to_owned));
+        let mount_index = snap.context.mount_index;
+        let mount = MountInfo {
+            index: mount_index,
+            name: mount_index_to_name(mount_index).map(str::to_owned),
+        };
         Ok(MyLocationSnapshot {
             character_name: snap.identity.name.clone().unwrap_or_default(),
             profession_name,
+            race_name,
+            mount,
             map: map_info.map(map_summary),
             map_id,
             position,
@@ -298,6 +312,16 @@ pub struct MyLocationSnapshot {
     pub character_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profession_name: Option<String>,
+    /// Character race resolved from `MumbleIdentity.race`. `None` if the
+    /// identity block was empty (character select / very early load) or
+    /// the byte was outside the known race table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub race_name: Option<String>,
+    /// Mount state. `mount.index == 0` means "not on a mount"; otherwise
+    /// `mount.name` carries the human-readable mount name. Always
+    /// present in the JSON; `name` is `null` only for a future mount
+    /// the byte→name table hasn't been updated for.
+    pub mount: MountInfo,
     /// Map metadata (name, region, etc.) when the GW2 API lookup
     /// succeeded. None on transient API errors — we return position even
     /// if the metadata failed.
@@ -309,6 +333,16 @@ pub struct MyLocationSnapshot {
     pub facing_bearing: Bearing16,
     pub ui_tick: u32,
     pub captured_at: DateTime<Utc>,
+}
+
+/// Mount index + resolved name. `index == 0` is the canonical "no mount"
+/// state (sent by GW2 when the player is dismounted); the LLM can use
+/// `name == "None"` as the dismounted indicator without having to know
+/// the index→name mapping itself.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct MountInfo {
+    pub index: u8,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]

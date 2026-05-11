@@ -13,8 +13,8 @@ mod wiki;
 pub use account::DailiesWhich;
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 pub use navigation::{
-    DirectionsResult, FacingDescription, LocationRef, MapSummary, MyLocationSnapshot, NearbyFilter,
-    ResolvedLocation,
+    DirectionsResult, FacingDescription, LocationRef, MapSummary, MountInfo, MyLocationSnapshot,
+    NearbyFilter, ResolvedLocation,
 };
 pub use wiki::wiki_page_url;
 
@@ -179,9 +179,10 @@ impl Service {
 }
 
 // ---------------------------------------------------------------------------
-// Profession byte → name map. Stable for the life of the game; carrying it
-// in code rather than going through GW2 /v2/professions saves an HTTP round
-// trip on every decode_build_code call.
+// Static GW2 byte/index → name maps. Stable for the life of the game (only
+// change on new content releases); carrying them in code rather than going
+// through GW2 `/v2/...` endpoints saves an HTTP round trip on every nav-tool
+// / decode-build call.
 // ---------------------------------------------------------------------------
 
 pub(super) fn profession_byte_to_name(byte: u8) -> Option<&'static str> {
@@ -199,6 +200,42 @@ pub(super) fn profession_byte_to_name(byte: u8) -> Option<&'static str> {
     }
 }
 
+/// Mount index → display name, per the GW2 `MumbleLink` wiki table.
+///
+/// Index 0 ("None") means the player is *not* on a mount — we still
+/// return `Some("None")` rather than `None` so callers can distinguish
+/// "not mounted" from "future mount this table hasn't learned about
+/// yet" (which returns `None`).
+pub(super) fn mount_index_to_name(index: u8) -> Option<&'static str> {
+    match index {
+        0 => Some("None"),
+        1 => Some("Jackal"),
+        2 => Some("Griffon"),
+        3 => Some("Springer"),
+        4 => Some("Skimmer"),
+        5 => Some("Raptor"),
+        6 => Some("Roller Beetle"),
+        7 => Some("Warclaw"),
+        8 => Some("Skyscale"),
+        9 => Some("Skiff"),
+        10 => Some("Siege Turtle"),
+        _ => None,
+    }
+}
+
+/// Character race byte → display name. Comes from `MumbleIdentity.race`
+/// (0-indexed, currently 0..=4 since GW2 launch).
+pub(super) fn race_byte_to_name(byte: u8) -> Option<&'static str> {
+    match byte {
+        0 => Some("Asura"),
+        1 => Some("Charr"),
+        2 => Some("Human"),
+        3 => Some("Norn"),
+        4 => Some("Sylvari"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +247,33 @@ mod tests {
         }
         assert!(profession_byte_to_name(0).is_none());
         assert!(profession_byte_to_name(10).is_none());
+    }
+
+    #[test]
+    fn mount_index_map_covers_known_mounts() {
+        // 0..=10 are all defined per the wiki (including 0 = "None" /
+        // dismounted, which we deliberately return as Some).
+        for idx in 0u8..=10 {
+            assert!(
+                mount_index_to_name(idx).is_some(),
+                "mount index {idx} should be known"
+            );
+        }
+        // Anything past 10 (until a future mount adds to the table) is
+        // unknown — caller surfaces null rather than guessing.
+        assert!(mount_index_to_name(11).is_none());
+        assert!(mount_index_to_name(0xff).is_none());
+    }
+
+    #[test]
+    fn race_byte_map_covers_known_races() {
+        for byte in 0u8..=4 {
+            assert!(
+                race_byte_to_name(byte).is_some(),
+                "race byte {byte} should be known"
+            );
+        }
+        assert!(race_byte_to_name(5).is_none());
+        assert!(race_byte_to_name(0xff).is_none());
     }
 }
