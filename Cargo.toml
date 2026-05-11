@@ -90,6 +90,24 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # OS-standard cache directory resolution.
 directories = "5"
 
+# aarch64-linux-only: pin `openssl-sys`'s `vendored` feature so the
+# cross-build compiles OpenSSL from source. Scoped to this single
+# triple because:
+# - Native Linux (`cargo build` on ubuntu, Docker image): system
+#   libssl-dev is already present; vendored would break the Dockerfile's
+#   slim Perl install (./Configure needs FindBin.pm).
+# - Aarch64 cross-build (`cross build`): the stock cross-rs image's
+#   libssl-dev:arm64 is OpenSSL 1.0.2g — too old for openssl-sys
+#   0.9.115 which requires 1.1.0+. Vendored sidesteps this by building
+#   a compatible OpenSSL from source.
+# - macOS / Windows: untouched (native-tls there doesn't use openssl-sys).
+#
+# openssl-sys is a transitive dep (`chatr -> reqwest 0.11 -> native-tls`);
+# listing it as a direct dep here is purely to force its `vendored`
+# feature on for the relevant target. Cost: ~3 MB extra in the link.
+[target.aarch64-unknown-linux-gnu.dependencies]
+openssl-sys = { version = "0.9", features = ["vendored"] }
+
 # Windows-only shared-memory access for the MumbleLink named-mapping. Behind a
 # target_os = "windows" cfg so non-Windows builds don't pull it in.
 [target.'cfg(target_os = "windows")'.dependencies]
