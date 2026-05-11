@@ -81,14 +81,14 @@ struct Cli {
     /// `find_nearby` with `here`, `get_directions` with `here`) will
     /// return a clear "not supported" error; everything else keeps
     /// working.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, env = "GW2_NO_MUMBLE_LINK", default_value_t = false)]
     no_mumble_link: bool,
 
     /// (macOS only) Skip auto-spawning the in-bottle Mumble Link holder
     /// (`gw2-mcp-holder.exe` via cxstart). Use this if you're not running
     /// GW2 in `CrossOver`, or if you're managing the holder yourself.
     /// Has no effect on Linux/Windows where Mumble Link is read directly.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, env = "GW2_NO_MUMBLE_HOLDER", default_value_t = false)]
     no_mumble_holder: bool,
 
     /// Override the cache directory for the on-disk search index. By
@@ -248,6 +248,14 @@ async fn main() -> anyhow::Result<ExitCode> {
     // Wire the on-disk search index unless the user opted out. Failing to
     // open is logged and the server continues without search — the binary
     // remains useful for non-search tools (get_*, wiki, catalogs).
+    //
+    // We hold on to the background indexer's `JoinHandle` so we can
+    // `.abort()` it on shutdown. Without this, SIGTERM aborts the
+    // indexer at an arbitrary point during the runtime's teardown —
+    // safe today thanks to SQLite-WAL durability, but fragile to future
+    // changes that introduce multi-statement transactions outside an
+    // explicit `BEGIN`.
+    let mut indexer_handle: Option<tokio::task::JoinHandle<()>> = None;
     let search_enabled = !cli.no_search_index;
     if search_enabled {
         match resolve_index_path(cli.cache_dir.as_deref()) {
@@ -264,7 +272,7 @@ async fn main() -> anyhow::Result<ExitCode> {
                             force_rebuild: cli.rebuild_index,
                         },
                     );
-                    let _handle = pipeline.spawn_background();
+                    indexer_handle = Some(pipeline.spawn_background());
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, path = %path.display(), "failed to open search index; running without it");
@@ -292,6 +300,13 @@ async fn main() -> anyhow::Result<ExitCode> {
         sig = shutdown_signal() => {
             tracing::info!(signal = sig, "shutdown signal received");
         }
+    }
+    // Abort the indexer before returning. Each indexing step writes to
+    // SQLite-WAL synchronously and stamps the build number only after a
+    // kind fully commits, so aborting mid-kind is safe — the kind will
+    // simply re-run on next startup.
+    if let Some(handle) = indexer_handle {
+        handle.abort();
     }
     tracing::info!("gw2-mcp server exited cleanly");
     Ok(ExitCode::SUCCESS)

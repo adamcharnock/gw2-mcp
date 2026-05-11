@@ -149,13 +149,37 @@ impl HolderSupervisor {
     /// Spawn the in-bottle holder. Pure-best-effort: every failure mode
     /// is logged and downgrades to a disabled supervisor when
     /// `soft_failure = true`. Otherwise the error propagates.
+    ///
+    /// ## Multi-instance interaction
+    ///
+    /// On startup we sweep every host process whose argv matches
+    /// [`HOLDER_ORPHAN_MARKER`]. The marker is "holder.exe --bin-path",
+    /// which is specific enough to dodge unrelated wine processes —
+    /// but it does NOT distinguish "previous me" from "another
+    /// gw2-mcp instance running right now." If you launch two gw2-mcp
+    /// processes concurrently against the same host (e.g. one in
+    /// Claude Desktop, one in Claude Code), the second one's spawn
+    /// will TERM/KILL the first one's live holder. The first will
+    /// quietly stop receiving Mumble Link snapshots until its own
+    /// supervisor's keep-alive notices and re-spawns (it currently
+    /// doesn't keep-alive, so in practice nav tools just return
+    /// `NotConnected` from then on).
+    ///
+    /// Workaround for now: run one gw2-mcp at a time. The orphan
+    /// sweep is intentionally a coarse hammer that errs on the side
+    /// of cleaning up. If multi-instance becomes a real use case,
+    /// scope the sweep to processes whose argv ALSO contains a
+    /// fingerprint of this binary's path (e.g. exe-path or installer
+    /// id) rather than the generic marker.
     #[cfg(target_os = "macos")]
     pub fn spawn(opts: HolderSupervisorOpts) -> Self {
         // Best-effort: kill any orphan holder processes from a previous
         // gw2-mcp run that exited abnormally (panic, SIGKILL, OOM).
         // The `holder.exe --bin-path` substring is specific enough to
         // our supervisor's spawn invocation that we won't false-positive
-        // on unrelated wine processes the user may be running.
+        // on unrelated wine processes the user may be running, but it
+        // WILL false-positive on a concurrent gw2-mcp's live holder.
+        // See the doc-comment on this method.
         let orphans = kill_processes_matching(HOLDER_ORPHAN_MARKER);
         if orphans > 0 {
             tracing::info!(
@@ -506,6 +530,18 @@ fn generate_session_token() -> String {
 /// holder runs and the in-bottle/host PID gap exists. POSIX `pgrep` is
 /// also present on Linux, so the function would work there too — we
 /// just have no reason to call it.
+///
+/// ## Threading constraint — call at task root only
+///
+/// This function uses **synchronous** `std::process::Command` and
+/// `std::thread::sleep(200ms)`. It must therefore only be invoked from
+/// code paths that are NOT inside a live tokio task — specifically:
+/// from `HolderSupervisor::spawn` (called from `main` before the
+/// runtime starts dispatching tool calls) and from `Drop` (which runs
+/// when the runtime is already shutting down). Calling it from a tool
+/// handler or any other async context would block the executor for
+/// 200ms. If you need this from inside an async task in the future,
+/// wrap it in `tokio::task::spawn_blocking`.
 #[cfg(target_os = "macos")]
 fn kill_processes_matching(pattern: &str) -> usize {
     use std::process::Command;
