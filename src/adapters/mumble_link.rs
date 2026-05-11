@@ -179,8 +179,17 @@ fn parse_gw2_context(buf: &[u8; 256], context_len: u32) -> Result<MumbleContext,
     const REAL_FIELD_BYTES: usize = 85;
     let usable = (context_len as usize).min(GW2_CONTEXT_LEN);
     if usable < REAL_FIELD_BYTES {
-        return Err(MumbleError::Decode(format!(
-            "GW2 context block too small: {usable} bytes available, need {REAL_FIELD_BYTES}"
+        // GW2 writes a partial context (server/build/instance metadata
+        // only, ending at build_id = 48 bytes) while the player is at
+        // character or world select. Per-player state (player_x/_y,
+        // mount_index, etc.) only gets populated once the client loads
+        // into a map. Report it as NotConnected with the actual cause
+        // rather than Decode — this is normal during login, not a parse
+        // failure.
+        return Err(MumbleError::NotConnected(format!(
+            "GW2 is at character / world select (context_len={usable}, need {REAL_FIELD_BYTES}). \
+             Pick a character and enter the world — per-player state (position, mount, etc.) only \
+             populates once you're loaded into a map."
         )));
     }
     let struct_size = std::mem::size_of::<RawGw2Context>();
