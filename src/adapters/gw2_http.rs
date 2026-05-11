@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::adapters::error_body::truncate_error_body;
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, CharacterName,
-    Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid, Skill, SkillId,
+    Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid, Region, Skill, SkillId,
     Specialization, SpecializationId, Trait, TraitId, WalletEntry, WizardsVaultTrack,
 };
 use crate::ports::{Gw2Api, Gw2ApiError};
@@ -312,6 +312,35 @@ impl Gw2Api for HttpGw2Api {
     ) -> Result<WizardsVaultTrack, Gw2ApiError> {
         let url = format!("{}/account/wizardsvault/special", self.base_url);
         self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_regions_on_floor(
+        &self,
+        continent_id: u32,
+        floor_id: u32,
+    ) -> Result<BTreeMap<u32, Region>, Gw2ApiError> {
+        // GW2 keys the response by string-form region id. Deserialise
+        // into `BTreeMap<String, Region>` then convert keys to u32.
+        let url = format!(
+            "{}/continents/{continent_id}/floors/{floor_id}/regions",
+            self.base_url
+        );
+        let raw: BTreeMap<String, Region> = self.fetch_public_json(&url).await?;
+        let mut out = BTreeMap::new();
+        for (k, v) in raw {
+            match k.parse::<u32>() {
+                Ok(id) => {
+                    out.insert(id, v);
+                }
+                Err(_) => {
+                    // Region keys are integers — anything else is a bug.
+                    return Err(Gw2ApiError::Decode(format!(
+                        "expected integer region key, got `{k}`"
+                    )));
+                }
+            }
+        }
+        Ok(out)
     }
 }
 

@@ -109,6 +109,7 @@ impl McpServer {
             "get_my_location" => self.handle_get_my_location().await,
             "get_directions" => self.handle_get_directions(&args).await,
             "find_nearby" => self.handle_find_nearby(&args).await,
+            "list_maps_in_region" => self.handle_list_maps_in_region(&args).await,
             "describe_facing" => self.handle_describe_facing().await,
             "search_skills" => self.handle_search_skills(&args).await,
             "search_traits" => self.handle_search_traits(&args).await,
@@ -690,6 +691,32 @@ impl McpServer {
         Ok(serde_json::to_value(&res)?)
     }
 
+    async fn handle_list_maps_in_region(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let region_arg = args.get("region").ok_or(CallError::MissingArg("region"))?;
+        let query = if let Some(id) = region_arg.get("id").and_then(serde_json::Value::as_u64) {
+            crate::service::RegionQuery::Id(u32::try_from(id).map_err(|_| CallError::BadArg {
+                name: "region.id",
+                expected: "u32",
+            })?)
+        } else if let Some(name) = region_arg.get("name").and_then(|v| v.as_str()) {
+            crate::service::RegionQuery::Name(name.to_owned())
+        } else {
+            return Err(CallError::BadArg {
+                name: "region",
+                expected: "{\"id\": <int>} or {\"name\": <string>}",
+            });
+        };
+        let res = self
+            .service
+            .list_maps_in_region(query)
+            .await
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&res)?)
+    }
+
     async fn handle_describe_facing(&self) -> Result<serde_json::Value, CallError> {
         let res = self
             .service
@@ -958,8 +985,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            30,
-            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 4 navigation + 6 search = 30"
+            31,
+            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 5 navigation + 6 search = 31"
         );
     }
 

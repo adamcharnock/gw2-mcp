@@ -14,7 +14,7 @@ use thiserror::Error;
 
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, BuildSlug,
-    CharacterName, Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
+    CharacterName, Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid, Region,
     SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization, SpecializationId,
     Trait, TraitId, WalletEntry, WizardsVaultTrack,
 };
@@ -291,6 +291,15 @@ pub trait Gw2Api: Send + Sync + 'static {
         &self,
         key: &ApiKey,
     ) -> Result<WizardsVaultTrack, Gw2ApiError>;
+
+    /// `/v2/continents/{continent_id}/floors/{floor_id}/regions` —
+    /// every region on the given (continent, floor), each with its
+    /// `maps` table. Public, no key. Used to back `list_maps_in_region`.
+    async fn fetch_regions_on_floor(
+        &self,
+        continent_id: u32,
+        floor_id: u32,
+    ) -> Result<BTreeMap<u32, Region>, Gw2ApiError>;
 }
 
 // ---------------------------------------------------------------------------

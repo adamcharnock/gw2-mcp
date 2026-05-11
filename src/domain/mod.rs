@@ -9,6 +9,7 @@ pub mod bearing;
 pub mod build_code;
 pub mod build_slug;
 pub mod character;
+pub mod continents;
 pub mod currency;
 pub mod error;
 pub mod instances;
@@ -27,6 +28,7 @@ pub use bearing::{Bearing16, METERS_PER_GW2_UNIT, bearing, distance_meters, dist
 pub use build_code::BuildChatCode;
 pub use build_slug::BuildSlug;
 pub use character::CharacterName;
+pub use continents::{Region, RegionMap};
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
 pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};

@@ -465,6 +465,13 @@ mod tests {
                 "FakeApi: not used in indexing tests".into(),
             ))
         }
+        async fn fetch_regions_on_floor(
+            &self,
+            _: u32,
+            _: u32,
+        ) -> Result<BTreeMap<u32, crate::domain::Region>, Gw2ApiError> {
+            Ok(BTreeMap::new())
+        }
     }
 
     fn skill(id: u32, name: &str) -> Skill {

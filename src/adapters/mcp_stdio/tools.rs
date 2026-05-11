@@ -375,6 +375,35 @@ pub(super) fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    let list_maps_in_region_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["region"],
+        "properties": {
+            "region": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["id"],
+                        "properties": {
+                            "id": { "type": "integer", "minimum": 1, "description": "GW2 region id." }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["name"],
+                        "properties": {
+                            "name": { "type": "string", "minLength": 1, "description": "Region name (case-insensitive substring match: \"maguuma\" matches \"Maguuma Jungle\")." }
+                        }
+                    }
+                ]
+            }
+        }
+    }))
+    .expect("valid schema literal");
+
     // ----- Tier 6C search-tool schemas -----
     // Common base used by all search_* tools — query + limit. Per-entity
     // schemas extend this with kind-specific filter properties.
@@ -636,6 +665,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Find Nearby"))
         .with_output_schema::<crate::service::NearbySearchResult>(),
+        Tool::new(
+            "list_maps_in_region",
+            "List every map (zone) in a named GW2 region. Pass `region: {name: \"Maguuma Jungle\"}` for a case-insensitive substring match, or `region: {id: 4}` for a direct lookup. Returns map ids, names, and level ranges sorted by min_level so the LLM can recommend zones in progression order. Response shape: `{region_id, region_name, continent_id, maps: [{map_id, name, min_level, max_level}], total}`.",
+            list_maps_in_region_schema,
+        )
+        .annotate(read_only_open_world("List Maps In Region"))
+        .with_output_schema::<crate::service::RegionMapList>(),
         Tool::new(
             "describe_facing",
             "Describe which way the player is facing in plain English plus the closest landmark in that direction. No arguments — reads live state from Mumble Link.",

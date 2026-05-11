@@ -5,6 +5,7 @@ mod account;
 mod catalogs;
 mod character_build;
 mod decode_build;
+mod maps;
 mod navigation;
 mod reference;
 mod search;
@@ -14,6 +15,8 @@ pub use account::{
     AccountAchievementsSnapshot, AccountMasteriesSnapshot, CharacterList, DailiesWhich,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
+use maps::RegionLookupError;
+pub use maps::{RegionMapEntry, RegionMapList, RegionQuery};
 pub use navigation::{
     DirectionsResult, FacingDescription, LocationRef, MapSummary, MountInfo, MyLocationSnapshot,
     NearbyFilter, NearbySearchResult, ResolvedLocation,
@@ -80,6 +83,11 @@ pub enum ServiceError {
          POIs on this map."
     )]
     NoSuchPoi { map_id: MapId, name: String },
+
+    /// `list_maps_in_region` failed: no region matched, multiple regions
+    /// matched, or the continents catalogue is unreachable.
+    #[error("{0}")]
+    Region(#[from] RegionLookupError),
 
     #[error("{0}")]
     Search(#[from] SearchError),

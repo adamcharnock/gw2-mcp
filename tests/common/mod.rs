@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use gw2_mcp::adapters::{ChatrDecoder, StubMumbleLink};
 use gw2_mcp::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, BuildSlug,
-    CharacterName, Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid,
+    CharacterName, Currency, CurrencyId, Dungeon, Item, ItemId, Mastery, MasteryId, Raid, Region,
     SearchLimit, SearchQuery, SearchResult, Skill, SkillId, Specialization, SpecializationId,
     Trait, TraitId, WalletEntry, WizardsVaultTrack,
 };
@@ -311,6 +311,9 @@ pub struct FakeGw2Api {
     pub wizards_vault_weekly: Mutex<WizardsVaultTrack>,
     pub wizards_vault_special: Mutex<WizardsVaultTrack>,
     pub wizards_vault_calls: Mutex<usize>,
+    /// Keyed by `(continent_id, floor_id)` → `region_id → Region`.
+    pub regions_on_floor: Mutex<BTreeMap<(u32, u32), BTreeMap<u32, Region>>>,
+    pub regions_calls: Mutex<usize>,
 }
 
 impl FakeGw2Api {
@@ -358,6 +361,8 @@ impl FakeGw2Api {
             wizards_vault_weekly: Mutex::new(default_vault_track()),
             wizards_vault_special: Mutex::new(default_vault_track()),
             wizards_vault_calls: Mutex::new(0),
+            regions_on_floor: Mutex::new(BTreeMap::new()),
+            regions_calls: Mutex::new(0),
         })
     }
 
@@ -480,6 +485,20 @@ impl FakeGw2Api {
     }
     pub fn set_dungeons(&self, items: Vec<String>) {
         *self.dungeons_response.lock().unwrap() = items;
+    }
+    pub fn set_regions_on_floor(
+        &self,
+        continent_id: u32,
+        floor_id: u32,
+        regions: BTreeMap<u32, Region>,
+    ) {
+        self.regions_on_floor
+            .lock()
+            .unwrap()
+            .insert((continent_id, floor_id), regions);
+    }
+    pub fn regions_calls(&self) -> usize {
+        *self.regions_calls.lock().unwrap()
     }
 }
 
@@ -747,6 +766,21 @@ impl Gw2Api for FakeGw2Api {
     ) -> Result<WizardsVaultTrack, Gw2ApiError> {
         *self.wizards_vault_calls.lock().unwrap() += 1;
         Ok(self.wizards_vault_special.lock().unwrap().clone())
+    }
+
+    async fn fetch_regions_on_floor(
+        &self,
+        continent_id: u32,
+        floor_id: u32,
+    ) -> Result<BTreeMap<u32, Region>, Gw2ApiError> {
+        *self.regions_calls.lock().unwrap() += 1;
+        Ok(self
+            .regions_on_floor
+            .lock()
+            .unwrap()
+            .get(&(continent_id, floor_id))
+            .cloned()
+            .unwrap_or_default())
     }
 }
 

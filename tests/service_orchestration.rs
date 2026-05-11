@@ -1023,3 +1023,130 @@ async fn account_caches_under_fingerprinted_key_not_raw_secret() {
     svc.get_account(&key_a).await.unwrap();
     assert_eq!(gw2.account_calls(), 2, "first key still cached");
 }
+
+// ---------------------------------------------------------------------------
+// list_maps_in_region
+// ---------------------------------------------------------------------------
+
+fn build_test_region(
+    id: u32,
+    name: &str,
+    maps: Vec<(u32, &str, u32, u32)>,
+) -> gw2_mcp::domain::Region {
+    let mut m = BTreeMap::new();
+    for (mid, mname, lo, hi) in maps {
+        m.insert(
+            mid,
+            gw2_mcp::domain::RegionMap {
+                id: mid,
+                name: mname.to_owned(),
+                min_level: lo,
+                max_level: hi,
+                default_floor: 1,
+            },
+        );
+    }
+    gw2_mcp::domain::Region {
+        id,
+        name: name.to_owned(),
+        label_coord: None,
+        maps: m,
+    }
+}
+
+#[tokio::test]
+async fn list_maps_in_region_by_name_returns_maps_in_level_order() {
+    use gw2_mcp::service::RegionQuery;
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let mut continent1 = BTreeMap::new();
+    continent1.insert(
+        4,
+        build_test_region(
+            4,
+            "Maguuma Jungle",
+            vec![
+                (22, "Brisban Wildlands", 15, 25),
+                (873, "Caledon Forest", 1, 15),
+                (39, "Mount Maelstrom", 60, 70),
+            ],
+        ),
+    );
+    gw2.set_regions_on_floor(1, 1, continent1);
+    // Continent 2 unused but registered so the "any continent reachable"
+    // check passes.
+    gw2.set_regions_on_floor(2, 1, BTreeMap::new());
+
+    let svc = build(gw2.clone(), wiki, cache, clock);
+    let result = svc
+        .list_maps_in_region(RegionQuery::Name("maguuma".to_owned()))
+        .await
+        .unwrap();
+
+    assert_eq!(result.region_id, 4);
+    assert_eq!(result.region_name, "Maguuma Jungle");
+    assert_eq!(result.continent_id, 1);
+    assert_eq!(result.total, 3);
+    assert_eq!(
+        result.maps.iter().map(|m| m.map_id).collect::<Vec<_>>(),
+        vec![873, 22, 39],
+        "sorted by min_level ascending"
+    );
+
+    // Second call must hit the cache.
+    svc.list_maps_in_region(RegionQuery::Id(4)).await.unwrap();
+    assert_eq!(
+        gw2.regions_calls(),
+        2,
+        "first call walked both continent floors; second was cached"
+    );
+}
+
+#[tokio::test]
+async fn list_maps_in_region_ambiguous_name_errors() {
+    use gw2_mcp::service::RegionQuery;
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    let mut continent1 = BTreeMap::new();
+    continent1.insert(1, build_test_region(1, "Shiverpeak Mountains", vec![]));
+    continent1.insert(2, build_test_region(2, "Heart of Shiverpeaks", vec![]));
+    gw2.set_regions_on_floor(1, 1, continent1);
+    gw2.set_regions_on_floor(2, 1, BTreeMap::new());
+
+    let svc = build(gw2, wiki, cache, clock);
+    let err = svc
+        .list_maps_in_region(RegionQuery::Name("shiver".to_owned()))
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("multiple"), "got: {msg}");
+    assert!(msg.contains("Shiverpeak Mountains"), "got: {msg}");
+    assert!(msg.contains("Heart of Shiverpeaks"), "got: {msg}");
+}
+
+#[tokio::test]
+async fn list_maps_in_region_unknown_id_errors_with_helpful_message() {
+    use gw2_mcp::service::RegionQuery;
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    let mut continent1 = BTreeMap::new();
+    continent1.insert(4, build_test_region(4, "Maguuma Jungle", vec![]));
+    gw2.set_regions_on_floor(1, 1, continent1);
+    gw2.set_regions_on_floor(2, 1, BTreeMap::new());
+
+    let svc = build(gw2, wiki, cache, clock);
+    let err = svc
+        .list_maps_in_region(RegionQuery::Id(9999))
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("9999"), "must mention bogus id: {msg}");
+}
