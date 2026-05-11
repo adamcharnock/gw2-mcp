@@ -961,8 +961,8 @@ async fn wizards_vault_tracks_use_separate_cache_entries() {
     let key = valid_api_key();
     let d = svc.get_dailies(&key, DailiesWhich::Daily).await.unwrap();
     let w = svc.get_dailies(&key, DailiesWhich::Weekly).await.unwrap();
-    assert_eq!(d.objectives[0].id, 1);
-    assert_eq!(w.objectives[0].id, 2);
+    assert_eq!(d.track.objectives[0].id, 1);
+    assert_eq!(w.track.objectives[0].id, 2);
     assert_eq!(
         gw2.wizards_vault_calls(),
         2,

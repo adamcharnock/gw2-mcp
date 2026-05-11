@@ -424,7 +424,7 @@ impl Service {
         &self,
         key: &ApiKey,
         which: DailiesWhich,
-    ) -> Result<WizardsVaultTrack, ServiceError> {
+    ) -> Result<WizardsVaultSnapshot, ServiceError> {
         let (track_label, cache_key) = match which {
             DailiesWhich::Daily => ("daily", format!("wizardsvault:daily:{}", key.fingerprint())),
             DailiesWhich::Weekly => (
@@ -436,21 +436,23 @@ impl Service {
                 format!("wizardsvault:special:{}", key.fingerprint()),
             ),
         };
-        if let Some(json) = self.cache.get(&cache_key).await
+        let track: WizardsVaultTrack = if let Some(json) = self.cache.get(&cache_key).await
             && let Ok(t) = serde_json::from_str::<WizardsVaultTrack>(&json)
         {
             debug!(track = track_label, "wizards-vault cache hit");
-            return Ok(t);
-        }
-        let t = match which {
-            DailiesWhich::Daily => self.gw2.fetch_wizards_vault_daily(key).await?,
-            DailiesWhich::Weekly => self.gw2.fetch_wizards_vault_weekly(key).await?,
-            DailiesWhich::Special => self.gw2.fetch_wizards_vault_special(key).await?,
+            t
+        } else {
+            let t = match which {
+                DailiesWhich::Daily => self.gw2.fetch_wizards_vault_daily(key).await?,
+                DailiesWhich::Weekly => self.gw2.fetch_wizards_vault_weekly(key).await?,
+                DailiesWhich::Special => self.gw2.fetch_wizards_vault_special(key).await?,
+            };
+            if let Ok(json) = serde_json::to_string(&t) {
+                self.cache.set(&cache_key, json, DAILIES_TTL).await;
+            }
+            t
         };
-        if let Ok(json) = serde_json::to_string(&t) {
-            self.cache.set(&cache_key, json, DAILIES_TTL).await;
-        }
-        Ok(t)
+        Ok(WizardsVaultSnapshot::from_track(track))
     }
 
     pub(super) async fn fetch_currencies_for(
@@ -682,9 +684,61 @@ fn account_cache_key(key: &ApiKey) -> String {
     format!("account:{}", key.fingerprint())
 }
 
+/// `WizardsVaultTrack` plus derived acclaim totals so the LLM doesn't
+/// have to sum `objectives[].acclaim` itself to answer "how much more
+/// Astral Acclaim can I still earn this period?".
+///
+/// The track fields appear at the top level (via `#[serde(flatten)]`),
+/// so this is wire-compatible with consumers that previously saw a
+/// bare `WizardsVaultTrack` shape — they just gain three new fields.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct WizardsVaultSnapshot {
+    #[serde(flatten)]
+    pub track: WizardsVaultTrack,
+    /// Total Astral Acclaim the player could still earn this period
+    /// (sum of unclaimed objectives + the meta reward if unclaimed).
+    /// Pairs with wallet AA to flag "you're going to cap soon."
+    pub acclaim_remaining: u32,
+    /// Astral Acclaim already collected from claimed objectives + an
+    /// already-claimed meta reward. `acclaim_remaining + acclaim_earned
+    /// == acclaim_total` always holds.
+    pub acclaim_earned: u32,
+    /// Total Astral Acclaim available across all objectives + the meta
+    /// reward for this period. The denominator behind the LLM's "X%
+    /// done" sentence.
+    pub acclaim_total: u32,
+}
+
+impl WizardsVaultSnapshot {
+    fn from_track(track: WizardsVaultTrack) -> Self {
+        let mut earned: u32 = 0;
+        let mut remaining: u32 = 0;
+        for obj in &track.objectives {
+            if obj.claimed {
+                earned = earned.saturating_add(obj.acclaim);
+            } else {
+                remaining = remaining.saturating_add(obj.acclaim);
+            }
+        }
+        if track.meta_reward_claimed {
+            earned = earned.saturating_add(track.meta_reward_astral);
+        } else {
+            remaining = remaining.saturating_add(track.meta_reward_astral);
+        }
+        let total = earned.saturating_add(remaining);
+        Self {
+            track,
+            acclaim_remaining: remaining,
+            acclaim_earned: earned,
+            acclaim_total: total,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::WizardsVaultObjective;
 
     #[test]
     fn wallet_cache_key_uses_fingerprint() {
@@ -695,5 +749,83 @@ mod tests {
         let cache_key = wallet_cache_key(&key);
         assert!(cache_key.starts_with("wallet:"));
         assert!(!cache_key.contains("AAAA"), "raw key leaked into cache key");
+    }
+
+    fn obj(acclaim: u32, claimed: bool) -> WizardsVaultObjective {
+        WizardsVaultObjective {
+            id: 1,
+            title: String::new(),
+            track: String::new(),
+            acclaim,
+            progress_current: 0,
+            progress_complete: 1,
+            claimed,
+        }
+    }
+
+    fn track(
+        objectives: Vec<WizardsVaultObjective>,
+        meta: u32,
+        meta_claimed: bool,
+    ) -> WizardsVaultTrack {
+        WizardsVaultTrack {
+            meta_progress_current: 0,
+            meta_progress_complete: 4,
+            meta_reward_item_id: None,
+            meta_reward_astral: meta,
+            meta_reward_claimed: meta_claimed,
+            objectives,
+        }
+    }
+
+    #[test]
+    fn vault_snapshot_sums_remaining_and_earned() {
+        let snap = WizardsVaultSnapshot::from_track(track(
+            vec![
+                obj(25, true),  // claimed → earned
+                obj(25, false), // unclaimed → remaining
+                obj(50, false), // unclaimed → remaining
+            ],
+            50, // meta reward
+            false,
+        ));
+        assert_eq!(snap.acclaim_earned, 25);
+        assert_eq!(snap.acclaim_remaining, 25 + 50 + 50);
+        assert_eq!(snap.acclaim_total, 25 + 25 + 50 + 50);
+    }
+
+    #[test]
+    fn vault_snapshot_credits_claimed_meta_to_earned() {
+        let snap =
+            WizardsVaultSnapshot::from_track(track(vec![obj(25, true), obj(25, false)], 50, true));
+        assert_eq!(snap.acclaim_earned, 25 + 50);
+        assert_eq!(snap.acclaim_remaining, 25);
+        assert_eq!(snap.acclaim_total, 100);
+    }
+
+    #[test]
+    fn vault_snapshot_handles_fully_claimed_track() {
+        let snap = WizardsVaultSnapshot::from_track(track(
+            vec![obj(25, true), obj(25, true), obj(50, true)],
+            50,
+            true,
+        ));
+        assert_eq!(snap.acclaim_remaining, 0);
+        assert_eq!(snap.acclaim_earned, 150);
+        assert_eq!(snap.acclaim_total, 150);
+    }
+
+    #[test]
+    fn vault_snapshot_serialises_track_fields_flat() {
+        // `#[serde(flatten)]` must expose `meta_reward_astral` and
+        // `objectives` at the top level so the wire shape stays
+        // backward-compatible with consumers that read the bare track
+        // shape before this snapshot was introduced.
+        let snap = WizardsVaultSnapshot::from_track(track(vec![obj(25, false)], 50, false));
+        let v = serde_json::to_value(&snap).unwrap();
+        assert!(v.get("meta_reward_astral").is_some());
+        assert!(v.get("objectives").is_some());
+        assert_eq!(v["acclaim_remaining"], 25 + 50);
+        assert_eq!(v["acclaim_total"], 75);
     }
 }

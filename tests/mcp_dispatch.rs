@@ -963,6 +963,19 @@ async fn dispatch_get_dailies_daily_returns_wizards_vault_objectives() {
     assert_eq!(objectives.len(), 4);
     assert_eq!(objectives[0]["title"], "Complete an Event");
     assert_eq!(v["meta_reward_astral"], 50);
+
+    // Acclaim rollup is computed at the service layer.
+    // Fixture: id 1 (25, claimed), id 2 (25, unclaimed), id 3 (25,
+    // claimed), id 4 (25, unclaimed); meta_reward_astral 50, unclaimed.
+    assert_eq!(
+        v["acclaim_earned"], 50,
+        "earned = sum of claimed objectives (id 1 + id 3 = 50)"
+    );
+    assert_eq!(
+        v["acclaim_remaining"], 100,
+        "remaining = unclaimed objectives (25 + 25) + meta (50)"
+    );
+    assert_eq!(v["acclaim_total"], 150);
 }
 
 #[tokio::test]
