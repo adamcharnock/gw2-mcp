@@ -287,7 +287,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     let search_enabled = !cli.no_search_index;
     if search_enabled {
         match resolve_index_path(cli.cache_dir.as_deref()) {
-            Ok(path) => match SqliteSearchIndex::open(&path) {
+            Ok(path) => match SqliteSearchIndex::open(&path).await {
                 Ok(idx_concrete) => {
                     tracing::info!(path = %path.display(), "search index opened");
                     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);

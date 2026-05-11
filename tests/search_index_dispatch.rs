@@ -80,7 +80,7 @@ async fn search_skills_dispatches_through_mcp() {
     api.add_skill(skill_with(2, "Mind Stab", "Mesmer"));
     api.add_skill(skill_with(3, "Backstab", "Thief"));
 
-    let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+    let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
     let pipeline = IndexingPipeline::new(api.clone(), idx.clone(), IndexingOpts::default());
     pipeline.ensure_fresh().await.unwrap();
@@ -103,7 +103,7 @@ async fn search_skills_with_profession_filter() {
     api.add_skill(skill_with(1, "Bladesong Sorrow", "Mesmer"));
     api.add_skill(skill_with(2, "Bladestorm", "Warrior"));
 
-    let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+    let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
     IndexingPipeline::new(api.clone(), idx.clone(), IndexingOpts::default())
         .ensure_fresh()
@@ -127,7 +127,7 @@ async fn search_skills_with_profession_filter() {
 async fn search_returns_not_indexed_when_empty() {
     let api = FakeGw2Api::new();
     // Don't run any indexing — index stays empty.
-    let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+    let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
 
     let mcp = build_search_server(api, idx);
@@ -169,7 +169,7 @@ async fn search_disabled_returns_typed_error() {
 #[tokio::test]
 async fn search_short_query_rejected() {
     let api = FakeGw2Api::new();
-    let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+    let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
     let mcp = build_search_server(api, idx);
     let err = mcp
@@ -185,7 +185,7 @@ async fn get_index_status_returns_per_kind_counts() {
     api.add_skill(skill_with(1, "Foo", "Mesmer"));
     api.add_achievement(achievement_with(1, "Bar", "Daily"));
 
-    let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+    let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
     IndexingPipeline::new(api.clone(), idx.clone(), IndexingOpts::default())
         .ensure_fresh()
@@ -216,7 +216,7 @@ async fn search_items_only_after_with_items() {
     let api = FakeGw2Api::new();
     api.add_item(item_with(1, "Berserker's Sword", "Exotic"));
 
-    let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+    let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
     // Default (without items) — items table stays empty.
     IndexingPipeline::new(api.clone(), idx.clone(), IndexingOpts::default())
@@ -257,7 +257,7 @@ async fn build_number_invalidation_triggers_reindex() {
     api.add_skill(skill_with(1, "First", "Mesmer"));
     api.set_build_number(1);
 
-    let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+    let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
     let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
     let pipeline = IndexingPipeline::new(api.clone(), idx.clone(), IndexingOpts::default());
     pipeline.ensure_fresh().await.unwrap();

@@ -88,10 +88,18 @@ bytemuck = { version = "1", features = ["derive"] }
 # Cross-platform memory mapping for /dev/shm/MumbleLink (Linux + Wine on macOS).
 memmap2 = "0.9"
 
-# On-disk search index (Tier 6C). `bundled` statically links SQLite — keeps
-# the distroless container self-contained with no system dep, and means CI
-# doesn't have to install libsqlite3-dev. FTS5 is compiled in by default.
-rusqlite = { version = "0.37", features = ["bundled"] }
+# On-disk search index (Tier 6C). `sqlx` is async-first (no spawn_blocking
+# dance), pools connections natively, and the `migrate` feature embeds the
+# files under `migrations/` at compile time. `sqlite` pulls in
+# `libsqlite3-sys` with the bundled SQLite — keeps the distroless container
+# self-contained with no system dep, and means CI doesn't have to install
+# libsqlite3-dev. FTS5 is compiled in by default.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "macros",
+    "sqlite",
+    "migrate",
+] }
 # OS-standard cache directory resolution.
 directories = "5"
 

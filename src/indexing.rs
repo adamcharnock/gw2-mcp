@@ -492,7 +492,8 @@ mod tests {
             .lock()
             .unwrap()
             .insert(SkillId::new(1).unwrap(), skill(1, "S"));
-        let idx: Arc<dyn SearchIndex> = Arc::new(SqliteSearchIndex::open_in_memory().unwrap());
+        let idx: Arc<dyn SearchIndex> =
+            Arc::new(SqliteSearchIndex::open_in_memory().await.unwrap());
         idx.set_build_number(99).await.unwrap();
         let pipeline = IndexingPipeline::new(api.clone(), idx, IndexingOpts::default());
         let refreshed = pipeline.ensure_fresh().await.unwrap();
@@ -516,7 +517,7 @@ mod tests {
                 extra: e,
             }
         });
-        let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+        let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
         let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
         let pipeline = IndexingPipeline::new(api.clone(), idx.clone(), IndexingOpts::default());
 
@@ -540,7 +541,8 @@ mod tests {
             .lock()
             .unwrap()
             .insert(SkillId::new(1).unwrap(), skill(1, "S"));
-        let idx: Arc<dyn SearchIndex> = Arc::new(SqliteSearchIndex::open_in_memory().unwrap());
+        let idx: Arc<dyn SearchIndex> =
+            Arc::new(SqliteSearchIndex::open_in_memory().await.unwrap());
         idx.set_build_number(7).await.unwrap();
         let pipeline = IndexingPipeline::new(
             api.clone(),
@@ -568,7 +570,7 @@ mod tests {
                 extra: e,
             }
         });
-        let idx_concrete = SqliteSearchIndex::open_in_memory().unwrap();
+        let idx_concrete = SqliteSearchIndex::open_in_memory().await.unwrap();
         let idx: Arc<dyn SearchIndex> = Arc::new(idx_concrete);
         let pipeline = IndexingPipeline::new(
             api.clone(),
