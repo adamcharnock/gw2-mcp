@@ -10,6 +10,7 @@
 
 pub mod adapters;
 pub mod cli;
+pub mod dev_build;
 pub mod domain;
 pub mod indexing;
 pub mod ports;

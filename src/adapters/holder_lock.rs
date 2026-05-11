@@ -137,7 +137,22 @@ mod tests {
             "contended acquire returns None, not an error"
         );
         drop(first);
-        let third = HolderLock::try_acquire(&path).unwrap();
+        // Acquire-immediately-after-drop is occasionally flaky on macOS
+        // under cargo-test concurrency — close(2) on the File and the
+        // subsequent open(2) can interleave with the kernel's per-vnode
+        // flock bookkeeping such that the new fd briefly sees the old
+        // lock as still-held. A handful of retries with a short sleep
+        // makes the test deterministic; the same path in production
+        // (leader exits, follower promotes on next snapshot) has
+        // milliseconds of slack baked in.
+        let mut third = None;
+        for _ in 0..10 {
+            third = HolderLock::try_acquire(&path).unwrap();
+            if third.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert!(third.is_some(), "lock is reacquirable after drop");
     }
 

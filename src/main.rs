@@ -200,7 +200,24 @@ async fn main() -> anyhow::Result<ExitCode> {
     let holder_supervisor: HolderSupervisor = if cli.no_mumble_link || cli.no_mumble_holder {
         HolderSupervisor::disabled()
     } else {
-        HolderSupervisor::spawn(HolderSupervisorOpts::default())
+        // If we're running from a cargo workspace (e.g. `cargo run` in
+        // this repo), cross-build gw2-mcp-holder.exe on demand so the
+        // supervisor doesn't need a manually-built sibling binary. No-op
+        // on Linux/Windows and outside dev workspaces. Toolchain
+        // failures here are not soft — print the install hint and exit
+        // so the contributor fixes the prereq before testing nav tools.
+        let holder_exe_source = match gw2_mcp::dev_build::ensure_holder_built_if_dev() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("error: gw2-mcp-holder.exe auto-build: {e}");
+                std::process::exit(1);
+            }
+        };
+        let opts = HolderSupervisorOpts {
+            holder_exe_source,
+            ..HolderSupervisorOpts::default()
+        };
+        HolderSupervisor::spawn(opts)
     };
 
     // Mumble Link adapter — auto-probe unless --no-mumble-link is set.

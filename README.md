@@ -463,6 +463,25 @@ reaches the cache or appears in stderr output.
 Pre-commit hooks (via lefthook) gate on: rejecting unsigned commits, gitleaks,
 `cargo fmt`, `cargo clippy -D warnings`, and `cargo test`.
 
+### macOS dev: auto-built holder
+
+When `gw2-mcp` is launched from a cargo workspace on macOS (e.g. `cargo
+run` in this repo), it cross-builds `gw2-mcp-holder.exe` on demand and
+hands the resulting path to the in-bottle supervisor — so the local-run
+flow matches the release-tarball shape without manual build steps. The
+first cross-build takes 1-3 minutes; later runs are instant.
+
+Prerequisites (one-time):
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+brew install mingw-w64        # or pkgsCross.mingwW64.buildPackages.gcc on nix
+```
+
+Set `GW2_NO_AUTO_BUILD_HOLDER=1` to disable the convenience (e.g. when
+you're iterating on `src/bin/holder.rs` with a separate `cargo watch`
+and don't want gw2-mcp racing against it).
+
 ## Logging
 
 Logs go to **stderr only** — stdout is reserved for the MCP protocol.
