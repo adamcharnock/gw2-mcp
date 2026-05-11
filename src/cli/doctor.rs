@@ -135,12 +135,88 @@ pub fn run() -> ExitCode {
     }
 }
 
+/// Linux-side Mumble Link diagnostics. The game (via Wine/Proton) writes
+/// a 5460-byte `/dev/shm/MumbleLink` while running; absence or staleness
+/// pinpoints why nav tools return `NotConnected`.
+fn collect_results_linux() -> Vec<CheckResult> {
+    const MUMBLE_PATH: &str = "/dev/shm/MumbleLink";
+    const EXPECTED_SIZE: u64 = 5460;
+    const FRESH_THRESHOLD_SECS: u64 = 10;
+
+    let path = std::path::Path::new(MUMBLE_PATH);
+    let Ok(md) = std::fs::metadata(path) else {
+        return vec![CheckResult::fail(
+            format!("{MUMBLE_PATH} not present"),
+            "No Mumble Link shared-memory file exists. GW2 (running under \
+             Wine, Proton, or Steam) writes this when the game is loaded \
+             to a character.",
+            "Start GW2 and log in to a character. If you launch via Steam, \
+             check that Proton is recent enough (Proton 7+ supports Mumble \
+             Link). The MCP server reads this path directly — no extra \
+             helper is needed on Linux.",
+        )];
+    };
+
+    let size = md.len();
+    let age = md
+        .modified()
+        .ok()
+        .and_then(|m| m.elapsed().ok())
+        .map_or(u64::MAX, |d| d.as_secs());
+
+    if size != EXPECTED_SIZE {
+        return vec![CheckResult::warn(
+            format!("{MUMBLE_PATH} has unexpected size"),
+            format!("Got {size} bytes; expected {EXPECTED_SIZE}."),
+            "The file is the wrong shape — something other than GW2 may \
+             have created it. Try removing it and restarting GW2.",
+        )];
+    }
+
+    if age > FRESH_THRESHOLD_SECS {
+        return vec![CheckResult::warn(
+            format!("{MUMBLE_PATH} is stale"),
+            format!("Last write {age}s ago; GW2 writes every frame while running."),
+            "Open GW2 and log in to a character. If GW2 is already running, \
+             it may have crashed or you may be on the title screen (no \
+             Mumble Link writes until you load a character).",
+        )];
+    }
+
+    vec![CheckResult::ok(
+        format!("{MUMBLE_PATH} is fresh"),
+        format!("Size {EXPECTED_SIZE} bytes, last write {age}s ago — GW2 is writing live state."),
+    )]
+}
+
+/// Windows-side guidance. We can't easily probe the named-mapping
+/// `MumbleLink` object from CLI without FFI, and the diagnosis is
+/// usually about user-session / privilege mismatches rather than file
+/// state.
+fn collect_results_windows() -> Vec<CheckResult> {
+    vec![CheckResult::ok(
+        "Platform",
+        "On Windows, gw2-mcp reads Mumble Link via the named file mapping \
+         GW2 writes. There's no in-bottle helper to diagnose. If nav \
+         tools return `NotConnected`: (1) ensure GW2 is running on the \
+         same machine; (2) check that gw2-mcp and GW2 are running as the \
+         same Windows user (named mappings are per-session); (3) confirm \
+         you're using Gw2-64.exe, not the 32-bit launcher.",
+    )]
+}
+
 fn collect_results(ctx: &DoctorContext) -> Vec<CheckResult> {
+    if cfg!(target_os = "linux") {
+        return collect_results_linux();
+    }
+    if cfg!(target_os = "windows") {
+        return collect_results_windows();
+    }
     if !cfg!(target_os = "macos") {
         return vec![CheckResult::ok(
             "Platform",
-            "gw2-mcp doctor is macOS-only. On Linux/Windows the in-bottle \
-             helper is not used — Mumble Link is read directly.",
+            "gw2-mcp doctor has no checks for this OS. Mumble Link \
+             support varies — see the README.",
         )];
     }
     let mut out = Vec::new();

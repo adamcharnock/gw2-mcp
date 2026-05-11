@@ -122,6 +122,21 @@ quarantine attribute on both binaries:
 xattr -d com.apple.quarantine ./gw2-mcp ./gw2-mcp-holder.exe
 ```
 
+### Two self-diagnostic commands
+
+After extracting the tarball but before wiring anything into an MCP
+client, run:
+
+```bash
+./gw2-mcp print-config         # emits paste-ready JSON for Claude Desktop
+./gw2-mcp doctor               # diagnoses Mumble Link / GW2 state on this host
+```
+
+`doctor` works on macOS (CrossOver/Whisky bottle discovery, holder
+install, mirror freshness, GW2 writing), Linux (`/dev/shm/MumbleLink`
+presence + freshness), and Windows (sanity guidance). It exits non-zero
+on any failure, so `doctor && launch-claude` pipelines correctly.
+
 ## MCP client config
 
 The server speaks MCP over stdio, so every client that supports
@@ -163,7 +178,15 @@ absolute path filled in (`--api-key` / `--bottle` flags inject env vars).
 **Project-scoped** (preferred): a `.mcp.json` ships in this repo's root
 that runs the server via `cargo run --release --quiet --bin gw2-mcp`.
 Anyone who clones the repo and launches Claude Code from the project
-directory gets the `gw2` server automatically — no setup.
+directory gets the `gw2` server automatically — no further setup.
+
+> **First-launch warning.** On a fresh clone with no built `target/`,
+> the first time Claude Code starts the server it triggers a full
+> `cargo build --release` of the whole crate (~30–60s, sometimes a few
+> minutes on a cold cache). `--quiet` suppresses build progress, so
+> Claude Code will appear hung while cargo works. Run
+> `cargo build --release` once up front to avoid this — subsequent
+> launches are instant.
 
 **User-scoped** (any working directory):
 
@@ -321,6 +344,12 @@ What the supervisor does on first launch:
 **Prerequisites**: CrossOver *or* Whisky installed, with Guild Wars 2 in
 a bottle. The supervisor doesn't install GW2 — it just plugs into your
 existing bottle.
+
+**Run one gw2-mcp at a time on macOS.** The startup sweep that cleans
+up orphan holders from a crashed previous run will also TERM/KILL the
+*live* holder of any other gw2-mcp instance running concurrently. If you
+need both Claude Desktop and Claude Code to expose nav tools at the same
+time, point them at separate hosts.
 
 If anything fails (no CrossOver/Whisky, no bottle, missing launcher), the
 server logs a warning and continues without nav-tool support — every other
