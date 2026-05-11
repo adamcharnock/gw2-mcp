@@ -263,10 +263,45 @@ async fn main() -> anyhow::Result<ExitCode> {
 
     let server = McpServer::new(service);
 
+    // We race the MCP serve loop against signal delivery so SIGINT/SIGTERM
+    // cause a clean return from `main` instead of a hard process exit. The
+    // clean return is what lets `_holder_supervisor`'s Drop fire (and
+    // therefore terminate the in-bottle holder). Without this, killing
+    // gw2-mcp from a terminal would leave holder.exe orphaned until the
+    // next gw2-mcp startup's orphan-sweep ran.
     tracing::info!("starting gw2-mcp server (stdio)");
-    server.serve_stdio().await?;
+    tokio::select! {
+        res = server.serve_stdio() => res?,
+        sig = shutdown_signal() => {
+            tracing::info!(signal = sig, "shutdown signal received");
+        }
+    }
     tracing::info!("gw2-mcp server exited cleanly");
     Ok(ExitCode::SUCCESS)
+}
+
+/// Await either SIGINT (Ctrl-C) or SIGTERM (`kill <pid>`) and report
+/// which one fired. On non-Unix targets we fall back to Ctrl-C only.
+/// SIGKILL is uncatchable by definition and bypasses this entirely —
+/// orphan-cleanup at the next startup handles that case.
+async fn shutdown_signal() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        // .expect: SIGTERM/SIGINT handler installation only fails when
+        // tokio's signal runtime isn't initialized, which we control.
+        let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
+        tokio::select! {
+            _ = sigterm.recv() => "SIGTERM",
+            _ = sigint.recv() => "SIGINT",
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        "Ctrl-C"
+    }
 }
 
 /// Resolve the on-disk path of the search index file from the optional

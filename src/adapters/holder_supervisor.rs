@@ -41,6 +41,20 @@ const DEFAULT_WHISKY_WINE_PATH: &str =
 const DEFAULT_CXSTART_PATH: &str =
     "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/cxstart";
 
+/// Substring that appears in every holder process's argv on the host
+/// (both `CrossOver` and Whisky spawns include `--bin-path` literally).
+/// Used by [`HolderSupervisor::spawn`] to identify and kill orphan
+/// holders from a prior gw2-mcp run that exited abnormally. Specific
+/// enough that we won't false-positive on other wine apps.
+#[cfg(target_os = "macos")]
+const HOLDER_ORPHAN_MARKER: &str = "holder.exe --bin-path";
+
+/// Length of the random session-token in bytes (encoded as hex it
+/// becomes 16 chars — 64 bits of entropy, more than enough to uniquely
+/// identify our holder among all host processes).
+#[cfg(target_os = "macos")]
+const SESSION_TOKEN_BYTES: usize = 8;
+
 /// Tunable knobs for the supervisor. Defaults match documented Wine
 /// wrapper install locations; the `GW2_BOTTLE` env var pins a specific
 /// bottle name across both runners.
@@ -98,7 +112,17 @@ pub struct HolderSupervisor {
 #[derive(Debug)]
 #[cfg(target_os = "macos")]
 struct Inner {
+    /// The cxstart/wine64 process we spawned directly. With `CrossOver`'s
+    /// `--no-wait` this is a fire-and-forget launcher that exits almost
+    /// immediately — so `child.kill()` alone is *not* enough to terminate
+    /// the actual holder.exe (which gets reparented to PID 1). The
+    /// `session_token` below is the reliable kill mechanism.
     child: std::process::Child,
+    /// Random hex passed to the holder via `--session-token`. The token
+    /// shows up in the holder's argv on the host, so `pgrep -f <token>`
+    /// finds the exact host PID running our holder. Drop kills by token
+    /// regardless of whether the immediate `child` is still alive.
+    session_token: String,
 }
 
 #[derive(Debug)]
@@ -127,16 +151,34 @@ impl HolderSupervisor {
     /// `soft_failure = true`. Otherwise the error propagates.
     #[cfg(target_os = "macos")]
     pub fn spawn(opts: HolderSupervisorOpts) -> Self {
-        match spawn_macos(&opts) {
+        // Best-effort: kill any orphan holder processes from a previous
+        // gw2-mcp run that exited abnormally (panic, SIGKILL, OOM).
+        // The `holder.exe --bin-path` substring is specific enough to
+        // our supervisor's spawn invocation that we won't false-positive
+        // on unrelated wine processes the user may be running.
+        let orphans = kill_processes_matching(HOLDER_ORPHAN_MARKER);
+        if orphans > 0 {
+            tracing::info!(
+                killed = orphans,
+                "cleaned up {orphans} orphan holder process(es) from a previous run"
+            );
+        }
+
+        let session_token = generate_session_token();
+        match spawn_macos(&opts, &session_token) {
             Ok(SpawnResult { child, bottle }) => {
                 tracing::info!(
                     bottle = %bottle.name,
                     runner = bottle.runner.as_str(),
                     pid = child.id(),
+                    session = %session_token,
                     "in-bottle Mumble Link holder spawned"
                 );
                 Self {
-                    inner: Some(Inner { child }),
+                    inner: Some(Inner {
+                        child,
+                        session_token,
+                    }),
                 }
             }
             Err(e) if opts.soft_failure => {
@@ -172,17 +214,33 @@ impl Drop for HolderSupervisor {
     fn drop(&mut self) {
         #[cfg(target_os = "macos")]
         if let Some(mut inner) = self.inner.take() {
-            // SIGTERM via std::process::Child::kill (sends SIGKILL on Unix
-            // — we accept that; the holder writes idempotent files and
-            // the OS drops the named mapping when the process dies).
-            if let Err(e) = inner.child.kill() {
-                tracing::warn!(error = ?e, "failed to terminate holder child");
-            }
-            // Reap the child to avoid a zombie. We ignore the wait result
-            // intentionally: by the time we reach this branch we've
-            // already killed the process, so the only thing wait() tells
-            // us is "yes, dead" — which we already know.
+            // Step 1: try to kill the immediate child we spawned. For
+            // Whisky (direct `wine64` invocation) this IS the holder, so
+            // this is sufficient. For CrossOver (`cxstart --no-wait`) the
+            // child is the launcher process which has long since exited;
+            // this kill is a no-op there.
+            let _ = inner.child.kill();
             let _ = inner.child.wait();
+
+            // Step 2: chase the real holder via its session token, which
+            // we passed via `--session-token` and which is visible in the
+            // host process's argv. This is the reliable path for both
+            // runners — orphans cannot survive it short of pgrep itself
+            // being unavailable on the host (extremely unlikely on macOS).
+            let killed = kill_processes_matching(&inner.session_token);
+            if killed > 0 {
+                tracing::debug!(
+                    session = %inner.session_token,
+                    count = killed,
+                    "terminated in-bottle holder"
+                );
+            } else {
+                tracing::debug!(
+                    session = %inner.session_token,
+                    "no holder process matched session token at Drop time \
+                     (already exited?)"
+                );
+            }
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -200,7 +258,7 @@ struct SpawnResult {
 }
 
 #[cfg(target_os = "macos")]
-fn spawn_macos(opts: &HolderSupervisorOpts) -> anyhow::Result<SpawnResult> {
+fn spawn_macos(opts: &HolderSupervisorOpts, session_token: &str) -> anyhow::Result<SpawnResult> {
     let bottle = bottle_discovery::pick_gw2_bottle(opts.bottle_override.as_deref())
         .ok_or_else(|| no_bottle_error(opts))?;
 
@@ -225,6 +283,7 @@ fn spawn_macos(opts: &HolderSupervisorOpts) -> anyhow::Result<SpawnResult> {
         runner = bottle.runner.as_str(),
         exe = %dest_exe.display(),
         bin_path = %bin_path_win,
+        session = %session_token,
         "launching holder"
     );
 
@@ -234,12 +293,14 @@ fn spawn_macos(opts: &HolderSupervisorOpts) -> anyhow::Result<SpawnResult> {
             &bottle.name,
             &exe_path_win,
             &bin_path_win,
+            session_token,
         )?,
         bottle_discovery::Runner::Whisky => spawn_whisky(
             &opts.whisky_wine_path,
             &bottle.root,
             &dest_exe,
             &bin_path_win,
+            session_token,
         )?,
     };
     Ok(SpawnResult { child, bottle })
@@ -281,6 +342,7 @@ fn spawn_crossover(
     bottle_name: &str,
     exe_path_win: &str,
     bin_path_win: &str,
+    session_token: &str,
 ) -> anyhow::Result<std::process::Child> {
     use std::process::{Command, Stdio};
 
@@ -290,11 +352,12 @@ fn spawn_crossover(
             cxstart_path.display()
         );
     }
-    // --no-wait so cxstart returns control immediately (the holder runs
-    // for the lifetime of gw2-mcp). Our Drop handler kills the child by
-    // PID, which works because cxstart's exec child is the wine process
-    // that becomes the parent of holder.exe — killing the immediate
-    // child still triggers the wineserver-side cleanup.
+    // --no-wait so cxstart returns control immediately. The actual
+    // holder.exe runs under the wineserver and gets reparented to PID 1
+    // shortly after launch, so the Rust `Child` we get back becomes
+    // useless within milliseconds. The supervisor's Drop relies on the
+    // `--session-token` argv marker, not this `Child`, to terminate the
+    // holder cleanly.
     let child = Command::new(cxstart_path)
         .arg("--bottle")
         .arg(bottle_name)
@@ -302,6 +365,8 @@ fn spawn_crossover(
         .arg(exe_path_win)
         .arg("--bin-path")
         .arg(bin_path_win)
+        .arg("--session-token")
+        .arg(session_token)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -315,6 +380,7 @@ fn spawn_whisky(
     bottle_root: &Path,
     holder_host_path: &Path,
     bin_path_win: &str,
+    session_token: &str,
 ) -> anyhow::Result<std::process::Child> {
     use std::process::{Command, Stdio};
 
@@ -327,7 +393,10 @@ fn spawn_whisky(
     }
     // Whisky bottles don't have a `cxstart`-like wrapper; we invoke the
     // bundled wine64 directly. WINEPREFIX points at the bottle root;
-    // wine64 takes the .exe as a host path (it auto-translates).
+    // wine64 takes the .exe as a host path (it auto-translates). The
+    // wine64 process exec's into the holder, so killing the returned
+    // child IS killing the holder for the Whisky runner — but we still
+    // pass the session token so Drop's fall-back cleanup works uniformly.
     let child = Command::new(wine_path)
         .env("WINEPREFIX", bottle_root)
         // Suppress fixup-on-first-launch chatter when possible. Wine
@@ -337,6 +406,8 @@ fn spawn_whisky(
         .arg(holder_host_path)
         .arg("--bin-path")
         .arg(bin_path_win)
+        .arg("--session-token")
+        .arg(session_token)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -407,6 +478,71 @@ fn file_sha256(path: &Path) -> anyhow::Result<[u8; 32]> {
     Ok(hasher.finalize().into())
 }
 
+/// Generate a fresh per-supervisor session token. Pure random bytes
+/// rendered as hex — no system identifiers that might leak about the
+/// user, no clock skew or PID-recycling concerns.
+#[cfg(target_os = "macos")]
+fn generate_session_token() -> String {
+    use rand::RngCore;
+    let mut buf = [0u8; SESSION_TOKEN_BYTES];
+    rand::thread_rng().fill_bytes(&mut buf);
+    hex::encode(buf)
+}
+
+/// Find every host process whose full argv contains `pattern`, send it
+/// SIGTERM, give it a 200ms grace period, then SIGKILL anything still
+/// alive. Returns the number of distinct PIDs we sent at least one
+/// signal to. Best-effort: if `pgrep` itself is unavailable we log at
+/// debug-level and return 0, letting the caller continue.
+///
+/// Used in two places:
+/// 1. [`HolderSupervisor::spawn`] — sweeps orphans matching the generic
+///    `HOLDER_ORPHAN_MARKER` from a previous gw2-mcp run that didn't
+///    Drop cleanly.
+/// 2. The supervisor's `Drop` — kills the specific holder we own by
+///    matching the per-instance session token we passed via `--session-token`.
+///
+/// Lives on macOS only because that's the only platform where the
+/// holder runs and the in-bottle/host PID gap exists. POSIX `pgrep` is
+/// also present on Linux, so the function would work there too — we
+/// just have no reason to call it.
+#[cfg(target_os = "macos")]
+fn kill_processes_matching(pattern: &str) -> usize {
+    use std::process::Command;
+
+    let Ok(output) = Command::new("pgrep").arg("-f").arg(pattern).output() else {
+        tracing::debug!(
+            pattern,
+            "pgrep unavailable; cannot enumerate matching processes"
+        );
+        return 0;
+    };
+    let pids: Vec<String> = std::str::from_utf8(&output.stdout)
+        .unwrap_or("")
+        .split_whitespace()
+        .map(String::from)
+        .collect();
+    if pids.is_empty() {
+        return 0;
+    }
+    // SIGTERM first — gives the holder a chance to clean up even though
+    // it has no real cleanup to do. Anyone reading logs sees TERM, not
+    // KILL, which is the conventional "asked nicely" signal.
+    for pid in &pids {
+        let _ = Command::new("kill").arg("-TERM").arg(pid).status();
+    }
+    // Brief grace period before escalating. 200ms is well over the
+    // holder's typical 50ms poll cycle, so anything that's going to
+    // exit on TERM has already done so.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Anything still alive: SIGKILL. `kill -KILL` on an already-dead
+    // PID just errors silently — we don't bother distinguishing.
+    for pid in &pids {
+        let _ = Command::new("kill").arg("-KILL").arg(pid).status();
+    }
+    pids.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,5 +568,78 @@ mod tests {
         };
         let s = HolderSupervisor::spawn(opts);
         assert!(!s.is_active());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn session_tokens_are_unique_and_well_formed() {
+        let a = generate_session_token();
+        let b = generate_session_token();
+        assert_ne!(a, b, "two tokens should be different");
+        assert_eq!(
+            a.len(),
+            SESSION_TOKEN_BYTES * 2,
+            "hex doubles the byte count"
+        );
+        assert!(
+            a.chars().all(|c| c.is_ascii_hexdigit()),
+            "token should be pure hex"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn kill_processes_matching_terminates_processes_with_token_in_argv() {
+        use std::process::{Command, Stdio};
+        use std::time::Duration;
+
+        // Use perl as the long-running stand-in. It's pre-installed on
+        // every macOS, behaves predictably (no `bash -c` exec-optimization,
+        // no coreutils-multicall argv[0] dispatching that some users have
+        // on PATH via Homebrew), and the token rides through as a trailing
+        // positional arg that's visible to both `ps` and `pgrep -f`.
+        // This mirrors what happens at runtime: our holder accepts
+        // `--session-token <token>` and the token lands in argv.
+        let token = generate_session_token();
+        let mut child = Command::new("perl")
+            .arg("-e")
+            .arg("sleep 60")
+            .arg(&token)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn perl");
+
+        // pgrep needs a beat to see the new process.
+        std::thread::sleep(Duration::from_millis(150));
+
+        let killed = kill_processes_matching(&token);
+        assert!(killed >= 1, "expected at least one matching process");
+
+        // Give the kill chain (TERM + 200ms + KILL) time to land.
+        std::thread::sleep(Duration::from_millis(500));
+
+        // `try_wait()` is the right liveness check here. `kill -0 <pid>`
+        // returns success for zombies too — and the perl we killed
+        // becomes a zombie because *this* test process is its parent
+        // and Rust hasn't reaped it. try_wait reaps and tells us
+        // whether the child has actually exited.
+        let exit = child
+            .try_wait()
+            .expect("try_wait should succeed on owned child");
+        assert!(
+            exit.is_some(),
+            "perl child should have exited after kill_processes_matching"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn kill_processes_matching_returns_zero_when_no_match() {
+        // A token that can't possibly match any real process.
+        let bogus = format!("--no-match-pattern-{}", generate_session_token());
+        let killed = kill_processes_matching(&bogus);
+        assert_eq!(killed, 0);
     }
 }

@@ -80,6 +80,14 @@ mod win {
         /// Print verbose state every N polls (0 = silent past startup).
         #[arg(long, default_value_t = 0)]
         log_every: u32,
+
+        /// Opaque marker the supervisor uses to find this exact holder
+        /// process via `pgrep -f <token>` for clean shutdown. We don't
+        /// read it — clap parsing it is enough to land it in argv where
+        /// the host kernel exposes it via `ps`. Optional so the holder
+        /// stays runnable standalone for debugging.
+        #[arg(long)]
+        session_token: Option<String>,
     }
 
     pub fn run() -> anyhow::Result<()> {
@@ -91,8 +99,10 @@ mod win {
         };
 
         eprintln!(
-            "[gw2-mcp-holder] starting; bin_path={:?} poll={:?}",
-            cli.bin_path, poll
+            "[gw2-mcp-holder] starting; bin_path={:?} poll={:?} session={}",
+            cli.bin_path,
+            poll,
+            cli.session_token.as_deref().unwrap_or("(none)")
         );
 
         if let Some(parent) = cli.bin_path.parent() {
