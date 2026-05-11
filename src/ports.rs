@@ -304,6 +304,7 @@ pub struct BuildSummary {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct BuildDetail {
     pub summary: BuildSummary,
+    #[schemars(schema_with = "opaque_value_schema")]
     pub details: serde_json::Value,
     /// Plain-text description / rotation notes if the source provides them.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -311,6 +312,23 @@ pub struct BuildDetail {
     /// Build chat code, if the source publishes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_code: Option<String>,
+}
+
+/// Schema override for fields backed by `serde_json::Value` (or other
+/// opaque payloads). schemars renders `Value` as the JSON Schema boolean
+/// `true`, which is semantically "matches anything" — valid per the spec,
+/// but rejected by `zod`-style MCP-client validators (Claude Code being
+/// one) that expect every subschema to be an object. Emit `{}` instead:
+/// same meaning, valid for those validators too.
+pub fn opaque_value_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({})
+}
+
+/// Schema override for fields of type `Vec<serde_json::Value>`. Same
+/// reasoning as [`opaque_value_schema`], but emits an array whose items
+/// schema is `{}` instead of `true`.
+pub fn opaque_value_array_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "type": "array", "items": {} })
 }
 
 #[async_trait]

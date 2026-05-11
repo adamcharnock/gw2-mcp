@@ -1695,7 +1695,9 @@ pub fn wiki_page_url(title: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CharacterBuildSnapshot {
     pub character_name: String,
+    #[schemars(schema_with = "crate::ports::opaque_value_array_schema")]
     pub build_tabs: Vec<serde_json::Value>,
+    #[schemars(schema_with = "crate::ports::opaque_value_array_schema")]
     pub equipment_tabs: Vec<serde_json::Value>,
     pub fetched_at: DateTime<Utc>,
 }
