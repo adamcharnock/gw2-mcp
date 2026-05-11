@@ -302,9 +302,44 @@ pub(super) enum CallError {
     },
     /// No API key resolved from arg or service default.
     NoApiKey,
+    /// Tool-specific annotation of `Gw2ApiError::MissingScope`. The bare
+    /// service-layer error says "missing scope: progression" without
+    /// naming which tool triggered it, so the LLM has to infer from
+    /// context. Wrapping at the dispatcher lets us prepend the tool
+    /// name so the message is actionable on its own.
+    MissingScopeAt {
+        tool: &'static str,
+        needed: String,
+    },
+    /// Same idea for `Unauthorized` (403 without a parseable scope hint).
+    UnauthorizedAt {
+        tool: &'static str,
+    },
     Domain(crate::domain::DomainError),
     Service(crate::service::ServiceError),
     Encode(serde_json::Error),
+}
+
+/// Wrap a `ServiceError` so that scope-related failures carry the
+/// originating tool name. Other variants pass through unchanged.
+///
+/// Use at each authed tool handler:
+/// ```ignore
+/// .map_err(|e| annotate_endpoint(e, "get_account_masteries"))
+/// ```
+pub(super) fn annotate_endpoint(
+    err: crate::service::ServiceError,
+    tool: &'static str,
+) -> CallError {
+    use crate::ports::Gw2ApiError;
+    use crate::service::ServiceError;
+    match err {
+        ServiceError::Gw2(Gw2ApiError::MissingScope { needed }) => {
+            CallError::MissingScopeAt { tool, needed }
+        }
+        ServiceError::Gw2(Gw2ApiError::Unauthorized) => CallError::UnauthorizedAt { tool },
+        other => CallError::Service(other),
+    }
 }
 
 impl From<serde_json::Error> for CallError {
@@ -329,9 +364,71 @@ impl std::fmt::Display for CallError {
                  the `api_key` argument. Generate a key at \
                  https://account.arena.net/applications."
             ),
+            Self::MissingScopeAt { tool, needed } => write!(
+                f,
+                "{tool} requires the '{needed}' scope, which this API key doesn't have. \
+                 Generate a new key at https://account.arena.net/applications with that scope \
+                 checked, or update the existing key's permissions."
+            ),
+            Self::UnauthorizedAt { tool } => write!(
+                f,
+                "{tool}: the Guild Wars 2 API rejected this key. Verify the key at \
+                 https://account.arena.net/applications and check it has the scopes that \
+                 {tool} needs."
+            ),
             Self::Domain(e) => write!(f, "validation error: {e}"),
             Self::Service(e) => write!(f, "{e}"),
             Self::Encode(e) => write!(f, "failed to encode response: {e}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::Gw2ApiError;
+    use crate::service::ServiceError;
+
+    #[test]
+    fn annotate_endpoint_wraps_missing_scope_with_tool_name() {
+        let err = ServiceError::Gw2(Gw2ApiError::MissingScope {
+            needed: "progression".to_owned(),
+        });
+        let wrapped = annotate_endpoint(err, "get_account_masteries");
+        let rendered = wrapped.to_string();
+        assert!(
+            rendered.contains("get_account_masteries"),
+            "tool name missing from rendered error: {rendered}"
+        );
+        assert!(
+            rendered.contains("progression"),
+            "scope name missing from rendered error: {rendered}"
+        );
+    }
+
+    #[test]
+    fn annotate_endpoint_wraps_unauthorized_with_tool_name() {
+        let wrapped = annotate_endpoint(ServiceError::Gw2(Gw2ApiError::Unauthorized), "get_wallet");
+        let rendered = wrapped.to_string();
+        assert!(
+            rendered.contains("get_wallet"),
+            "tool name missing from unauthorized message: {rendered}"
+        );
+    }
+
+    #[test]
+    fn annotate_endpoint_passes_other_errors_through() {
+        let err = ServiceError::Gw2(Gw2ApiError::Decode("garbage".to_owned()));
+        let wrapped = annotate_endpoint(err, "get_account");
+        // Renders verbatim — no tool-name prefix, no scope rewriting.
+        let rendered = wrapped.to_string();
+        assert!(
+            rendered.contains("garbage"),
+            "underlying error must show through: {rendered}"
+        );
+        assert!(
+            !rendered.starts_with("get_account"),
+            "decode errors must not get the scope-style prefix: {rendered}"
+        );
     }
 }

@@ -21,10 +21,10 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
 use parsing::{
-    CallError, CursorPayload, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, catalog_filter_hash, decode_cursor,
-    encode_cursor, parse_id_array, parse_location_ref, parse_nearby_filter, parse_optional_str,
-    parse_optional_u32, parse_required_id_array, parse_search_limit, parse_search_query,
-    parse_summary, parse_tab_selector,
+    CallError, CursorPayload, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, annotate_endpoint,
+    catalog_filter_hash, decode_cursor, encode_cursor, parse_id_array, parse_location_ref,
+    parse_nearby_filter, parse_optional_str, parse_optional_u32, parse_required_id_array,
+    parse_search_limit, parse_search_query, parse_summary, parse_tab_selector,
 };
 use prompts::{PromptError, build_prompts, render_prompt};
 use resources::{
@@ -304,7 +304,7 @@ impl McpServer {
             .service
             .get_wallet(&key)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_wallet"))?;
         Ok(serde_json::to_value(&wallet)?)
     }
 
@@ -408,7 +408,7 @@ impl McpServer {
             .service
             .get_character_build(&key, &name, tab)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_character_build"))?;
         Ok(serde_json::to_value(&snap)?)
     }
 
@@ -548,7 +548,7 @@ impl McpServer {
             .service
             .get_account(&key)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_account"))?;
         Ok(serde_json::to_value(&acc)?)
     }
 
@@ -561,7 +561,7 @@ impl McpServer {
             .service
             .list_characters(&key)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "list_characters"))?;
         Ok(serde_json::to_value(&v)?)
     }
 
@@ -575,7 +575,7 @@ impl McpServer {
             .service
             .get_account_achievements(&key, summary)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_account_achievements"))?;
         Ok(serde_json::to_value(&v)?)
     }
 
@@ -588,7 +588,7 @@ impl McpServer {
             .service
             .get_account_masteries(&key)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_account_masteries"))?;
         Ok(serde_json::to_value(&v)?)
     }
 
@@ -601,7 +601,7 @@ impl McpServer {
             .service
             .get_account_raids(&key)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_account_raids"))?;
         Ok(serde_json::to_value(&v)?)
     }
 
@@ -614,7 +614,7 @@ impl McpServer {
             .service
             .get_account_dungeons(&key)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_account_dungeons"))?;
         Ok(serde_json::to_value(&v)?)
     }
 
@@ -639,7 +639,7 @@ impl McpServer {
             .service
             .get_dailies(&key, which)
             .await
-            .map_err(CallError::Service)?;
+            .map_err(|e| annotate_endpoint(e, "get_dailies"))?;
         Ok(serde_json::to_value(&d)?)
     }
 
