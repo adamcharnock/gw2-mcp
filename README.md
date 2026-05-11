@@ -1,15 +1,31 @@
 # gw2-mcp
 
-Model Context Protocol (MCP) server that exposes Guild Wars 2 wiki search,
-wallet, and currency data to LLM clients (Claude Desktop, LM Studio, Cursor,
-etc.). Written in Rust, single binary, stdio transport.
+Model Context Protocol (MCP) server for Guild Wars 2 — exposes the
+ArenaNet `/v2` API, the official wiki, three curated build catalogs, live
+in-game state via Mumble Link, and a local SQLite/FTS5 search index over
+the GW2 reference corpus to MCP clients (Claude Desktop, Claude Code,
+Cursor, Continue, LM Studio, etc.). Written in Rust, single binary, stdio
+transport.
 
 ## Features
 
-- **Wiki search** — search the GW2 wiki, with prose extracts auto-fetched per hit.
-- **Wallet** — read an account's wallet (requires a GW2 API key with `wallet` scope).
-- **Currencies** — full or filtered currency metadata.
-- **Smart caching** — long TTL for static data (currencies, wiki), short TTL for wallet.
+- **Wiki search** with prose extracts.
+- **Account & character** — wallet, characters, build tabs (with names
+  pre-resolved), account snapshot, achievement progress, masteries, raid
+  & dungeon clears, dailies. Per-call API key or `GW2_API_KEY` env var.
+- **Curated builds** — list and fetch from Discretize (fractals),
+  MetaBattle (all gamemodes), and Snow Crows (raids/open-world/pvp/wvw),
+  with per-source TTL caching.
+- **Build chat code decoder** — `[&...]` → structured JSON with palette
+  → skill id and trait-position → trait id resolution.
+- **Local fuzzy search** — SQLite/FTS5 index over skills, traits,
+  specializations, achievements (and optionally items). Diacritic-folded.
+- **Mumble Link nav** (when GW2 runs on the same host) — live coords,
+  16-point compass facing, nearest waypoints / POIs / heart vendors /
+  hero points, point-to-point bearings. macOS CrossOver and Whisky
+  bottles auto-discovered.
+- **Smart caching** — long TTL for static data, short TTL for wallet,
+  build-number-stamped local index that auto-refreshes on game patches.
 
 ## Architecture
 
@@ -18,9 +34,12 @@ Hexagonal:
 ```
 src/
   domain/      Pure types and validation (no IO).
-  ports.rs     Trait definitions: Cache, Clock, Gw2Api, Wiki.
+  ports.rs     Trait definitions: Cache, Clock, Gw2Api, Wiki, MumbleLink,
+               MapData, BuildCatalog, BuildCodeDecoder, SearchIndex.
   service.rs   Orchestration. Knows ports, never adapters.
-  adapters/    Concrete impls: HTTP, in-memory cache, system clock, MCP/stdio.
+  adapters/    Concrete impls: HTTP, in-memory + SQLite caches, system
+               clock, Mumble Link reader (Win named-mapping / Linux
+               /dev/shm / macOS in-bottle holder), MCP/stdio.
   main.rs      CLI wiring — the only place that picks adapters.
 tests/         Integration tests (wiremock for HTTP, in-memory fakes for service).
 ```
@@ -105,22 +124,74 @@ xattr -d com.apple.quarantine ./gw2-mcp ./gw2-mcp-holder.exe
 
 ## MCP client config
 
+The server speaks MCP over stdio, so every client that supports
+stdio-transport MCP works with the same `{ "command": "/path/to/gw2-mcp" }`
+shape. Three of the most common hosts are covered below; for others
+(Cursor, Continue, LM Studio, Zed, etc.) the per-client docs will tell
+you where to paste the same snippet.
+
+### Claude Desktop
+
+Edit the config file at:
+
+| OS      | Config path                                                       |
+|---------|-------------------------------------------------------------------|
+| macOS   | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json`                     |
+| Linux   | `~/.config/Claude/claude_desktop_config.json`                     |
+
 ```json
 {
   "mcpServers": {
-    "gw2-mcp": {
-      "command": "/path/to/gw2-mcp"
+    "gw2": {
+      "command": "/absolute/path/to/gw2-mcp",
+      "env": {
+        "GW2_API_KEY": "your-key-here"
+      }
     }
   }
 }
 ```
 
-Or with the Docker image (no Mumble Link — see note above):
+`env` is optional — leave it out and pass `api_key` per-call instead.
+Restart Claude Desktop after editing. Quicker route: run
+`gw2-mcp print-config` to emit a ready-to-paste snippet with the
+absolute path filled in (`--api-key` / `--bottle` flags inject env vars).
+
+### Claude Code
+
+**Project-scoped** (preferred): a `.mcp.json` ships in this repo's root
+that runs the server via `cargo run --release --quiet --bin gw2-mcp`.
+Anyone who clones the repo and launches Claude Code from the project
+directory gets the `gw2` server automatically — no setup.
+
+**User-scoped** (any working directory):
+
+```bash
+claude mcp add gw2 /absolute/path/to/gw2-mcp
+```
+
+…or edit `~/.claude.json` directly with the same `mcpServers` block shape
+as the Claude Desktop snippet above.
+
+### ChatGPT Desktop
+
+ChatGPT Desktop supports **remote (HTTPS) MCP servers only** — not local
+stdio — as of early 2026. To use gw2-mcp with ChatGPT, bridge it through
+an HTTPS wrapper such as [`mcp-remote`](https://github.com/geelen/mcp-remote)
+and add the bridge's URL as a Connector in ChatGPT settings. See
+[OpenAI's MCP docs](https://developers.openai.com/api/docs/mcp) for the
+current state.
+
+If you only run ChatGPT Desktop and don't want to operate a bridge,
+Claude Desktop or Claude Code are the simpler hosts.
+
+### Docker (headless, no Mumble Link)
 
 ```json
 {
   "mcpServers": {
-    "gw2-mcp": {
+    "gw2": {
       "command": "docker",
       "args": ["run", "--rm", "-i", "ghcr.io/adamcharnock/gw2-mcp:latest"]
     }
@@ -128,7 +199,11 @@ Or with the Docker image (no Mumble Link — see note above):
 }
 ```
 
-### Docker image (secondary)
+Containers can't see the host's shared-memory `MumbleLink`, so the four
+nav tools return a "not connected" error there. Everything else works.
+Image registry details (tags, architectures, provenance) below.
+
+### Docker image details
 
 For headless / containerised deployments where the Mumble Link
 navigation tools aren't needed, an image is published to **GitHub
@@ -192,7 +267,7 @@ rather than `latest`.
 |--------------|-------------------------|------------------------------------------|
 | `discretize` | Fractals (T4 + CMs)     | GitHub raw markdown + YAML front-matter  |
 | `metabattle` | All gamemodes (Meta tier) | MediaWiki API                          |
-| `snowcrows`  | Raids/strikes meta      | On-demand HTML scrape (no bulk listing — respects `ai-train=no`); slug shape `<category>/<profession>/<build-slug>` |
+| `snowcrows`  | Raids / open-world / PvP / WvW (Meta) | HTML scrape of per-category index pages with a 6h in-memory TTL cache; no-filter calls return raids only. Slug shape `<category>/<profession>/<build-slug>` |
 
 Resource: `gw2://currencies` — full currency list as JSON.
 
