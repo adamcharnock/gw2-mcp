@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head><title>Raid builds — Snow Crows (test fixture)</title></head>
+<body>
+  <nav>
+    <a href="/builds/raids">Raids</a>
+    <a href="/builds/strikes">Strikes</a>
+  </nav>
+
+  <!-- Profession-filter links (only 2 path segments — must be skipped) -->
+  <a href="/builds/raids/elementalist">Elementalist builds</a>
+  <a href="/builds/raids/guardian">Guardian builds</a>
+
+  <!-- Wrong-category links: these point at strikes but the listing-page
+       parser is fed category="raids", so they must be filtered out. -->
+  <a href="/builds/strikes/warrior/power-bladesworn"><h2>Power Bladesworn</h2></a>
+
+  <!-- Genuine raids build cards -->
+  <a href="/builds/raids/elementalist/power-tempest-spear" class="card">
+    <div>
+      <h2 class="block font-medium">Power Tempest</h2>
+      <div class="text-sm capitalize">Spear</div>
+    </div>
+  </a>
+
+  <a href="/builds/raids/elementalist/condition-weaver-pistol-warhorn" class="card">
+    <div>
+      <h2>Condition Weaver</h2>
+      <div class="text-sm capitalize">Pistol &amp; Warhorn</div>
+    </div>
+  </a>
+
+  <a href="/builds/raids/guardian/power-dragonhunter-longbow" class="card">
+    <div>
+      <h2>Power Dragonhunter</h2>
+    </div>
+  </a>
+
+  <a href="/builds/raids/guardian/condition-firebrand-axe-torch" class="card">
+    <div>
+      <h2>Condition Firebrand</h2>
+    </div>
+  </a>
+
+  <!-- Duplicate of an earlier href (variant pages sometimes appear twice in the
+       same list). Parser must dedupe by slug. -->
+  <a href="/builds/raids/elementalist/power-tempest-spear" class="card">
+    <div><h2>Power Tempest (duplicate link)</h2></div>
+  </a>
+
+  <!-- Anchor without an <h2> — parser should fall back to a slug-derived title. -->
+  <a href="/builds/raids/necromancer/condition-scourge-pistol-torch" class="card">
+    <div class="text-sm">no h2 in this card</div>
+  </a>
+
+  <!-- Non-build anchors that must be ignored entirely. -->
+  <a href="/about">About</a>
+  <a href="https://example.com/elsewhere">Off-site</a>
+</body>
+</html>
