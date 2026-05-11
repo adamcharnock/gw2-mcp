@@ -13,7 +13,7 @@ use thiserror::Error;
 use tracing::warn;
 
 use super::{STATIC_TTL, Service, ServiceError};
-use crate::domain::{MapNeighborLink, MapNeighbors, MapNeighborsError, Region};
+use crate::domain::{Expansion, MapNeighborLink, MapNeighbors, MapNeighborsError, Region};
 
 /// How the caller asked us to find a region — by GW2 numeric id or by
 /// (case-insensitive) name.
@@ -82,12 +82,23 @@ pub enum RegionLookupError {
 
 /// Response shape for `get_map_neighbors`. Wrapped in an object so
 /// MCP's `structuredContent` schema accepts it.
+///
+/// Source-map metadata (`min_level`, `max_level`, `expansion`) is
+/// surfaced alongside the neighbor list so the LLM can answer "what's
+/// near me and is it level-appropriate?" without a second
+/// `list_maps_in_region` call.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MapNeighborsResponse {
     pub map_id: u32,
     pub map_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_level: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_level: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expansion: Option<Expansion>,
     pub neighbors: Vec<MapNeighborLink>,
     pub total: usize,
 }
@@ -142,6 +153,9 @@ impl Service {
             map_id,
             map_name: entry.name,
             region_name: entry.region_name,
+            min_level: entry.min_level,
+            max_level: entry.max_level,
+            expansion: entry.expansion,
             total: entry.neighbors.len(),
             neighbors: entry.neighbors,
         })

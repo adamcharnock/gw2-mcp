@@ -33,7 +33,9 @@ pub use continents::{Region, RegionMap};
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
 pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};
-pub use map_neighbors::{MapNeighborEntry, MapNeighborLink, MapNeighbors, MapNeighborsError};
+pub use map_neighbors::{
+    ConnectionType, Expansion, MapNeighborEntry, MapNeighborLink, MapNeighbors, MapNeighborsError,
+};
 pub use mastery::{Mastery, MasteryId, MasteryLevel};
 pub use reference::{
     Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,
