@@ -1,17 +1,19 @@
-//! Verify that `Service` caches catalog list/fetch responses with
-//! `WIKI_TTL` semantics — same TTL math as wiki search.
+//! Verify catalog call routing through `Service`.
 //!
-//! Each test uses `FakeCatalog` so we can count upstream invocations
-//! exactly; the in-memory `TestCache` shares its clock with the test.
+//! Caching for catalog calls is now the adapter's responsibility (Snow
+//! Crows runs its own per-(category, profession) cache with rate-limit
+//! cooldowns; `MetaBattle` and Discretize hit cheap CDN-backed upstreams
+//! and don't cache locally). The service layer is a thin router: it
+//! looks up the source in the registry and forwards. These tests pin
+//! that contract — every call hits the adapter, source lookup is
+//! correctly typed, and errors propagate without poisoning anything.
 
 mod common;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use gw2_mcp::domain::BuildSlug;
 use gw2_mcp::ports::{CatalogFilter, CatalogRegistry};
-use gw2_mcp::service::WIKI_TTL;
 
 use crate::common::{
     FakeCatalog, FakeGw2Api, FakeWiki, TestCache, TestClock, build_detail,
@@ -19,43 +21,39 @@ use crate::common::{
 };
 
 #[tokio::test]
-async fn catalog_list_caches_within_ttl() {
+async fn list_forwards_every_call_to_adapter() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());
-    let gw2 = FakeGw2Api::new();
-    let wiki = FakeWiki::new();
-
     let cat = FakeCatalog::new("fake");
     cat.set_list(vec![build_summary("guardian/x", "Guardian")]);
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
-    let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
+    let svc =
+        build_service_with_catalogs(FakeGw2Api::new(), FakeWiki::new(), cache, clock, registry);
 
-    let first = svc
-        .list_catalog_builds("fake", CatalogFilter::default())
+    svc.list_catalog_builds("fake", CatalogFilter::default())
         .await
         .unwrap();
-    assert_eq!(first.len(), 1);
-    assert_eq!(cat.list_calls(), 1);
-
-    let second = svc
-        .list_catalog_builds("fake", CatalogFilter::default())
+    svc.list_catalog_builds("fake", CatalogFilter::default())
         .await
         .unwrap();
-    assert_eq!(first, second);
-    assert_eq!(cat.list_calls(), 1, "second call must be cached");
+    // No service-layer cache → each call reaches the adapter. Adapters
+    // that need caching (Snow Crows) own it themselves.
+    assert_eq!(
+        cat.list_calls(),
+        2,
+        "service must forward every list call to the adapter"
+    );
 }
 
 #[tokio::test]
-async fn catalog_list_cache_separates_by_filter() {
+async fn list_separates_filters() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());
-    let gw2 = FakeGw2Api::new();
-    let wiki = FakeWiki::new();
-
     let cat = FakeCatalog::new("fake");
     cat.set_list(vec![]);
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
-    let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
+    let svc =
+        build_service_with_catalogs(FakeGw2Api::new(), FakeWiki::new(), cache, clock, registry);
 
     svc.list_catalog_builds("fake", CatalogFilter::default())
         .await
@@ -83,71 +81,39 @@ async fn catalog_list_cache_separates_by_filter() {
     assert_eq!(
         cat.list_calls(),
         3,
-        "three different filters must trigger three upstream calls"
+        "every distinct call reaches the adapter (no service-level dedup)"
     );
 }
 
 #[tokio::test]
-async fn catalog_list_refetches_after_ttl_expiry() {
+async fn fetch_forwards_every_call_to_adapter() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());
-    let gw2 = FakeGw2Api::new();
-    let wiki = FakeWiki::new();
-
-    let cat = FakeCatalog::new("fake");
-    cat.set_list(vec![build_summary("guardian/x", "Guardian")]);
-    let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
-    let svc = build_service_with_catalogs(gw2, wiki, cache, clock.clone(), registry);
-
-    svc.list_catalog_builds("fake", CatalogFilter::default())
-        .await
-        .unwrap();
-    clock.advance(WIKI_TTL + Duration::from_secs(1));
-    svc.list_catalog_builds("fake", CatalogFilter::default())
-        .await
-        .unwrap();
-    assert_eq!(cat.list_calls(), 2, "expired cache must trigger refetch");
-}
-
-#[tokio::test]
-async fn catalog_fetch_caches_per_slug() {
-    let clock = TestClock::new();
-    let cache = TestCache::new(clock.clone());
-    let gw2 = FakeGw2Api::new();
-    let wiki = FakeWiki::new();
-
     let cat = FakeCatalog::new("fake");
     cat.set_fetch(build_detail("guardian/x", "Guardian"));
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
-    let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
+    let svc =
+        build_service_with_catalogs(FakeGw2Api::new(), FakeWiki::new(), cache, clock, registry);
 
-    let slug_x = BuildSlug::new("guardian/x").unwrap();
-    svc.get_catalog_build("fake", &slug_x).await.unwrap();
-    svc.get_catalog_build("fake", &slug_x).await.unwrap();
+    let slug = BuildSlug::new("guardian/x").unwrap();
+    svc.get_catalog_build("fake", &slug).await.unwrap();
+    svc.get_catalog_build("fake", &slug).await.unwrap();
     assert_eq!(
         cat.fetch_calls(),
-        1,
-        "second fetch of same slug must cache hit"
+        2,
+        "service must forward every fetch call to the adapter"
     );
-
-    // Different slug — new upstream call.
-    cat.set_fetch(build_detail("guardian/y", "Guardian"));
-    let slug_y = BuildSlug::new("guardian/y").unwrap();
-    svc.get_catalog_build("fake", &slug_y).await.unwrap();
-    assert_eq!(cat.fetch_calls(), 2);
 }
 
 #[tokio::test]
-async fn catalog_fetch_does_not_cache_errors() {
+async fn fetch_propagates_errors_without_poisoning() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());
-    let gw2 = FakeGw2Api::new();
-    let wiki = FakeWiki::new();
-
     // No fetch_response set → FakeCatalog returns NotFound.
     let cat = FakeCatalog::new("fake");
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
-    let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
+    let svc =
+        build_service_with_catalogs(FakeGw2Api::new(), FakeWiki::new(), cache, clock, registry);
 
     let slug = BuildSlug::new("missing").unwrap();
     let _ = svc.get_catalog_build("fake", &slug).await;
@@ -155,20 +121,18 @@ async fn catalog_fetch_does_not_cache_errors() {
     assert_eq!(
         cat.fetch_calls(),
         2,
-        "errors must not poison the cache — second call should retry"
+        "errors must not affect subsequent calls — every call retries the adapter"
     );
 }
 
 #[tokio::test]
-async fn catalog_unknown_source_does_not_call_anything() {
+async fn unknown_source_does_not_call_anything() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());
-    let gw2 = FakeGw2Api::new();
-    let wiki = FakeWiki::new();
-
     let cat = FakeCatalog::new("fake");
     let registry = Arc::new(CatalogRegistry::new().with(cat.clone()));
-    let svc = build_service_with_catalogs(gw2, wiki, cache, clock, registry);
+    let svc =
+        build_service_with_catalogs(FakeGw2Api::new(), FakeWiki::new(), cache, clock, registry);
 
     let slug = BuildSlug::new("anything").unwrap();
     let err = svc

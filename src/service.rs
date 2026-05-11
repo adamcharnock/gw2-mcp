@@ -361,10 +361,14 @@ impl Service {
         self.catalogs.names()
     }
 
-    /// List builds from a named catalog. Cached for `WIKI_TTL` (24 h) per
-    /// (source, filter) — listings are large and rarely change within a
-    /// day. The filter is fingerprinted into the cache key so different
-    /// filters share storage but don't collide.
+    /// List builds from a named catalog. Caching is the adapter's
+    /// responsibility — Snow Crows runs its own per-(category,
+    /// profession) cache with rate-limit-aware cooldowns; `MetaBattle`
+    /// and Discretize hit cheap CDN-backed upstreams and fetch fresh
+    /// on each call. Layering a generic memoization here would have
+    /// either masked the rate-limit semantics or required a
+    /// per-source TTL override; pushing it to the adapters keeps the
+    /// caching policy next to the upstream it protects.
     pub async fn list_catalog_builds(
         &self,
         source: &str,
@@ -374,25 +378,11 @@ impl Service {
             .catalogs
             .get(source)
             .ok_or_else(|| crate::ports::CatalogError::NoSuchSource(source.to_owned()))?;
-
-        let cache_key = catalog_list_cache_key(source, &filter);
-        if let Some(json) = self.cache.get(&cache_key).await
-            && let Ok(cached) = serde_json::from_str::<Vec<crate::ports::BuildSummary>>(&json)
-        {
-            debug!(source, "catalog list cache hit");
-            return Ok(cached);
-        }
-
-        let summaries = cat.list(&filter).await?;
-        if let Ok(json) = serde_json::to_string(&summaries) {
-            self.cache.set(&cache_key, json, WIKI_TTL).await;
-        }
-        Ok(summaries)
+        Ok(cat.list(&filter).await?)
     }
 
-    /// Fetch a specific build from a catalog. Cached for `WIKI_TTL` per
-    /// (source, slug). 1-day TTL is enough — catalogs publish updates on
-    /// patch days and we don't need read-after-write consistency.
+    /// Fetch a specific build from a catalog. As with `list_catalog_builds`,
+    /// caching policy is delegated to the adapter.
     pub async fn get_catalog_build(
         &self,
         source: &str,
@@ -402,20 +392,7 @@ impl Service {
             .catalogs
             .get(source)
             .ok_or_else(|| crate::ports::CatalogError::NoSuchSource(source.to_owned()))?;
-
-        let cache_key = catalog_fetch_cache_key(source, slug.as_str());
-        if let Some(json) = self.cache.get(&cache_key).await
-            && let Ok(cached) = serde_json::from_str::<crate::ports::BuildDetail>(&json)
-        {
-            debug!(source, slug = slug.as_str(), "catalog fetch cache hit");
-            return Ok(cached);
-        }
-
-        let detail = cat.fetch(slug).await?;
-        if let Ok(json) = serde_json::to_string(&detail) {
-            self.cache.set(&cache_key, json, WIKI_TTL).await;
-        }
-        Ok(detail)
+        Ok(cat.fetch(slug).await?)
     }
 
     // -----------------------------------------------------------------
@@ -1669,19 +1646,6 @@ fn wiki_search_cache_key(query: &SearchQuery, limit: SearchLimit) -> String {
 
 fn wiki_extract_cache_key(title: &str) -> String {
     format!("wiki:extract:{title}")
-}
-
-fn catalog_list_cache_key(source: &str, f: &crate::ports::CatalogFilter) -> String {
-    // Compact, deterministic — `*` for "no filter on that dimension" so the
-    // key is human-readable in logs.
-    let prof = f.profession.as_deref().unwrap_or("*");
-    let mode = f.gamemode.as_deref().unwrap_or("*");
-    let limit = f.limit.map_or("*".to_owned(), |n| n.to_string());
-    format!("catalog:{source}:list:{prof}:{mode}:{limit}")
-}
-
-fn catalog_fetch_cache_key(source: &str, slug: &str) -> String {
-    format!("catalog:{source}:build:{slug}")
 }
 
 /// Public so adapters can build canonical wiki URLs.
