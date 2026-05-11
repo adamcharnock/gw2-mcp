@@ -44,7 +44,7 @@ async fn get_my_location_returns_mumble_state_with_resolved_map_name() {
     maps.add_map(make_map_info(15, "Queensdale"));
     let svc = build(mumble, maps.clone());
 
-    let loc = svc.get_my_location().await.expect("location");
+    let loc = svc.get_my_location(false).await.expect("location");
     assert_eq!(loc.character_name, "Hero");
     assert_eq!(loc.profession_name.as_deref(), Some("Guardian"));
     assert_eq!(loc.map_id, 15);
@@ -66,7 +66,7 @@ async fn get_my_location_returns_position_even_when_map_lookup_fails() {
     // return a snapshot with map=None.
     let svc = build(mumble, maps);
 
-    let loc = svc.get_my_location().await.expect("location");
+    let loc = svc.get_my_location(false).await.expect("location");
     assert_eq!(loc.map_id, 99);
     assert!(loc.map.is_none(), "missing map metadata should yield None");
     assert_eq!(loc.position, (100.0, 200.0));
@@ -80,8 +80,65 @@ async fn get_my_location_propagates_mumble_unsupported() {
     let maps = Arc::new(FakeMapData::new());
     let svc = build(mumble, maps);
 
-    let err = svc.get_my_location().await.expect_err("must error");
+    let err = svc.get_my_location(false).await.expect_err("must error");
     assert!(matches!(err, ServiceError::Mumble(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn get_my_location_omits_neighbors_by_default() {
+    let snap = make_mumble_snapshot(34, 0.0, 0.0, [0.0, 1.0, 0.0], "Hero", 1);
+    let mumble = FakeMumbleLink::with_snapshot(snap);
+    let maps = Arc::new(FakeMapData::new());
+    maps.add_map(make_map_info(34, "Caledon Forest"));
+    let svc = build(mumble, maps);
+
+    let loc = svc.get_my_location(false).await.expect("location");
+    assert!(
+        loc.neighbors.is_none(),
+        "neighbors must be None when include_neighbors=false"
+    );
+}
+
+#[tokio::test]
+async fn get_my_location_inlines_neighbors_when_requested() {
+    // map_id 34 = Caledon Forest, which lives in the curated YAML
+    // table — so opt-in should populate the neighbors field.
+    let snap = make_mumble_snapshot(34, 0.0, 0.0, [0.0, 1.0, 0.0], "Hero", 1);
+    let mumble = FakeMumbleLink::with_snapshot(snap);
+    let maps = Arc::new(FakeMapData::new());
+    maps.add_map(make_map_info(34, "Caledon Forest"));
+    let svc = build(mumble, maps);
+
+    let loc = svc.get_my_location(true).await.expect("location");
+    let neighbors = loc.neighbors.expect("Caledon Forest must be in the table");
+    assert_eq!(neighbors.map_id, 34);
+    assert!(!neighbors.neighbors.is_empty(), "should have neighbors");
+    let names: Vec<&str> = neighbors
+        .neighbors
+        .iter()
+        .map(|n| n.name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"Brisban Wildlands"),
+        "expected Brisban Wildlands in: {names:?}"
+    );
+}
+
+#[tokio::test]
+async fn get_my_location_neighbors_returns_none_for_unmodelled_map() {
+    // map_id 1500 isn't in the curated adjacency table — instances,
+    // fractals, story maps etc. don't get YAML entries. The location
+    // call should still succeed; neighbors just stays None.
+    let snap = make_mumble_snapshot(1500, 0.0, 0.0, [0.0, 1.0, 0.0], "Hero", 1);
+    let mumble = FakeMumbleLink::with_snapshot(snap);
+    let maps = Arc::new(FakeMapData::new());
+    let svc = build(mumble, maps);
+
+    let loc = svc.get_my_location(true).await.expect("location");
+    assert!(
+        loc.neighbors.is_none(),
+        "unmodelled maps must degrade to None, not error"
+    );
 }
 
 // ---------------------------------------------------------------------------

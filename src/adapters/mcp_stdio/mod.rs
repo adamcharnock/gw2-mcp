@@ -106,7 +106,7 @@ impl McpServer {
             "get_account_raids" => self.handle_get_account_raids(&args).await,
             "get_account_dungeons" => self.handle_get_account_dungeons(&args).await,
             "get_dailies" => self.handle_get_dailies(&args).await,
-            "get_my_location" => self.handle_get_my_location().await,
+            "get_my_location" => self.handle_get_my_location(&args).await,
             "get_directions" => self.handle_get_directions(&args).await,
             "find_nearby" => self.handle_find_nearby(&args).await,
             "list_maps_in_region" => self.handle_list_maps_in_region(&args).await,
@@ -647,10 +647,17 @@ impl McpServer {
 
     // -- Tier 6B navigation tools --------------------------------------
 
-    async fn handle_get_my_location(&self) -> Result<serde_json::Value, CallError> {
+    async fn handle_get_my_location(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let include_neighbors = args
+            .get("include_neighbors")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let snap = self
             .service
-            .get_my_location()
+            .get_my_location(include_neighbors)
             .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&snap)?)

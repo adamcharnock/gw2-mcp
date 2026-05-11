@@ -23,7 +23,17 @@ impl Service {
     // -----------------------------------------------------------------
 
     /// Where the player currently is, in their own words.
-    pub async fn get_my_location(&self) -> Result<MyLocationSnapshot, ServiceError> {
+    ///
+    /// When `include_neighbors` is true, the response also carries the
+    /// curated map-adjacency list — same data `get_map_neighbors`
+    /// would return — so the LLM can answer "where am I and where can
+    /// I go from here?" in one round-trip. Defaults to false to keep
+    /// the cheap path cheap; the lookup itself is a `BTreeMap` hit on
+    /// an embedded table, so cost is negligible either way.
+    pub async fn get_my_location(
+        &self,
+        include_neighbors: bool,
+    ) -> Result<MyLocationSnapshot, ServiceError> {
         let snap = self.mumble.snapshot()?;
         let map_id = snap.context.map_id;
         let map_info = self.get_map_cached(map_id).await.ok();
@@ -51,6 +61,15 @@ impl Service {
             index: mount_index,
             name: mount_index_to_name(mount_index).map(str::to_owned),
         };
+        // Best-effort: a missing entry just leaves neighbors=None.
+        // The pure-compute lookup never returns errors worth surfacing
+        // here — the only failure mode is "map id not in the curated
+        // table" which is exactly what `None` means.
+        let neighbors = if include_neighbors {
+            self.get_map_neighbors(map_id).ok()
+        } else {
+            None
+        };
         Ok(MyLocationSnapshot {
             character_name: snap.identity.name.clone().unwrap_or_default(),
             profession_name,
@@ -62,6 +81,7 @@ impl Service {
             facing_bearing: facing,
             ui_tick: snap.ui_tick,
             captured_at: self.clock.now(),
+            neighbors,
         })
     }
 
@@ -357,6 +377,13 @@ pub struct MyLocationSnapshot {
     pub facing_bearing: Bearing16,
     pub ui_tick: u32,
     pub captured_at: DateTime<Utc>,
+    /// Curated adjacency list for `map_id`, populated when the caller
+    /// passed `include_neighbors: true`. Same data
+    /// [`Service::get_map_neighbors`] returns. `None` either when the
+    /// caller didn't ask for neighbors or when this map isn't in the
+    /// curated table (instances, fractals, some `WvW` edges).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neighbors: Option<crate::service::MapNeighborsResponse>,
 }
 
 /// Mount index + resolved name. `index == 0` is the canonical "no mount"

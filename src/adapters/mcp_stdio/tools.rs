@@ -353,6 +353,20 @@ pub(super) fn build_tools() -> Vec<Tool> {
         }))
         .expect("valid schema literal");
 
+    let get_my_location_schema: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "include_neighbors": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, also include the curated map-adjacency list (same data `get_map_neighbors` returns) under `neighbors`. Useful for combined 'where am I and what's nearby?' planning."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
     let find_nearby_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -660,8 +674,8 @@ pub(super) fn build_tools() -> Vec<Tool> {
         // never changes server-side state.
         Tool::new(
             "get_my_location",
-            "Return where the player currently is: character name, profession, race, map name + region, 2D map coordinates, the 16-point compass bearing they're facing, and whether they're on a mount (`mount.index == 0` means dismounted; otherwise `mount.name` carries the mount name — Springer, Skyscale, etc.). Reads live state from the Guild Wars 2 client via Mumble Link; requires GW2 to be running on the same host as this MCP server.",
-            empty_args.clone(),
+            "Return where the player currently is: character name, profession, race, map name + region, 2D map coordinates, the 16-point compass bearing they're facing, and whether they're on a mount (`mount.index == 0` means dismounted; otherwise `mount.name` carries the mount name — Springer, Skyscale, etc.). Pass `include_neighbors: true` to also inline the curated map-adjacency list (same data `get_map_neighbors` returns) so 'where am I and what's nearby?' takes one call instead of two — defaults to false to keep the cheap path cheap. Reads live state from the Guild Wars 2 client via Mumble Link; requires GW2 to be running on the same host as this MCP server.",
+            get_my_location_schema,
         )
         .annotate(read_only_open_world("Get My Location"))
         .with_output_schema::<crate::service::MyLocationSnapshot>(),
