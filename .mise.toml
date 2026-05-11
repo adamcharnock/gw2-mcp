@@ -91,3 +91,19 @@ mise run test
 [tasks.clean]
 description = "Remove build artefacts"
 run = "cargo clean"
+
+[tasks.refresh-map-neighbors]
+description = "Re-scrape the GW2 wiki to regenerate data/map_neighbors.yaml. Run when an expansion ships, or to refresh stale wiki edits. Hits live wiki + GW2 API; takes ~30s. The scraper reports unresolved neighbor page names to stderr for hand-review."
+run = "cargo run -p scrape-map-neighbors --release -- --out data/map_neighbors.yaml"
+
+[tasks.refresh-map-snapshot]
+description = "Re-fetch the slimmed /v2/maps?ids=all snapshot used by the map-neighbors integrity test. Run after refresh-map-neighbors if a new map id appears (or if ArenaNet renames a map)."
+run = """
+curl -s 'https://api.guildwars2.com/v2/maps?ids=all' | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+slim = [{'id': m['id'], 'name': m.get('name', ''), 'region_name': m.get('region_name', '')} for m in data]
+print(json.dumps(slim, indent=2))
+" > tests/common/map_snapshot.json
+echo "  refreshed tests/common/map_snapshot.json ($(wc -l < tests/common/map_snapshot.json) lines)"
+"""

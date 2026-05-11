@@ -13,7 +13,7 @@ use thiserror::Error;
 use tracing::warn;
 
 use super::{STATIC_TTL, Service, ServiceError};
-use crate::domain::Region;
+use crate::domain::{MapNeighborLink, MapNeighbors, MapNeighborsError, Region};
 
 /// How the caller asked us to find a region — by GW2 numeric id or by
 /// (case-insensitive) name.
@@ -58,6 +58,28 @@ pub enum RegionLookupError {
 
     #[error("no region with id {id} in the GW2 continents catalogue")]
     UnknownId { id: u32 },
+
+    #[error(
+        "no adjacency data for map id {map_id}. The curated table only covers public open-world \
+         maps; instances, fractals, and WvW maps that don't appear in the wiki Category:Zones \
+         page aren't included."
+    )]
+    NoNeighborData { map_id: u32 },
+
+    #[error("failed to load curated map-neighbor table: {0}")]
+    NeighborsLoad(MapNeighborsError),
+}
+
+/// Response shape for `get_map_neighbors`. Wrapped in an object so
+/// MCP's `structuredContent` schema accepts it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MapNeighborsResponse {
+    pub map_id: u32,
+    pub map_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_name: Option<String>,
+    pub neighbors: Vec<MapNeighborLink>,
+    pub total: usize,
 }
 
 /// Continents + floors we walk to enumerate regions. Hardcoded
@@ -81,7 +103,40 @@ struct RegionIndexEntry {
     region: Region,
 }
 
+/// Parsed once per process. The YAML is identical for every Service
+/// instance and the parse is pure CPU — no need to put it behind the
+/// async `Cache` port.
+static NEIGHBORS_TABLE: std::sync::OnceLock<Result<MapNeighbors, MapNeighborsError>> =
+    std::sync::OnceLock::new();
+
+fn neighbors_table() -> Result<&'static MapNeighbors, ServiceError> {
+    NEIGHBORS_TABLE
+        .get_or_init(MapNeighbors::load_embedded)
+        .as_ref()
+        .map_err(|e| ServiceError::Region(RegionLookupError::NeighborsLoad(e.clone())))
+}
+
 impl Service {
+    /// Resolve a map's adjacent maps from the curated YAML table.
+    ///
+    /// Returns the named neighbors with their map ids, names, and
+    /// (optional) compass direction labels lifted from the GW2 wiki.
+    /// Maps that aren't in the curated table (instances, fractals,
+    /// some `WvW` edges) produce a [`RegionLookupError::NoNeighborData`].
+    pub fn get_map_neighbors(&self, map_id: u32) -> Result<MapNeighborsResponse, ServiceError> {
+        let table = neighbors_table()?;
+        let entry = table.get(map_id).cloned().ok_or(ServiceError::Region(
+            RegionLookupError::NoNeighborData { map_id },
+        ))?;
+        Ok(MapNeighborsResponse {
+            map_id,
+            map_name: entry.name,
+            region_name: entry.region_name,
+            total: entry.neighbors.len(),
+            neighbors: entry.neighbors,
+        })
+    }
+
     /// Resolve a region by id or name and return its map list.
     pub async fn list_maps_in_region(
         &self,

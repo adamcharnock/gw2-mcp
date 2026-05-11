@@ -110,6 +110,7 @@ impl McpServer {
             "get_directions" => self.handle_get_directions(&args).await,
             "find_nearby" => self.handle_find_nearby(&args).await,
             "list_maps_in_region" => self.handle_list_maps_in_region(&args).await,
+            "get_map_neighbors" => self.handle_get_map_neighbors(&args),
             "describe_facing" => self.handle_describe_facing().await,
             "search_skills" => self.handle_search_skills(&args).await,
             "search_traits" => self.handle_search_traits(&args).await,
@@ -691,6 +692,25 @@ impl McpServer {
         Ok(serde_json::to_value(&res)?)
     }
 
+    fn handle_get_map_neighbors(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let map_id = args
+            .get("map_id")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(CallError::MissingArg("map_id"))?;
+        let map_id = u32::try_from(map_id).map_err(|_| CallError::BadArg {
+            name: "map_id",
+            expected: "u32",
+        })?;
+        let res = self
+            .service
+            .get_map_neighbors(map_id)
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&res)?)
+    }
+
     async fn handle_list_maps_in_region(
         &self,
         args: &serde_json::Value,
@@ -985,8 +1005,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            31,
-            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 5 navigation + 6 search = 31"
+            32,
+            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 6 navigation + 6 search = 32"
         );
     }
 

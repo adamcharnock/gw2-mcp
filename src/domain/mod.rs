@@ -13,6 +13,7 @@ pub mod continents;
 pub mod currency;
 pub mod error;
 pub mod instances;
+pub mod map_neighbors;
 pub mod mastery;
 pub mod reference;
 pub mod reset;
@@ -32,6 +33,7 @@ pub use continents::{Region, RegionMap};
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
 pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};
+pub use map_neighbors::{MapNeighborEntry, MapNeighborLink, MapNeighbors, MapNeighborsError};
 pub use mastery::{Mastery, MasteryId, MasteryLevel};
 pub use reference::{
     Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,

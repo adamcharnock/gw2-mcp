@@ -375,6 +375,20 @@ pub(super) fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    let get_map_neighbors_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["map_id"],
+        "properties": {
+            "map_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "GW2 map id (pair with `get_my_location` to get the current map's id)."
+            }
+        }
+    }))
+    .expect("valid schema literal");
+
     let list_maps_in_region_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -672,6 +686,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("List Maps In Region"))
         .with_output_schema::<crate::service::RegionMapList>(),
+        Tool::new(
+            "get_map_neighbors",
+            "List the maps that border `map_id` (curated from the GW2 wiki). Pair with `get_my_location` to answer 'where can I go from here?' — returns each neighbor's map id, name, and the compass direction lifted from the wiki infobox (`NE`, `SW, S`, `SSW`, …). Covers public open-world maps; instances, fractals, and some WvW edges aren't included. Response shape: `{map_id, map_name, region_name, neighbors: [{map_id, name, direction}], total}`.",
+            get_map_neighbors_schema,
+        )
+        .annotate(read_only_open_world("Get Map Neighbors"))
+        .with_output_schema::<crate::service::MapNeighborsResponse>(),
         Tool::new(
             "describe_facing",
             "Describe which way the player is facing in plain English plus the closest landmark in that direction. No arguments — reads live state from Mumble Link.",
