@@ -702,7 +702,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::RegionMapList>(),
         Tool::new(
             "get_map_neighbors",
-            "List the maps that border `map_id` (curated from the GW2 wiki). Pair with `get_my_location` to answer 'where can I go from here?' — returns each neighbor's map id, name, and the compass direction lifted from the wiki infobox (`NE`, `SW, S`, `SSW`, …). Covers public open-world maps; instances, fractals, and some WvW edges aren't included. Response shape: `{map_id, map_name, region_name, neighbors: [{map_id, name, direction}], total}`.",
+            "List the maps that border `map_id` (curated from the GW2 wiki). Pair with `get_my_location` to answer 'where can I go from here?'. Each neighbor carries: `map_id`, `name`, `direction` (16-point compass — N/NE/ENE/.../NNW, comma-separated for borders along an arc like 'SW, S', omitted for non-physical connections), `connection` (`physical` = walk/mount across the border; `asura_gate` = magical portal in a hub area; `story_gate`, `instance_portal`, `guild_hall` reserved for hand-curated overrides), and per-neighbor `min_level`/`max_level`/`expansion` so the LLM can filter recommendations by what's level-appropriate or which content the player owns. Source-map level + expansion are echoed on the response object for the same reason. Covers public open-world zones + the major hub cities (Lion's Arch, DR, BC, Rata Sum, Hoelbrak, The Grove, Eye of the North, Arborstone, Mistlock Sanctuary, Thousand Seas Pavilion, Wizard's Tower). Excludes: instances, fractals, dungeons, raids, guild halls, WvW.",
             get_map_neighbors_schema,
         )
         .annotate(read_only_open_world("Get Map Neighbors"))

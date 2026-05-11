@@ -70,9 +70,11 @@ pub enum RegionLookupError {
     UpstreamUnavailable,
 
     #[error(
-        "no adjacency data for map id {map_id}. The curated table only covers public open-world \
-         maps; instances, fractals, and WvW maps that don't appear in the wiki Category:Zones \
-         page aren't included."
+        "no adjacency data for map id {map_id}. The curated table covers public open-world maps \
+         and the major hub cities (Lion's Arch, Divinity's Reach, Black Citadel, Rata Sum, \
+         Hoelbrak, The Grove, Eye of the North, Arborstone, Thousand Seas Pavilion, Mistlock \
+         Sanctuary, The Wizard's Tower). It does NOT cover instances, fractals, dungeons, raids, \
+         guild halls, or WvW maps — those are excluded by design."
     )]
     NoNeighborData { map_id: u32 },
 
