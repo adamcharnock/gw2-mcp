@@ -81,18 +81,22 @@ jobs:
             build-tool: cargo
 
           # macOS Apple Silicon — native build on macos-latest (which is
-          # arm64 since GHA's October 2024 image refresh).
+          # arm64 since GHA's October 2024 image refresh). Bundles
+          # `gw2-mcp-holder.exe` (cross-compiled mingw) into the tarball
+          # so CrossOver users get both binaries side-by-side.
           - target: aarch64-apple-darwin
             os: macos-latest
             build-tool: cargo
+            bundle-holder: true
 
           # macOS Intel — native build on macos-15-intel (the current
           # GHA-hosted x86_64 macOS runner; `macos-13` was retired
           # in late 2025). Cheap to include; covers Intel Mac users
-          # who play GW2 via CrossOver / Parallels.
+          # who play GW2 via CrossOver / Parallels. Same holder bundle.
           - target: x86_64-apple-darwin
             os: macos-15-intel
             build-tool: cargo
+            bundle-holder: true
 
     steps:
       - name: Checkout
@@ -104,11 +108,31 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
+      # macOS bundles need the holder.exe — install the mingw target
+      # alongside the macOS native one. Single rustup invocation.
+      - name: Install mingw target (for holder bundle)
+        if: matrix.bundle-holder
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Install mingw linker (for holder bundle)
+        if: matrix.bundle-holder
+        run: |
+          # macOS runners need the mingw cross-toolchain to link the
+          # x86_64-pc-windows-gnu binary. Homebrew has a current build.
+          brew install mingw-w64
+
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
           cache-on-failure: true
+
+      # Pre-build the in-bottle holder for the macOS bundles. Output goes
+      # to `target/x86_64-pc-windows-gnu/release/gw2-mcp-holder.exe`; the
+      # taiki-e action picks it up via the `include` field below.
+      - name: Build gw2-mcp-holder.exe (mingw cross)
+        if: matrix.bundle-holder
+        run: cargo build --release --locked --target x86_64-pc-windows-gnu --bin gw2-mcp-holder
 
       # taiki-e/upload-rust-binary-action does the heavy lifting:
       #   - builds with --release --locked --target <triple>
@@ -132,6 +156,10 @@ jobs:
           # `cargo` for native targets, `cross` for aarch64-linux. Explicit
           # so behaviour is deterministic across runner image refreshes.
           build-tool: ${{ matrix.build-tool }}
+          # macOS bundles ship `gw2-mcp-holder.exe` next to `gw2-mcp` so
+          # the CrossOver auto-supervisor finds it as a sibling. Empty on
+          # other targets (the `if: matrix.bundle-holder` guards build it).
+          include: ${{ matrix.bundle-holder && 'target/x86_64-pc-windows-gnu/release/gw2-mcp-holder.exe' || '' }}
           token: ${{ secrets.GITHUB_TOKEN }}
           # If the workflow was triggered via workflow_dispatch, fall back
           # to the user-supplied tag (the action defaults to GITHUB_REF).

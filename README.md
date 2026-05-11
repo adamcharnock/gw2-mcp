@@ -83,7 +83,13 @@ Download the binary for your platform from the latest
 | macOS             | x86_64 (Intel)         | `gw2-mcp-vX.Y.Z-x86_64-apple-darwin.tar.gz`               |
 
 Each archive contains a single `gw2-mcp` (or `gw2-mcp.exe`) binary plus a
-sibling `.sha256` checksum. On Linux / macOS:
+sibling `.sha256` checksum. **macOS tarballs additionally ship
+`gw2-mcp-holder.exe`** (the in-bottle Mumble Link helper); leave it next to
+the main binary — the server discovers it as a sibling and copies it into
+your CrossOver bottle automatically. See [macOS / CrossOver specifics](#macos--crossover-specifics)
+below for details.
+
+On Linux / macOS:
 
 ```bash
 tar -xzf gw2-mcp-vX.Y.Z-<triple>.tar.gz
@@ -91,10 +97,10 @@ tar -xzf gw2-mcp-vX.Y.Z-<triple>.tar.gz
 ```
 
 On macOS, the first run may be blocked by Gatekeeper — clear the
-quarantine attribute:
+quarantine attribute on both binaries:
 
 ```bash
-xattr -d com.apple.quarantine ./gw2-mcp
+xattr -d com.apple.quarantine ./gw2-mcp ./gw2-mcp-holder.exe
 ```
 
 ## MCP client config
@@ -199,9 +205,10 @@ region the game writes every frame.
 
 | Host | Mechanism | Status |
 |------|-----------|--------|
-| Windows | Named file mapping `MumbleLink` via `OpenFileMappingW` | Compiled but unverified — feedback welcome |
-| Linux / Steam Proton | `/dev/shm/MumbleLink` (tmpfs) | Compiled; verified path is correct |
-| macOS (CrossOver / Whisky) | Probes `~/Library/Application Support/CrossOver/Bottles/*/dosdevices/MumbleLink` and Whisky equivalents | **Does not work** — Wine on macOS keeps named-shm writes private to wineserver and they never propagate to the backing file. A future in-bottle UDP-loopback helper (Burrito-pattern) is the planned workaround. |
+| Windows | Named file mapping `MumbleLink` via `OpenFileMappingW` | Works |
+| Linux / Steam Proton | `/dev/shm/MumbleLink` (tmpfs) | Works |
+| macOS (CrossOver) | Bundled `gw2-mcp-holder.exe` runs in-bottle via `cxstart`, pre-creates the `MumbleLink` Section, mirrors snapshots to `<bottle>/drive_c/users/Public/gw2-mcp/mumble.bin`, which the macOS server reads. **Auto-managed** — no extra setup. | Works |
+| macOS (Whisky) | No auto-spawn (Whisky uses a different launcher) — manual workaround: run `gw2-mcp-holder.exe` inside the Whisky bottle yourself and point the server at the resulting `mumble.bin` | Manual |
 | macOS (Parallels VM) | Not reachable from the host | Use the Windows side directly |
 | Docker / headless | Not applicable | Pass `--no-mumble-link` to silence the auto-probe |
 
@@ -209,6 +216,35 @@ The server **never fails** at startup when no Mumble Link is reachable —
 it wires a stub that returns a clear "not connected" error from the four
 navigation tools while everything else keeps working. Pass `--no-mumble-link`
 to deliberately disable Mumble Link (useful in Docker, CI, headless deployments).
+Pass `--no-mumble-holder` (macOS only) to skip the in-bottle holder spawn
+without disabling the reader, useful if you're managing the holder yourself.
+
+### macOS / CrossOver specifics
+
+GW2's Mumble Link writer is *opener-only* — it writes to the named mapping
+if it exists but never creates one. On Windows the Mumble voice client (or
+anything else) creates it; on Linux/Wine, Burrito and jokolink play that
+role. On macOS no one would, so the macOS tarball ships a tiny helper
+(`gw2-mcp-holder.exe`) that the server launches inside your CrossOver
+bottle via `cxstart` automatically.
+
+What the supervisor does on first launch:
+
+1. Looks for a CrossOver bottle named `Guild Wars 2`. Override with
+   `GW2_BOTTLE="My Bottle Name"` if yours is named differently.
+2. Copies `gw2-mcp-holder.exe` (the sibling file in the tarball) into
+   `<bottle>/drive_c/users/Public/gw2-mcp/holder.exe` (replacing it on
+   sha256 mismatch so a fresh release ships an updated holder transparently).
+3. Spawns it via `cxstart --bottle "Guild Wars 2" --no-wait C:\users\Public\gw2-mcp\holder.exe ...`.
+4. The holder runs for the lifetime of `gw2-mcp` and is killed on exit.
+
+**Prerequisites**: CrossOver installed, a bottle that already has Guild Wars 2
+in it. The supervisor doesn't install GW2 — it just plugs into your existing
+bottle.
+
+If anything fails (no CrossOver, missing bottle, missing `cxstart`), the
+server logs a warning and continues without nav-tool support — every other
+tool keeps working.
 
 ### Coordinate convention
 

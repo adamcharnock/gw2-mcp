@@ -8,8 +8,9 @@ use std::sync::Arc;
 use clap::Parser;
 use gw2_mcp::adapters::probe_default;
 use gw2_mcp::adapters::{
-    ChatrDecoder, DiscretizeCatalog, HttpGw2Api, HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer,
-    MemoryCache, MetaBattleCatalog, SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
+    ChatrDecoder, DiscretizeCatalog, HolderSupervisor, HolderSupervisorOpts, HttpGw2Api,
+    HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer, MemoryCache, MetaBattleCatalog,
+    SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
 };
 use gw2_mcp::domain::ApiKey;
 use gw2_mcp::indexing::{IndexingOpts, IndexingPipeline};
@@ -55,6 +56,13 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     no_mumble_link: bool,
 
+    /// (macOS only) Skip auto-spawning the in-bottle Mumble Link holder
+    /// (`gw2-mcp-holder.exe` via cxstart). Use this if you're not running
+    /// GW2 in `CrossOver`, or if you're managing the holder yourself.
+    /// Has no effect on Linux/Windows where Mumble Link is read directly.
+    #[arg(long, default_value_t = false)]
+    no_mumble_holder: bool,
+
     /// Override the cache directory for the on-disk search index. By
     /// default the OS-standard cache dir is used (e.g.
     /// `~/Library/Caches/net.adamcharnock.gw2-mcp/` on macOS or
@@ -82,6 +90,10 @@ struct Cli {
     rebuild_index: bool,
 }
 
+// main() is the *only* place that picks adapters and wires them into the
+// service. Splitting it into helpers fragments that picture and creates
+// argument-passing noise without buying clarity. Keep it linear.
+#[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -130,6 +142,18 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         _ => None,
+    };
+
+    // On macOS, GW2 runs in CrossOver and Mumble Link only publishes when
+    // something pre-creates the named mapping. We launch an in-bottle
+    // holder via cxstart that does so and mirrors snapshots out to a
+    // host-visible file the FileMumbleLink reader picks up. The supervisor
+    // owns the child process — when it drops at process exit, the holder
+    // dies with it. On Linux/Windows this is a no-op.
+    let _holder_supervisor: HolderSupervisor = if cli.no_mumble_link || cli.no_mumble_holder {
+        HolderSupervisor::disabled()
+    } else {
+        HolderSupervisor::spawn(HolderSupervisorOpts::default())
     };
 
     // Mumble Link adapter — auto-probe unless --no-mumble-link is set.

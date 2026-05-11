@@ -18,6 +18,14 @@ path = "src/lib.rs"
 name = "gw2-mcp"
 path = "src/main.rs"
 
+# In-bottle helper that pre-creates the Mumble Link named mapping so GW2's
+# opener-only writer publishes data on macOS/CrossOver. Source is gated
+# `#![cfg(target_os = "windows")]`; on non-Windows targets the bin is an
+# empty `main()`. The macOS gw2-mcp launches it via cxstart automatically.
+[[bin]]
+name = "gw2-mcp-holder"
+path = "src/bin/holder.rs"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "io-std", "sync", "time"] }
@@ -81,7 +89,11 @@ directories = "5"
 # Windows-only shared-memory access for the MumbleLink named-mapping. Behind a
 # target_os = "windows" cfg so non-Windows builds don't pull it in.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Memory"] }
+# Win32_Security is needed because CreateFileMappingW's signature in the
+# windows crate references SECURITY_ATTRIBUTES (we pass None, but the type
+# binding must be available). The other features cover OpenFileMappingW,
+# CreateFileMappingW, MapViewOfFile, FlushViewOfFile, etc.
+windows = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Memory", "Win32_Security"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

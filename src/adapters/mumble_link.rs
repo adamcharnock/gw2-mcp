@@ -33,6 +33,7 @@
 //!
 //! [Mumble Link]: https://wiki.guildwars2.com/wiki/API:MumbleLink
 
+#[cfg(unix)]
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -43,6 +44,8 @@ use bytemuck::{Pod, Zeroable};
 // impls (`StubMumbleLink`, `FileMumbleLink`, `WindowsMumbleLink`),
 // the byte-level layout (`RawMumbleHeader`, `RawGw2Context`), and the
 // parsing helper (`parse_header`).
+#[cfg(unix)]
+use crate::adapters::holder_format;
 use crate::ports::{MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot};
 
 // ---------------------------------------------------------------------------
@@ -259,7 +262,14 @@ impl MumbleLink for StubMumbleLink {
 
 /// Returns the OS-specific candidate file paths to probe for a Mumble
 /// Link mapping. On Windows the named-mapping path is used instead, so
-/// this returns an empty Vec.
+/// this function isn't compiled there.
+///
+/// On macOS each candidate is a holder mirror file at
+/// `<bottle>/drive_c/<HOLDER_SUBDIR>/<HOLDER_BIN_NAME>` — the file format
+/// is the 16-byte holder header followed by the raw 5460-byte `LinkedMem`.
+/// On Linux it's the bare `/dev/shm/MumbleLink` (no holder header). The
+/// reader auto-detects which by checking the magic.
+#[cfg(unix)]
 fn unix_candidate_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
     // Linux + Steam Proton: tmpfs handle exposed by the Wine server.
@@ -280,7 +290,20 @@ fn unix_candidate_paths() -> Vec<PathBuf> {
                 && let Ok(entries) = std::fs::read_dir(&dir)
             {
                 for e in entries.flatten() {
-                    out.push(e.path().join("dosdevices/MumbleLink"));
+                    let bottle = e.path();
+                    // Holder mirror file (Tier 6D macOS path) — the
+                    // in-bottle gw2-mcp-holder.exe writes here.
+                    out.push(
+                        bottle
+                            .join("drive_c")
+                            .join(holder_format::HOLDER_SUBDIR)
+                            .join(holder_format::HOLDER_BIN_NAME),
+                    );
+                    // Legacy / hypothetical: a bare MumbleLink on the
+                    // Wine wineserver tmp. Kept for forward compat with
+                    // jokolink-style helpers that mirror to /dev/shm
+                    // analogues; harmless if it never exists.
+                    out.push(bottle.join("dosdevices/MumbleLink"));
                 }
             }
         }
@@ -338,15 +361,53 @@ impl MumbleLink for FileMumbleLink {
         // mmap'd shared memory, and the region is plain old data we
         // bytemuck-cast read-only. This adapter never writes.
         let mmap = unsafe_mmap_readonly(&file)?;
-        if mmap.len() < MUMBLE_HEADER_LEN {
+
+        // Two on-disk shapes are possible. macOS bottles use the holder
+        // mirror format (16-byte header + 5460-byte LinkedMem); Linux
+        // /dev/shm/MumbleLink is the raw LinkedMem with no header. We
+        // auto-detect via the holder magic.
+        let payload = if mmap.len() >= holder_format::HOLDER_HEADER_LEN
+            && &mmap[..holder_format::HOLDER_MAGIC.len()] == holder_format::HOLDER_MAGIC
+        {
+            stripped_holder_payload(&mmap)?
+        } else {
+            &mmap[..]
+        };
+
+        if payload.len() < MUMBLE_HEADER_LEN {
             return Err(MumbleError::Decode(format!(
                 "mapped region too small: {} bytes (need {})",
-                mmap.len(),
+                payload.len(),
                 MUMBLE_HEADER_LEN
             )));
         }
-        parse_header(&mmap[..MUMBLE_HEADER_LEN])
+        parse_header(&payload[..MUMBLE_HEADER_LEN])
     }
+}
+
+/// Strip the 16-byte holder header and return a slice over the embedded
+/// `LinkedMem` payload. Returns [`MumbleError::NotConnected`] when the
+/// timestamp says the writing holder is gone (>5s since last write) so
+/// the caller surfaces a clean "holder is dead" error rather than stale
+/// position data.
+#[cfg(unix)]
+fn stripped_holder_payload(mmap: &[u8]) -> Result<&[u8], MumbleError> {
+    let h = holder_format::parse_header(mmap)
+        .map_err(|e| MumbleError::Decode(format!("holder header: {e}")))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0u64, |d| d.as_secs());
+    let written = u64::from(h.write_unix_seconds);
+    let age = now.saturating_sub(written);
+    if age > holder_format::HOLDER_STALE_AFTER_SECONDS {
+        return Err(MumbleError::NotConnected(format!(
+            "holder mirror is stale: last write {age}s ago (pid={pid}). \
+             The in-bottle gw2-mcp-holder.exe is not running — restart gw2-mcp \
+             or check that CrossOver is reachable.",
+            pid = h.holder_pid
+        )));
+    }
+    Ok(&mmap[holder_format::HOLDER_HEADER_LEN..])
 }
 
 #[cfg(unix)]
@@ -644,5 +705,91 @@ mod tests {
         let adapter = probe_default(true);
         let err = adapter.snapshot().unwrap_err();
         assert!(matches!(err, MumbleError::Unsupported(_)));
+    }
+
+    // ----- Holder mirror file roundtrip ------------------------------------
+    //
+    // These exercise the file-with-holder-header path (the macOS bottle
+    // shape) without involving wine or a real bottle. We write a fixture
+    // file to a tempdir, point a `FileMumbleLink` at it, and verify the
+    // 16-byte header is correctly stripped before passing the LinkedMem
+    // payload through `parse_header`.
+
+    #[cfg(unix)]
+    fn write_holder_mirror_fixture(
+        path: &std::path::Path,
+        write_unix_seconds: u32,
+        ui_tick: u32,
+    ) -> std::io::Result<()> {
+        use std::io::Write;
+        let header = holder_format::header_bytes(99, write_unix_seconds);
+        let payload_short = make_header_bytes(ui_tick, "{}", 100.0, 200.0, 50);
+        // Pad to the full 5460-byte LinkedMem footprint so the file
+        // size matches what the real holder writes; reader only looks
+        // at the first MUMBLE_HEADER_LEN bytes after the holder header.
+        let mut payload = vec![0u8; holder_format::HOLDER_PAYLOAD_LEN];
+        payload[..payload_short.len()].copy_from_slice(&payload_short);
+        let mut f = std::fs::File::create(path)?;
+        f.write_all(&header)?;
+        f.write_all(&payload)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_reader_strips_holder_header_and_decodes_linkedmem() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("mumble.bin");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u32, |d| {
+                u32::try_from(d.as_secs() & 0xFFFF_FFFF).unwrap_or(0)
+            });
+        write_holder_mirror_fixture(&p, now, 42).expect("write fixture");
+
+        let reader = FileMumbleLink { path: p };
+        let snap = reader.snapshot().expect("decode");
+        assert_eq!(snap.ui_tick, 42);
+        assert!((snap.context.player_x - 100.0).abs() < 1e-6);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_reader_rejects_stale_holder_mirror() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("mumble.bin");
+        // Timestamp 1 hour in the past — well past HOLDER_STALE_AFTER_SECONDS.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u32, |d| {
+                u32::try_from(d.as_secs() & 0xFFFF_FFFF).unwrap_or(0)
+            });
+        let stale = now - 3600;
+        write_holder_mirror_fixture(&p, stale, 100).expect("write fixture");
+
+        let reader = FileMumbleLink { path: p };
+        let err = reader.snapshot().expect_err("expected stale rejection");
+        match err {
+            MumbleError::NotConnected(s) => {
+                assert!(s.contains("stale"), "expected 'stale' substring; got: {s}");
+            }
+            other => panic!("expected NotConnected, got {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_reader_treats_bare_linkedmem_as_no_holder() {
+        // Linux /dev/shm/MumbleLink path — file starts directly with the
+        // LinkedMem (no holder magic). Reader should bypass header
+        // stripping and parse from offset 0.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("MumbleLink");
+        let bytes = make_header_bytes(7, "{}", 1.0, 2.0, 3);
+        std::fs::write(&p, &bytes).expect("write fixture");
+
+        let reader = FileMumbleLink { path: p };
+        let snap = reader.snapshot().expect("decode");
+        assert_eq!(snap.ui_tick, 7);
     }
 }
