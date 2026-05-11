@@ -3,15 +3,17 @@
 //! other module sees only ports.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::Arc;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use gw2_mcp::adapters::probe_default;
 use gw2_mcp::adapters::{
     ChatrDecoder, DiscretizeCatalog, HolderSupervisor, HolderSupervisorOpts, HttpGw2Api,
     HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer, MemoryCache, MetaBattleCatalog,
     SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
 };
+use gw2_mcp::cli::{doctor, print_config};
 use gw2_mcp::domain::ApiKey;
 use gw2_mcp::indexing::{IndexingOpts, IndexingPipeline};
 use gw2_mcp::ports::{
@@ -21,12 +23,38 @@ use gw2_mcp::ports::{
 use gw2_mcp::service::Service;
 use tracing_subscriber::EnvFilter;
 
+/// Top-level subcommands. Default (none) runs the MCP server over stdio
+/// — the historical entrypoint. `doctor` and `print-config` are
+/// non-server utilities that print to stdout and exit.
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Run platform diagnostics for Mumble Link on macOS. Prints a
+    /// structured report and exits non-zero if any check fails.
+    Doctor,
+    /// Print a Claude Desktop config snippet for this binary, ready
+    /// to paste into `claude_desktop_config.json`.
+    #[command(name = "print-config")]
+    PrintConfig {
+        /// Inject `GW2_API_KEY=<key>` into the snippet's env block.
+        #[arg(long)]
+        api_key: Option<String>,
+        /// Inject `GW2_BOTTLE=<name>` into the snippet's env block —
+        /// pins the bottle name when CrossOver/Whisky auto-discovery
+        /// would pick the wrong one.
+        #[arg(long)]
+        bottle: Option<String>,
+    },
+}
+
 // Cli boolean flags are clap-style on/off switches; they don't represent
 // state transitions and refactoring to an enum buys nothing.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
 #[command(name = "gw2-mcp", version, about = "Guild Wars 2 MCP server (stdio).")]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Override the GW2 API base URL (useful for tests / proxies).
     #[arg(long, env = "GW2_API_BASE_URL")]
     gw2_api_url: Option<String>,
@@ -95,8 +123,21 @@ struct Cli {
 // argument-passing noise without buying clarity. Keep it linear.
 #[allow(clippy::too_many_lines)]
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
+
+    // Subcommands short-circuit the server path. They print to stdout
+    // and exit — no MCP stdio, no logging setup beyond what they need.
+    if let Some(cmd) = cli.command {
+        return Ok(match cmd {
+            Command::Doctor => doctor::run(),
+            Command::PrintConfig { api_key, bottle } => print_config::run(print_config::Args {
+                api_key,
+                bottle,
+                binary_path: None,
+            }),
+        });
+    }
 
     // MCP uses stdout for the protocol. Logs go to stderr only.
     tracing_subscriber::fmt()
@@ -225,7 +266,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("starting gw2-mcp server (stdio)");
     server.serve_stdio().await?;
     tracing::info!("gw2-mcp server exited cleanly");
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Resolve the on-disk path of the search index file from the optional

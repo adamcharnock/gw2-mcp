@@ -45,7 +45,7 @@ use bytemuck::{Pod, Zeroable};
 // the byte-level layout (`RawMumbleHeader`, `RawGw2Context`), and the
 // parsing helper (`parse_header`).
 #[cfg(unix)]
-use crate::adapters::holder_format;
+use crate::adapters::{bottle_discovery, holder_format};
 use crate::ports::{MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot};
 
 // ---------------------------------------------------------------------------
@@ -269,44 +269,28 @@ impl MumbleLink for StubMumbleLink {
 /// is the 16-byte holder header followed by the raw 5460-byte `LinkedMem`.
 /// On Linux it's the bare `/dev/shm/MumbleLink` (no holder header). The
 /// reader auto-detects which by checking the magic.
+///
+/// Bottle enumeration is delegated to [`bottle_discovery::discover_bottles`]
+/// so the supervisor and the reader agree on what bottles exist.
 #[cfg(unix)]
 fn unix_candidate_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
     // Linux + Steam Proton: tmpfs handle exposed by the Wine server.
     out.push(PathBuf::from("/dev/shm/MumbleLink"));
-    // macOS Wine bottles vary; we *probe* common spots but make no promises.
-    if cfg!(target_os = "macos")
-        && let Ok(home) = std::env::var("HOME")
-    {
-        for suffix in [
-            // CrossOver default bottles dir
-            "Library/Application Support/CrossOver/Bottles",
-            // Whisky (legacy + new) — bottle dir varies by version
-            "Library/Containers/com.isaacmarovitz.Whisky/Bottles",
-            "Library/Application Support/Whisky/Bottles",
-        ] {
-            let dir = PathBuf::from(&home).join(suffix);
-            if dir.is_dir()
-                && let Ok(entries) = std::fs::read_dir(&dir)
-            {
-                for e in entries.flatten() {
-                    let bottle = e.path();
-                    // Holder mirror file (Tier 6D macOS path) — the
-                    // in-bottle gw2-mcp-holder.exe writes here.
-                    out.push(
-                        bottle
-                            .join("drive_c")
-                            .join(holder_format::HOLDER_SUBDIR)
-                            .join(holder_format::HOLDER_BIN_NAME),
-                    );
-                    // Legacy / hypothetical: a bare MumbleLink on the
-                    // Wine wineserver tmp. Kept for forward compat with
-                    // jokolink-style helpers that mirror to /dev/shm
-                    // analogues; harmless if it never exists.
-                    out.push(bottle.join("dosdevices/MumbleLink"));
-                }
-            }
-        }
+    // macOS bottles — both CrossOver and Whisky. discover_bottles returns
+    // an empty Vec on non-macOS so this is a no-op on Linux.
+    for bottle in bottle_discovery::discover_bottles() {
+        out.push(
+            bottle
+                .root
+                .join("drive_c")
+                .join(holder_format::HOLDER_SUBDIR)
+                .join(holder_format::HOLDER_BIN_NAME),
+        );
+        // Legacy / hypothetical: a bare MumbleLink on the wineserver tmp,
+        // kept for forward compat with jokolink-style helpers. Harmless
+        // if absent.
+        out.push(bottle.root.join("dosdevices/MumbleLink"));
     }
     out
 }
@@ -340,10 +324,18 @@ impl FileMumbleLink {
                 Err(_) => {}
             }
         }
+        let hint = if cfg!(target_os = "macos") {
+            "No Mumble Link mirror found. No CrossOver/Whisky bottle with \
+             Guild Wars 2 was detected. Run `gw2-mcp doctor` to diagnose, \
+             or set GW2_BOTTLE to your bottle's name."
+                .to_owned()
+        } else {
+            "No Mumble Link region found. Ensure GW2 is running on this \
+             host (Linux/Wine writes to /dev/shm/MumbleLink)."
+                .to_owned()
+        };
         Err(MumbleError::NotConnected(format!(
-            "no MumbleLink shared-memory region found at any candidate path. \
-             Probed: {:?}. On Linux/Wine, ensure GW2 is running. On macOS, \
-             only CrossOver/Whisky setups can expose this; Parallels VMs cannot.",
+            "{hint} (Probed: {:?})",
             unix_candidate_paths()
         )))
     }
@@ -366,10 +358,10 @@ impl MumbleLink for FileMumbleLink {
         // mirror format (16-byte header + 5460-byte LinkedMem); Linux
         // /dev/shm/MumbleLink is the raw LinkedMem with no header. We
         // auto-detect via the holder magic.
-        let payload = if mmap.len() >= holder_format::HOLDER_HEADER_LEN
-            && &mmap[..holder_format::HOLDER_MAGIC.len()] == holder_format::HOLDER_MAGIC
-        {
-            stripped_holder_payload(&mmap)?
+        let is_holder = mmap.len() >= holder_format::HOLDER_HEADER_LEN
+            && &mmap[..holder_format::HOLDER_MAGIC.len()] == holder_format::HOLDER_MAGIC;
+        let payload = if is_holder {
+            stripped_holder_payload(&mmap, &self.path)?
         } else {
             &mmap[..]
         };
@@ -381,7 +373,21 @@ impl MumbleLink for FileMumbleLink {
                 MUMBLE_HEADER_LEN
             )));
         }
-        parse_header(&payload[..MUMBLE_HEADER_LEN])
+        match parse_header(&payload[..MUMBLE_HEADER_LEN]) {
+            // When reading a holder mirror, ui_tick=0 means the helper
+            // is running but GW2 has not started writing yet — a very
+            // different situation from "no GW2 at all", and the user
+            // needs different advice. Override the generic message.
+            Err(MumbleError::NotConnected(_)) if is_holder => {
+                Err(MumbleError::NotConnected(format!(
+                    "Mumble Link helper is running ({}), but GW2 has not started \
+                     publishing live data yet. Is GW2 running and logged in to a \
+                     character?",
+                    self.path.display()
+                )))
+            }
+            other => other,
+        }
     }
 }
 
@@ -391,7 +397,10 @@ impl MumbleLink for FileMumbleLink {
 /// the caller surfaces a clean "holder is dead" error rather than stale
 /// position data.
 #[cfg(unix)]
-fn stripped_holder_payload(mmap: &[u8]) -> Result<&[u8], MumbleError> {
+fn stripped_holder_payload<'a>(
+    mmap: &'a [u8],
+    path: &std::path::Path,
+) -> Result<&'a [u8], MumbleError> {
     let h = holder_format::parse_header(mmap)
         .map_err(|e| MumbleError::Decode(format!("holder header: {e}")))?;
     let now = std::time::SystemTime::now()
@@ -401,9 +410,10 @@ fn stripped_holder_payload(mmap: &[u8]) -> Result<&[u8], MumbleError> {
     let age = now.saturating_sub(written);
     if age > holder_format::HOLDER_STALE_AFTER_SECONDS {
         return Err(MumbleError::NotConnected(format!(
-            "holder mirror is stale: last write {age}s ago (pid={pid}). \
-             The in-bottle gw2-mcp-holder.exe is not running — restart gw2-mcp \
-             or check that CrossOver is reachable.",
+            "Mumble Link mirror at {} is stale (last write {age}s ago, holder pid={pid}). \
+             The in-bottle helper appears to have crashed — restart gw2-mcp, or run \
+             `gw2-mcp doctor` for diagnostics.",
+            path.display(),
             pid = h.holder_pid
         )));
     }
@@ -791,5 +801,62 @@ mod tests {
         let reader = FileMumbleLink { path: p };
         let snap = reader.snapshot().expect("decode");
         assert_eq!(snap.ui_tick, 7);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_reader_overrides_uitick_zero_message_for_holder_mirror() {
+        // Fresh holder mirror (timestamp = now) but ui_tick=0 means the
+        // helper is alive and GW2 just hasn't started writing yet. The
+        // snapshot path should override the generic "log a character in"
+        // message with one that mentions the helper is running.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("mumble.bin");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u32, |d| {
+                u32::try_from(d.as_secs() & 0xFFFF_FFFF).unwrap_or(0)
+            });
+        write_holder_mirror_fixture(&p, now, 0).expect("write fixture");
+
+        let reader = FileMumbleLink { path: p };
+        let err = reader.snapshot().expect_err("ui_tick=0 should error");
+        match err {
+            MumbleError::NotConnected(s) => {
+                assert!(
+                    s.contains("helper is running"),
+                    "expected 'helper is running' substring; got: {s}"
+                );
+                assert!(
+                    s.contains("logged in"),
+                    "expected 'logged in' substring; got: {s}"
+                );
+            }
+            other => panic!("expected NotConnected, got {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_reader_stale_message_mentions_doctor_and_path() {
+        // Refines the existing stale test: ensure the new message points
+        // the user at `gw2-mcp doctor` and includes the mirror file path,
+        // so support threads can show the broken state at a glance.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("mumble.bin");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u32, |d| {
+                u32::try_from(d.as_secs() & 0xFFFF_FFFF).unwrap_or(0)
+            });
+        write_holder_mirror_fixture(&p, now - 3600, 100).expect("write fixture");
+
+        let reader = FileMumbleLink { path: p.clone() };
+        let err = reader.snapshot().expect_err("expected stale rejection");
+        let MumbleError::NotConnected(s) = err else {
+            panic!("expected NotConnected");
+        };
+        assert!(s.contains("gw2-mcp doctor"), "got: {s}");
+        assert!(s.contains(&p.display().to_string()), "got: {s}");
     }
 }

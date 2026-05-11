@@ -189,12 +189,16 @@ don't guess. The whole point is that the recommendation is personal.
 
 **Mumble Link is local-only.** `get_my_location`, `find_nearby` with
 `{here:true}`, and `describe_facing` need the GW2 client running on the
-same host as the MCP server. Linux/Wine, Windows, and macOS via CrossOver
-are all supported; on macOS the server auto-launches a small in-bottle
-helper (`gw2-mcp-holder.exe`) that pre-creates the Mumble Link mapping
-GW2 writes into. The other navigation tools (`get_directions` with
-explicit coords or named POIs, `find_nearby` with `around: {coords:[x,y]}`)
-work everywhere.
+same host as the MCP server. Linux/Wine, Windows, and macOS via either
+CrossOver or Whisky are all supported; on macOS the server auto-launches
+a small in-bottle helper (`gw2-mcp-holder.exe`) that pre-creates the
+Mumble Link mapping GW2 writes into. The other navigation tools
+(`get_directions` with explicit coords or named POIs, `find_nearby` with
+`around: {coords:[x,y]}`) work everywhere. If a macOS user reports that
+a nav tool returned `NotConnected`, suggest they run `gw2-mcp doctor` in
+their terminal — it prints a structured diagnostic that pinpoints which
+step (CrossOver / Whisky detection, bottle discovery, holder install,
+GW2 writing) is failing.
 
 ## Prompts (slash-commands the user can pick from a UI)
 

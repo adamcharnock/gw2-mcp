@@ -9,6 +9,7 @@
 //! `main.rs` is the only place that picks concrete adapters.
 
 pub mod adapters;
+pub mod cli;
 pub mod domain;
 pub mod indexing;
 pub mod ports;

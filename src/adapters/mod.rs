@@ -4,6 +4,7 @@
 //! external concern (HTTP client, in-memory cache, system clock). Swapping
 //! providers should be a one-file change.
 
+pub mod bottle_discovery;
 pub mod build_code_chatr;
 pub mod catalog_discretize;
 pub mod catalog_metabattle;
@@ -20,6 +21,7 @@ pub mod sqlite_index;
 pub mod system_clock;
 pub mod wiki_http;
 
+pub use bottle_discovery::{Bottle, Runner, discover_bottles, pick_gw2_bottle};
 pub use build_code_chatr::ChatrDecoder;
 pub use catalog_discretize::DiscretizeCatalog;
 pub use catalog_metabattle::MetaBattleCatalog;

@@ -208,7 +208,7 @@ region the game writes every frame.
 | Windows | Named file mapping `MumbleLink` via `OpenFileMappingW` | Works |
 | Linux / Steam Proton | `/dev/shm/MumbleLink` (tmpfs) | Works |
 | macOS (CrossOver) | Bundled `gw2-mcp-holder.exe` runs in-bottle via `cxstart`, pre-creates the `MumbleLink` Section, mirrors snapshots to `<bottle>/drive_c/users/Public/gw2-mcp/mumble.bin`, which the macOS server reads. **Auto-managed** — no extra setup. | Works |
-| macOS (Whisky) | No auto-spawn (Whisky uses a different launcher) — manual workaround: run `gw2-mcp-holder.exe` inside the Whisky bottle yourself and point the server at the resulting `mumble.bin` | Manual |
+| macOS (Whisky) | Same approach as CrossOver, launched via Whisky's bundled `wine64` with `WINEPREFIX=<bottle>`. **Auto-managed** — no extra setup. | Works |
 | macOS (Parallels VM) | Not reachable from the host | Use the Windows side directly |
 | Docker / headless | Not applicable | Pass `--no-mumble-link` to silence the auto-probe |
 
@@ -219,32 +219,62 @@ to deliberately disable Mumble Link (useful in Docker, CI, headless deployments)
 Pass `--no-mumble-holder` (macOS only) to skip the in-bottle holder spawn
 without disabling the reader, useful if you're managing the holder yourself.
 
-### macOS / CrossOver specifics
+### macOS / CrossOver & Whisky specifics
 
 GW2's Mumble Link writer is *opener-only* — it writes to the named mapping
 if it exists but never creates one. On Windows the Mumble voice client (or
 anything else) creates it; on Linux/Wine, Burrito and jokolink play that
 role. On macOS no one would, so the macOS tarball ships a tiny helper
-(`gw2-mcp-holder.exe`) that the server launches inside your CrossOver
-bottle via `cxstart` automatically.
+(`gw2-mcp-holder.exe`) that the server launches inside your bottle
+automatically.
 
 What the supervisor does on first launch:
 
-1. Looks for a CrossOver bottle named `Guild Wars 2`. Override with
-   `GW2_BOTTLE="My Bottle Name"` if yours is named differently.
+1. **Auto-discovers** any CrossOver or Whisky bottle that contains
+   `Gw2-64.exe` at the standard `Program Files` install location. No
+   specific bottle name is required. CrossOver bottles are preferred when
+   both runners contain GW2. Override with `GW2_BOTTLE="My Bottle Name"`
+   if auto-discovery picks the wrong one (or if GW2 is installed in a
+   non-standard path inside an otherwise-recognisable bottle).
 2. Copies `gw2-mcp-holder.exe` (the sibling file in the tarball) into
    `<bottle>/drive_c/users/Public/gw2-mcp/holder.exe` (replacing it on
    sha256 mismatch so a fresh release ships an updated holder transparently).
-3. Spawns it via `cxstart --bottle "Guild Wars 2" --no-wait C:\users\Public\gw2-mcp\holder.exe ...`.
+3. Spawns it via `cxstart --bottle <name> --no-wait …` for CrossOver, or
+   via Whisky's bundled `wine64` with `WINEPREFIX=<bottle-root>` for Whisky.
 4. The holder runs for the lifetime of `gw2-mcp` and is killed on exit.
 
-**Prerequisites**: CrossOver installed, a bottle that already has Guild Wars 2
-in it. The supervisor doesn't install GW2 — it just plugs into your existing
-bottle.
+**Prerequisites**: CrossOver *or* Whisky installed, with Guild Wars 2 in
+a bottle. The supervisor doesn't install GW2 — it just plugs into your
+existing bottle.
 
-If anything fails (no CrossOver, missing bottle, missing `cxstart`), the
+If anything fails (no CrossOver/Whisky, no bottle, missing launcher), the
 server logs a warning and continues without nav-tool support — every other
-tool keeps working.
+tool keeps working. Run `gw2-mcp doctor` (see below) for a structured
+diagnosis.
+
+### Diagnostics and config helpers
+
+Two zero-server-startup subcommands help with setup:
+
+```bash
+gw2-mcp doctor          # macOS Mumble Link diagnostics — prints a checklist
+gw2-mcp print-config    # emit a Claude Desktop config snippet for this binary
+```
+
+`doctor` reports each step independently (CrossOver detected? Whisky detected?
+bottles found? GW2 located? holder installed? mirror file fresh? GW2 actually
+writing live frames?) so you can see exactly where things fall over. It exits
+non-zero if any step fails — handy in shell pipelines.
+
+`print-config` writes ready-to-paste JSON for `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```bash
+gw2-mcp print-config | pbcopy   # macOS — copy straight to clipboard
+gw2-mcp print-config --api-key "AAA...-BBB...-CCC..." --bottle "My Bottle"
+```
+
+`--api-key` and `--bottle` are optional; they inject `GW2_API_KEY` /
+`GW2_BOTTLE` into the snippet's `env` block.
 
 ### Coordinate convention
 
