@@ -144,9 +144,24 @@ async fn main() -> Result<()> {
     eprintln!("    {} maps loaded from GW2 API.", maps.len());
     let name_to_id = build_name_index(&maps);
 
-    eprintln!("[2/4] Enumerating Category:Zones on the wiki …");
+    eprintln!("[2/4] Enumerating Category:Zones + Category:Cities on the wiki …");
     let mut zone_pages = list_category_members(&client, "Category:Zones").await?;
-    eprintln!("    {} zone pages found.", zone_pages.len());
+    let city_pages = list_category_members(&client, "Category:Cities").await?;
+    let zone_count = zone_pages.len();
+    // Cities are queryable as sources of asura-gate edges, so we
+    // include their pages alongside zones. The infobox parser accepts
+    // both `type = Zone` and `type = City`.
+    for c in &city_pages {
+        if !zone_pages.contains(c) {
+            zone_pages.push(c.clone());
+        }
+    }
+    eprintln!(
+        "    {} zone pages + {} city pages ({} total after dedupe).",
+        zone_count,
+        city_pages.len(),
+        zone_pages.len()
+    );
     if let Some(n) = args.limit {
         zone_pages.truncate(n);
         eprintln!("    Limited to first {n} for this run.");
@@ -446,9 +461,12 @@ async fn parse_zone_page(
     let params = parse_infobox_params(&infobox);
 
     let type_value = params.get("type").map(|s| s.to_lowercase());
-    if type_value.as_deref() != Some("zone") {
-        // Region pages, story instance pages, etc. land here.
-        return Ok(None);
+    match type_value.as_deref() {
+        Some("zone") | Some("city") => {}
+        _ => {
+            // Region pages, story instance pages, etc. land here.
+            return Ok(None);
+        }
     }
 
     let source_id: u32 = match params.get("id").and_then(|s| s.trim().parse().ok()) {
