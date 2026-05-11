@@ -191,7 +191,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     // host-visible file the FileMumbleLink reader picks up. The supervisor
     // owns the child process — when it drops at process exit, the holder
     // dies with it. On Linux/Windows this is a no-op.
-    let _holder_supervisor: HolderSupervisor = if cli.no_mumble_link || cli.no_mumble_holder {
+    let holder_supervisor: HolderSupervisor = if cli.no_mumble_link || cli.no_mumble_holder {
         HolderSupervisor::disabled()
     } else {
         HolderSupervisor::spawn(HolderSupervisorOpts::default())
@@ -200,16 +200,33 @@ async fn main() -> anyhow::Result<ExitCode> {
     // Mumble Link adapter — auto-probe unless --no-mumble-link is set.
     // probe_default never fails: it returns a stub on missing region.
     let mumble: Arc<dyn MumbleLink> = probe_default(cli.no_mumble_link);
-    match mumble.snapshot() {
-        Ok(snap) => tracing::info!(
-            ui_tick = snap.ui_tick,
-            map_id = snap.context.map_id,
-            "mumble link adapter: connected"
-        ),
-        Err(e) => tracing::info!(
-            error = %e,
-            "mumble link adapter: stub (navigation tools will return this error until GW2 is running on the same host)"
-        ),
+
+    // Diagnostic log at startup. When the in-bottle supervisor is active
+    // (macOS + bottle detected), the helper has only just been spawned
+    // and Wine hasn't yet had time to load it — any snapshot we take
+    // here would read a stale leftover mirror file from a previous
+    // session and report a misleading "helper appears to have crashed"
+    // message. The supervisor's own log line is the proof of life;
+    // skip the redundant probe here and let nav tools read live state
+    // on demand. For non-macOS hosts (or when the supervisor is
+    // disabled) we keep the snapshot as the primary startup diagnostic
+    // for "did /dev/shm/MumbleLink / the Windows named mapping show up?".
+    if holder_supervisor.is_active() {
+        tracing::info!(
+            "mumble link adapter wired via in-bottle helper; nav tools will read live state on demand"
+        );
+    } else {
+        match mumble.snapshot() {
+            Ok(snap) => tracing::info!(
+                ui_tick = snap.ui_tick,
+                map_id = snap.context.map_id,
+                "mumble link adapter: connected"
+            ),
+            Err(e) => tracing::info!(
+                error = %e,
+                "mumble link adapter: stub (navigation tools will return this error until GW2 is running on the same host)"
+            ),
+        }
     }
 
     let maps: Arc<dyn MapData> = Arc::new(HttpMapData::new()?);
@@ -265,7 +282,7 @@ async fn main() -> anyhow::Result<ExitCode> {
 
     // We race the MCP serve loop against signal delivery so SIGINT/SIGTERM
     // cause a clean return from `main` instead of a hard process exit. The
-    // clean return is what lets `_holder_supervisor`'s Drop fire (and
+    // clean return is what lets `holder_supervisor`'s Drop fire (and
     // therefore terminate the in-bottle holder). Without this, killing
     // gw2-mcp from a terminal would leave holder.exe orphaned until the
     // next gw2-mcp startup's orphan-sweep ran.
