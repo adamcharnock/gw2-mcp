@@ -273,7 +273,7 @@ impl HolderSupervisor {
         return matches!(*state, State::Leader { .. });
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = state;
+            drop(state);
             false
         }
     }
