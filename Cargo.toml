@@ -9,6 +9,10 @@ repository = "https://github.com/adamcharnock/gw2-mcp"
 readme = "README.md"
 keywords = ["mcp", "guildwars2", "gw2", "llm"]
 categories = ["command-line-utilities", "api-bindings"]
+# Two binaries (gw2-mcp + gw2-mcp-holder) means `cargo run` can't infer
+# which to launch — pin the default to the MCP server so `cargo run`
+# and tasks like `mise run run` work without `--bin`.
+default-run = "gw2-mcp"
 
 [lib]
 name = "gw2_mcp"
