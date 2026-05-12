@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use super::{DAILIES_TTL, STATIC_TTL, Service, ServiceError, WALLET_TTL};
+use super::{DAILIES_TTL, STATIC_TTL, Service, ServiceError, WALLET_TTL, text_match};
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey,
     CharacterInventory, CharacterName, Currency, CurrencyId, Dungeon, InventorySlot, ItemId,
@@ -627,6 +627,7 @@ impl Service {
         &self,
         key: &ApiKey,
         summary: bool,
+        filter: &StorageFilter,
     ) -> Result<AccountBankSnapshot, ServiceError> {
         let cache_key = format!("account_bank:{}", key.fingerprint());
         let slots: Vec<InventorySlot> = if let Some(json) = self.cache.get(&cache_key).await
@@ -641,7 +642,14 @@ impl Service {
             v
         };
 
+        let want_ids: Option<BTreeSet<u32>> = filter
+            .item_ids
+            .as_ref()
+            .map(|v| v.iter().copied().collect());
+
         // Item-name resolution — collect unique ids, batch-resolve.
+        // Include any explicitly-requested item_ids so count: 0 rows
+        // still carry a name.
         let unique_ids: Vec<ItemId> = {
             let mut set = BTreeSet::new();
             for s in &slots {
@@ -649,11 +657,18 @@ impl Service {
                     set.insert(id);
                 }
             }
+            if let Some(ids) = &want_ids {
+                for &id in ids {
+                    if let Ok(id) = ItemId::new(i64::from(id)) {
+                        set.insert(id);
+                    }
+                }
+            }
             set.into_iter().collect()
         };
         let names = self.item_names_for(&unique_ids).await;
 
-        let items: Vec<BankItemEntry> = if summary {
+        let mut items: Vec<BankItemEntry> = if summary {
             // Group by id, sum counts. Order by descending count so the
             // LLM sees biggest stockpiles first.
             let mut by_id: BTreeMap<u32, u32> = BTreeMap::new();
@@ -687,6 +702,35 @@ impl Service {
                 .collect()
         };
 
+        // Apply filters. item_ids → keep only matching rows AND inject
+        // count: 0 for ids that weren't present at all. name_contains
+        // → filter by item name (skips rows with no resolved name —
+        // best-effort enrichment, treated as a non-match).
+        if let Some(ids) = &want_ids {
+            items.retain(|e| ids.contains(&e.id));
+            let present: BTreeSet<u32> = items.iter().map(|e| e.id).collect();
+            for &id in ids {
+                if !present.contains(&id) {
+                    items.push(BankItemEntry {
+                        id,
+                        name: names.get(&id).cloned(),
+                        count: 0,
+                        binding: None,
+                        bound_to: None,
+                        charges: None,
+                    });
+                }
+            }
+            items.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+        }
+        if let Some(needle) = filter.name_contains.as_deref() {
+            items.retain(|e| {
+                e.name
+                    .as_deref()
+                    .is_some_and(|n| text_match::name_contains_match(needle, n))
+            });
+        }
+
         Ok(AccountBankSnapshot {
             summary,
             unique_item_count: unique_ids.len(),
@@ -698,6 +742,9 @@ impl Service {
 
     /// Fetch the account material storage and project it for the LLM.
     ///
+    /// See [`StorageFilter`] for filtering semantics shared with the
+    /// bank and inventory tools.
+    ///
     /// Summary mode (`summary=true`, default): drops count=0 rows (most
     /// of the materials list — empty slots dominate). Sorted by count
     /// descending. Drops binding.
@@ -706,10 +753,18 @@ impl Service {
     /// binding preserved.
     ///
     /// Item names + category names are pre-resolved (best-effort).
+    ///
+    /// Filters compose: `item_ids` AND `categories` AND `name_contains`
+    /// all narrow the result; passing none returns the full storage.
+    /// When `item_ids` is set, every requested id appears in the
+    /// response even if it's not in storage (count: 0), so the caller
+    /// can distinguish "you have N" from "you don't have this".
+    #[allow(clippy::too_many_lines)] // grouping + filter passes
     pub async fn get_account_materials(
         &self,
         key: &ApiKey,
         summary: bool,
+        filter: &StorageFilter,
     ) -> Result<AccountMaterialsSnapshot, ServiceError> {
         let cache_key = format!("account_materials:{}", key.fingerprint());
         let slots: Vec<MaterialSlot> = if let Some(json) = self.cache.get(&cache_key).await
@@ -724,7 +779,22 @@ impl Service {
             v
         };
 
-        // Best-effort enrichment: item names + category names.
+        // Build a quick lookup of the slot data for the count: 0
+        // injection path when item_ids is set.
+        let slots_by_id: BTreeMap<u32, &MaterialSlot> = slots.iter().map(|s| (s.id, s)).collect();
+        let want_ids: Option<BTreeSet<u32>> = filter
+            .item_ids
+            .as_ref()
+            .map(|v| v.iter().copied().collect());
+        let want_categories: Option<BTreeSet<u32>> = filter
+            .categories
+            .as_ref()
+            .map(|v| v.iter().copied().collect());
+
+        // Best-effort enrichment: item names. The set includes all
+        // slot ids that will pass the summary gate, plus any item_ids
+        // requested that aren't in storage (so the count: 0 rows get
+        // names too).
         let unique_item_ids: Vec<ItemId> = {
             let mut set = BTreeSet::new();
             for s in &slots {
@@ -733,6 +803,13 @@ impl Service {
                 }
                 if let Ok(id) = ItemId::new(i64::from(s.id)) {
                     set.insert(id);
+                }
+            }
+            if let Some(ids) = &want_ids {
+                for &id in ids {
+                    if let Ok(id) = ItemId::new(i64::from(id)) {
+                        set.insert(id);
+                    }
                 }
             }
             set.into_iter().collect()
@@ -744,19 +821,83 @@ impl Service {
         // category_name on every row (293× redundancy on a real
         // account). One copy per category here.
         let mut by_category: BTreeMap<u32, Vec<MaterialItemEntry>> = BTreeMap::new();
+
+        // Pass 1: surface slots that pass summary + filter gates.
         for s in &slots {
             if summary && s.count == 0 {
+                // Exception: when item_ids is set, the count: 0 rows
+                // for explicitly-requested ids should still appear
+                // (handled in pass 2). Skip here.
+                if want_ids.as_ref().is_none_or(|ids| !ids.contains(&s.id)) {
+                    continue;
+                }
+            }
+            if let Some(ids) = &want_ids
+                && !ids.contains(&s.id)
+            {
                 continue;
+            }
+            if let Some(cats) = &want_categories
+                && !cats.contains(&s.category)
+            {
+                continue;
+            }
+            let name = item_names.get(&s.id).cloned();
+            if let Some(needle) = filter.name_contains.as_deref() {
+                let hay = name.as_deref().unwrap_or("");
+                if !text_match::name_contains_match(needle, hay) {
+                    continue;
+                }
             }
             by_category
                 .entry(s.category)
                 .or_default()
                 .push(MaterialItemEntry {
                     id: s.id,
-                    name: item_names.get(&s.id).cloned(),
+                    name,
                     count: s.count,
                     binding: if summary { None } else { s.binding.clone() },
                 });
+        }
+
+        // Pass 2: inject count: 0 rows for requested item_ids that
+        // weren't in storage at all. These tell the caller "you don't
+        // have this" rather than "I forgot to include it".
+        if let Some(ids) = &want_ids {
+            for &id in ids {
+                let already_present = by_category.values().any(|v| v.iter().any(|e| e.id == id));
+                if already_present {
+                    continue;
+                }
+                // Determine category for the missing id. Slot data
+                // gives us the canonical category when the slot exists
+                // with count: 0; otherwise we file it under category 0
+                // as a sentinel ("requested but not in storage").
+                let (category, count) = slots_by_id
+                    .get(&id)
+                    .map_or((0, 0), |s| (s.category, s.count));
+                if let Some(cats) = &want_categories
+                    && !cats.contains(&category)
+                {
+                    continue;
+                }
+                let name = item_names.get(&id).cloned();
+                if let Some(needle) = filter.name_contains.as_deref() {
+                    let hay = name.as_deref().unwrap_or("");
+                    if !text_match::name_contains_match(needle, hay) {
+                        continue;
+                    }
+                }
+                by_category
+                    .entry(category)
+                    .or_default()
+                    .push(MaterialItemEntry {
+                        id,
+                        name,
+                        count,
+                        binding: None,
+                    });
+            }
         }
 
         // Order: categories by name (then id as tiebreaker for missing
@@ -793,13 +934,15 @@ impl Service {
     }
 
     /// Fetch a character's bag inventory. Same summary-vs-full pattern
-    /// as `get_account_bank`. The character must exist on the account
-    /// for this key.
+    /// as `get_account_bank`. See [`StorageFilter`] for filtering
+    /// semantics. The character must exist on the account for this key.
+    #[allow(clippy::too_many_lines)] // bag flatten + filter passes
     pub async fn get_character_inventory(
         &self,
         key: &ApiKey,
         name: &CharacterName,
         summary: bool,
+        filter: &StorageFilter,
     ) -> Result<CharacterInventorySnapshot, ServiceError> {
         let cache_key = format!(
             "character_inventory:{}:{}",
@@ -830,7 +973,13 @@ impl Service {
             .collect();
         let total_slots: usize = inv.bags.iter().flatten().map(|b| b.size as usize).sum();
 
-        // Item-name resolution
+        let want_ids: Option<BTreeSet<u32>> = filter
+            .item_ids
+            .as_ref()
+            .map(|v| v.iter().copied().collect());
+
+        // Item-name resolution. Include any explicitly-requested
+        // item_ids so count: 0 rows still carry a name.
         let unique_ids: Vec<ItemId> = {
             let mut set = BTreeSet::new();
             for s in &occupied {
@@ -838,11 +987,18 @@ impl Service {
                     set.insert(id);
                 }
             }
+            if let Some(ids) = &want_ids {
+                for &id in ids {
+                    if let Ok(id) = ItemId::new(i64::from(id)) {
+                        set.insert(id);
+                    }
+                }
+            }
             set.into_iter().collect()
         };
         let names = self.item_names_for(&unique_ids).await;
 
-        let items: Vec<BankItemEntry> = if summary {
+        let mut items: Vec<BankItemEntry> = if summary {
             let mut by_id: BTreeMap<u32, u32> = BTreeMap::new();
             for s in &occupied {
                 *by_id.entry(s.id).or_default() += s.count;
@@ -873,6 +1029,32 @@ impl Service {
                 })
                 .collect()
         };
+
+        // Apply filters. See get_account_bank for the parallel logic.
+        if let Some(ids) = &want_ids {
+            items.retain(|e| ids.contains(&e.id));
+            let present: BTreeSet<u32> = items.iter().map(|e| e.id).collect();
+            for &id in ids {
+                if !present.contains(&id) {
+                    items.push(BankItemEntry {
+                        id,
+                        name: names.get(&id).cloned(),
+                        count: 0,
+                        binding: None,
+                        bound_to: None,
+                        charges: None,
+                    });
+                }
+            }
+            items.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+        }
+        if let Some(needle) = filter.name_contains.as_deref() {
+            items.retain(|e| {
+                e.name
+                    .as_deref()
+                    .is_some_and(|n| text_match::name_contains_match(needle, n))
+            });
+        }
 
         Ok(CharacterInventorySnapshot {
             character_name: name.as_str().to_owned(),
@@ -1191,6 +1373,33 @@ pub struct MasteryPointBalance {
     pub earned: u32,
     pub spent: u32,
     pub unspent: i32,
+}
+
+/// Shared filter knobs for the three storage-tab tools
+/// (`get_account_materials`, `get_account_bank`,
+/// `get_character_inventory`). All fields are optional and compose
+/// with AND semantics — passing `Default::default()` returns the full
+/// storage. Distinct from `summary` (which is a presentation flag,
+/// not a content filter).
+///
+/// `item_ids` has a special wrinkle: when set, every requested id
+/// appears in the response even if storage doesn't contain it (the
+/// row will have `count: 0`). That makes "do I have any?" answerable
+/// from a single call without the caller having to reason about
+/// missing rows. `categories` is honored only by
+/// `get_account_materials` (bank + inventory don't expose category
+/// metadata).
+#[derive(Debug, Clone, Default)]
+pub struct StorageFilter {
+    /// Restrict to these GW2 item ids. When set, the response also
+    /// includes a `count: 0` row for any requested id not in storage.
+    pub item_ids: Option<Vec<u32>>,
+    /// Restrict to these material category ids
+    /// (`get_account_materials` only — ignored elsewhere).
+    pub categories: Option<Vec<u32>>,
+    /// Case-insensitive, token-based substring match on the item
+    /// name. See `text_match::name_contains_match`.
+    pub name_contains: Option<String>,
 }
 
 /// Result of `get_account_bank`. See `Service::get_account_bank` for

@@ -157,7 +157,10 @@ async fn bank_summary_groups_by_item_id_and_sums_counts() {
     let svc = build(gw2.clone(), wiki, cache.clone(), clock.clone());
     let key = valid_api_key();
 
-    let snap = svc.get_account_bank(&key, true).await.unwrap();
+    let snap = svc
+        .get_account_bank(&key, true, &gw2_mcp::service::StorageFilter::default())
+        .await
+        .unwrap();
     assert!(snap.summary);
     assert_eq!(snap.items.len(), 2, "summary collapses two slots of id=42");
     assert_eq!(snap.unique_item_count, 2);
@@ -195,12 +198,159 @@ async fn bank_full_mode_preserves_per_slot_detail() {
     ]);
 
     let svc = build(gw2, wiki, cache, clock);
-    let snap = svc.get_account_bank(&valid_api_key(), false).await.unwrap();
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            false,
+            &gw2_mcp::service::StorageFilter::default(),
+        )
+        .await
+        .unwrap();
     assert!(!snap.summary);
     assert_eq!(snap.items.len(), 2, "full mode keeps per-slot rows");
     assert_eq!(snap.items[0].binding.as_deref(), Some("Account"));
     assert_eq!(snap.items[1].binding.as_deref(), Some("Character"));
     assert_eq!(snap.items[1].bound_to.as_deref(), Some("Hero"));
+}
+
+#[tokio::test]
+async fn bank_item_ids_filter_includes_zero_count_for_missing_ids() {
+    // The "do I have 56 ectos?" use-case. Caller passes a small set
+    // of item_ids; bank carries some of them and not others; response
+    // must include every requested id (with count: 0 for missing).
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![gw2_mcp::domain::InventorySlot {
+        id: 19721, // Glob of Ectoplasm
+        count: 58,
+        binding: None,
+        bound_to: None,
+        charges: None,
+    }]);
+    // Item name lookups need a metadata row.
+    gw2.add_item(common::item_named(19721, "Glob of Ectoplasm"));
+    gw2.add_item(common::item_named(19976, "Mystic Coin"));
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                item_ids: Some(vec![19721, 19976]),
+                categories: None,
+                name_contains: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(snap.items.len(), 2);
+    let by_id: std::collections::BTreeMap<u32, u32> =
+        snap.items.iter().map(|e| (e.id, e.count)).collect();
+    assert_eq!(by_id.get(&19721).copied(), Some(58));
+    assert_eq!(
+        by_id.get(&19976).copied(),
+        Some(0),
+        "missing ids must be present with count: 0"
+    );
+}
+
+#[tokio::test]
+async fn bank_name_contains_filter_matches_case_insensitive_token() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![
+        gw2_mcp::domain::InventorySlot {
+            id: 19721,
+            count: 58,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 19976,
+            count: 13,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+    ]);
+    gw2.add_item(common::item_named(19721, "Glob of Ectoplasm"));
+    gw2.add_item(common::item_named(19976, "Mystic Coin"));
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                item_ids: None,
+                categories: None,
+                name_contains: Some("mystic".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(snap.items.len(), 1);
+    assert_eq!(snap.items[0].id, 19976);
+}
+
+#[tokio::test]
+async fn materials_categories_filter_narrows_to_requested_categories() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_materials(vec![
+        gw2_mcp::domain::MaterialSlot {
+            id: 19721,
+            count: 58,
+            category: 5,
+            binding: None,
+        },
+        gw2_mcp::domain::MaterialSlot {
+            id: 24277, // Pile of Bloodstone Dust — Ascended
+            count: 291,
+            category: 46,
+            binding: None,
+        },
+    ]);
+    gw2.add_material_category(gw2_mcp::domain::MaterialCategory {
+        id: 5,
+        name: "Basic Crafting Materials".into(),
+        items: vec![],
+        order: 1,
+    });
+    gw2.add_material_category(gw2_mcp::domain::MaterialCategory {
+        id: 46,
+        name: "Ascended Materials".into(),
+        items: vec![],
+        order: 2,
+    });
+    gw2.add_item(common::item_named(19721, "Glob of Ectoplasm"));
+    gw2.add_item(common::item_named(24277, "Pile of Bloodstone Dust"));
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_materials(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                item_ids: None,
+                categories: Some(vec![46]),
+                name_contains: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(snap.categories.len(), 1);
+    assert_eq!(snap.categories[0].category, 46);
+    assert_eq!(snap.categories[0].items.len(), 1);
+    assert_eq!(snap.categories[0].items[0].id, 24277);
 }
 
 #[tokio::test]

@@ -25,7 +25,7 @@ use parsing::{
     catalog_filter_hash, decode_cursor, encode_cursor, parse_excluded_connections, parse_id_array,
     parse_location_ref, parse_map_ref, parse_nearby_filter, parse_optional_str, parse_optional_u32,
     parse_player_access, parse_required_id_array, parse_route_preference, parse_search_limit,
-    parse_search_query, parse_summary, parse_tab_selector,
+    parse_search_query, parse_storage_filter, parse_summary, parse_tab_selector,
 };
 use prompts::{PromptError, build_prompts, render_prompt};
 use resources::{
@@ -632,9 +632,10 @@ impl McpServer {
     ) -> Result<serde_json::Value, CallError> {
         let key = self.resolve_api_key(args)?;
         let summary = parse_summary(args);
+        let filter = parse_storage_filter(args)?;
         let v = self
             .service
-            .get_account_bank(&key, summary)
+            .get_account_bank(&key, summary, &filter)
             .await
             .map_err(|e| annotate_endpoint(e, "get_account_bank"))?;
         Ok(serde_json::to_value(&v)?)
@@ -646,9 +647,10 @@ impl McpServer {
     ) -> Result<serde_json::Value, CallError> {
         let key = self.resolve_api_key(args)?;
         let summary = parse_summary(args);
+        let filter = parse_storage_filter(args)?;
         let v = self
             .service
-            .get_account_materials(&key, summary)
+            .get_account_materials(&key, summary, &filter)
             .await
             .map_err(|e| annotate_endpoint(e, "get_account_materials"))?;
         Ok(serde_json::to_value(&v)?)
@@ -665,9 +667,10 @@ impl McpServer {
         let key = self.resolve_api_key(args)?;
         let name = CharacterName::new(raw_name).map_err(CallError::Domain)?;
         let summary = parse_summary(args);
+        let filter = parse_storage_filter(args)?;
         let v = self
             .service
-            .get_character_inventory(&key, &name, summary)
+            .get_character_inventory(&key, &name, summary, &filter)
             .await
             .map_err(|e| annotate_endpoint(e, "get_character_inventory"))?;
         Ok(serde_json::to_value(&v)?)

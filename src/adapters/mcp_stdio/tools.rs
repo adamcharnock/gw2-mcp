@@ -275,6 +275,17 @@ pub(super) fn build_tools() -> Vec<Tool> {
                     "type": "boolean",
                     "default": true,
                     "description": "When true (default), groups slots by item id with summed counts (drops binding/charges). Pass false for one row per occupied slot with binding/charges preserved — useful for 'find my soulbound legendaries' or per-slot audit."
+                },
+                "item_ids": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer", "minimum": 1},
+                    "default": null,
+                    "description": "Restrict to these item ids (a `count: 0` row is included for any requested id not in the bank, so 'do I have X?' is answerable from one call). Compose with name_contains/summary as AND filters."
+                },
+                "name_contains": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "Case-insensitive, token-based substring filter on item name. `'mystic coin'` matches `'Mystic Coin'` and `'Coin, Mystic'` (order-agnostic). Items with unresolved names are dropped from the result."
                 }
             }
         }))
@@ -297,6 +308,23 @@ pub(super) fn build_tools() -> Vec<Tool> {
                     "type": "boolean",
                     "default": true,
                     "description": "When true (default), drops empty (count=0) rows and binding info. Pass false for every slot including count=0 with binding preserved."
+                },
+                "item_ids": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer", "minimum": 1},
+                    "default": null,
+                    "description": "Restrict to these item ids (a `count: 0` row is included for any requested id not in storage). Lets the LLM answer 'do I have enough X to craft Y?' in one call instead of scanning 293 rows."
+                },
+                "categories": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer", "minimum": 1},
+                    "default": null,
+                    "description": "Restrict to these material category ids (see /v2/materials for the catalog). Useful for category-scoped questions like 'what ascended materials am I sitting on?'."
+                },
+                "name_contains": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "Case-insensitive, token-based substring filter on item name."
                 }
             }
         }))
@@ -321,6 +349,17 @@ pub(super) fn build_tools() -> Vec<Tool> {
                     "type": "boolean",
                     "default": true,
                     "description": "When true (default), flattens all bags and groups by item id with summed counts. Pass false for one row per occupied slot with binding/charges."
+                },
+                "item_ids": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer", "minimum": 1},
+                    "default": null,
+                    "description": "Restrict to these item ids (a `count: 0` row is included for any requested id not on this character)."
+                },
+                "name_contains": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "Case-insensitive, token-based substring filter on item name."
                 }
             }
         }))

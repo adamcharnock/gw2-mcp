@@ -12,13 +12,14 @@ mod market;
 mod navigation;
 mod reference;
 mod search;
+mod text_match;
 mod wiki;
 
 pub use account::{
     AccountAchievementsSnapshot, AccountBankSnapshot, AccountMasteriesSnapshot,
     AccountMaterialsSnapshot, BankItemEntry, CharacterInventorySnapshot, CharacterList,
     DailiesWhich, MasteryPointBalance, MaterialCategoryGroup, MaterialItemEntry,
-    RefreshAccountCacheResult, WizardsVaultSnapshot,
+    RefreshAccountCacheResult, StorageFilter, WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 pub use events::EventScheduleFilters;

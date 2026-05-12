@@ -1001,6 +1001,14 @@ pub fn currency(id: u32, name: &str) -> Currency {
     }
 }
 
+pub fn item_named(id: u32, name: &str) -> Item {
+    Item {
+        id: ItemId::new(i64::from(id)).unwrap(),
+        name: name.to_owned(),
+        extra: std::collections::BTreeMap::new(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Recording fake for the MapData port — used by the navigation tests.
 // ---------------------------------------------------------------------------

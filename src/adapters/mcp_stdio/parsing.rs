@@ -403,6 +403,57 @@ pub(super) fn decode_cursor(raw: &str) -> Result<CursorPayload, &'static str> {
 }
 
 /// Parse an optional array of positive ints into typed ids.
+/// Parse the optional `item_ids`, `categories`, `name_contains` triad
+/// shared by `get_account_materials`, `get_account_bank`, and
+/// `get_character_inventory`. `categories` is ignored by the bank +
+/// inventory tools but parsing is shared so the JSON shape stays
+/// uniform across the three tools.
+pub(super) fn parse_storage_filter(
+    args: &serde_json::Value,
+) -> Result<crate::service::StorageFilter, CallError> {
+    Ok(crate::service::StorageFilter {
+        item_ids: parse_optional_u32_array(args, "item_ids")?,
+        categories: parse_optional_u32_array(args, "categories")?,
+        name_contains: parse_optional_str(args, "name_contains")
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty()),
+    })
+}
+
+/// Parse an optional `u32` array. Returns `None` when the arg is
+/// absent / null, `Some(vec)` (possibly empty) when present. Used for
+/// filters like `item_ids` / `categories` that pass raw GW2 ids
+/// (no domain wrapper needed; they're echoed straight to the API).
+pub(super) fn parse_optional_u32_array(
+    args: &serde_json::Value,
+    name: &'static str,
+) -> Result<Option<Vec<u32>>, CallError> {
+    let Some(v) = args.get(name) else {
+        return Ok(None);
+    };
+    if v.is_null() {
+        return Ok(None);
+    }
+    let Some(arr) = v.as_array() else {
+        return Err(CallError::BadArg {
+            name,
+            expected: "array of positive integers",
+        });
+    };
+    let out: Result<Vec<u32>, _> = arr
+        .iter()
+        .map(|v| {
+            v.as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or(CallError::BadArg {
+                    name,
+                    expected: "array of positive integers (each fits in u32)",
+                })
+        })
+        .collect();
+    out.map(Some)
+}
+
 pub(super) fn parse_id_array<Id, F>(
     args: &serde_json::Value,
     name: &'static str,
