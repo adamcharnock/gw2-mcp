@@ -405,6 +405,15 @@ mod tests {
         ) -> Result<Vec<crate::domain::AccountMastery>, Gw2ApiError> {
             Ok(Vec::new())
         }
+        async fn fetch_account_mastery_points(
+            &self,
+            _: &ApiKey,
+        ) -> Result<crate::domain::AccountMasteryPoints, Gw2ApiError> {
+            Ok(crate::domain::AccountMasteryPoints {
+                totals: Vec::new(),
+                unlocked: Vec::new(),
+            })
+        }
         async fn fetch_all_mastery_ids(
             &self,
         ) -> Result<Vec<crate::domain::MasteryId>, Gw2ApiError> {

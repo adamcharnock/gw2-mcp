@@ -251,6 +251,14 @@ impl Gw2Api for HttpGw2Api {
         self.fetch_authed_json(&url, key, None).await
     }
 
+    async fn fetch_account_mastery_points(
+        &self,
+        key: &ApiKey,
+    ) -> Result<crate::domain::AccountMasteryPoints, Gw2ApiError> {
+        let url = format!("{}/account/mastery/points", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
         self.fetch_id_list("masteries", MasteryId::new).await
     }

@@ -305,6 +305,7 @@ pub struct FakeGw2Api {
     pub characters_list_response: Mutex<Vec<String>>,
     pub achievements_response: Mutex<Vec<AccountAchievement>>,
     pub masteries_response: Mutex<Vec<AccountMastery>>,
+    pub mastery_points_response: Mutex<gw2_mcp::domain::AccountMasteryPoints>,
     pub raids_response: Mutex<Vec<String>>,
     pub dungeons_response: Mutex<Vec<String>>,
     pub wizards_vault_daily: Mutex<WizardsVaultTrack>,
@@ -359,6 +360,10 @@ impl FakeGw2Api {
             characters_list_response: Mutex::new(Vec::new()),
             achievements_response: Mutex::new(Vec::new()),
             masteries_response: Mutex::new(Vec::new()),
+            mastery_points_response: Mutex::new(gw2_mcp::domain::AccountMasteryPoints {
+                totals: Vec::new(),
+                unlocked: Vec::new(),
+            }),
             raids_response: Mutex::new(Vec::new()),
             dungeons_response: Mutex::new(Vec::new()),
             wizards_vault_daily: Mutex::new(default_vault_track()),
@@ -689,6 +694,13 @@ impl Gw2Api for FakeGw2Api {
     ) -> Result<Vec<AccountMastery>, Gw2ApiError> {
         *self.masteries_calls.lock().unwrap() += 1;
         Ok(self.masteries_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_account_mastery_points(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<gw2_mcp::domain::AccountMasteryPoints, Gw2ApiError> {
+        Ok(self.mastery_points_response.lock().unwrap().clone())
     }
 
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {

@@ -271,6 +271,13 @@ impl Service {
         };
         let metadata = self.mastery_metadata_table().await;
         let total_points_earned = total_mastery_points_earned(&progress, &metadata);
+
+        // Best-effort: fetch + cache /v2/account/mastery/points. A
+        // failure here leaves `points_by_region` empty rather than
+        // poisoning the whole snapshot — the LLM still gets per-track
+        // tiers from the main `masteries` array.
+        let points_by_region = self.account_mastery_points(key).await;
+
         let masteries: Vec<AccountMasteryEntry> = progress
             .into_iter()
             .map(|p| enrich_mastery(p, &metadata))
@@ -278,9 +285,50 @@ impl Service {
         Ok(AccountMasteriesSnapshot {
             total: masteries.len(),
             total_points_earned,
+            points_by_region,
             masteries,
             fetched_at: self.clock.now(),
         })
+    }
+
+    /// Fetch + cache `/v2/account/mastery/points`, project into
+    /// per-region balances. Empty map on any error (logged at warn).
+    async fn account_mastery_points(&self, key: &ApiKey) -> BTreeMap<String, MasteryPointBalance> {
+        let cache_key = format!("account_mastery_points:{}", key.fingerprint());
+        let raw: crate::domain::AccountMasteryPoints = if let Some(json) =
+            self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str(&json)
+        {
+            v
+        } else {
+            match self.gw2.fetch_account_mastery_points(key).await {
+                Ok(v) => {
+                    if let Ok(json) = serde_json::to_string(&v) {
+                        self.cache.set(&cache_key, json, WALLET_TTL).await;
+                    }
+                    v
+                }
+                Err(e) => {
+                    warn!(error = ?e, "failed to fetch /v2/account/mastery/points; points_by_region unavailable");
+                    return BTreeMap::new();
+                }
+            }
+        };
+        raw.totals
+            .into_iter()
+            .map(|r| {
+                let unspent = i32::try_from(r.earned).unwrap_or(i32::MAX)
+                    - i32::try_from(r.spent).unwrap_or(i32::MAX);
+                (
+                    r.region,
+                    MasteryPointBalance {
+                        earned: r.earned,
+                        spent: r.spent,
+                        unspent,
+                    },
+                )
+            })
+            .collect()
     }
 
     /// Fetch + cache the full `/v2/masteries` table. Mastery tracks are
@@ -783,16 +831,38 @@ pub struct AccountAchievementsSnapshot {
 }
 
 /// Object wrapper around the per-account mastery list.
-/// `total_points_earned` sums the `point_cost` of every unlocked tier
-/// across every track — when a track's metadata wasn't available, its
-/// contribution falls back to 0 (the per-entry `current_level_name`
-/// signal lets the LLM detect partial resolution).
+///
+/// `total_points_earned` is a legacy field — it actually sums the
+/// `point_cost` of every unlocked tier across every track (i.e. points
+/// SPENT, not earned, despite the name). Kept for wire compatibility;
+/// new callers should prefer the `points_by_region` breakdown which
+/// pulls accurate {earned, spent, unspent} numbers from
+/// `/v2/account/mastery/points`.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccountMasteriesSnapshot {
     pub masteries: Vec<AccountMasteryEntry>,
     pub total: usize,
     pub total_points_earned: u32,
+    /// Per-region {earned, spent, unspent} mastery-point balances.
+    /// Sourced directly from `/v2/account/mastery/points`; the LLM
+    /// can use this to answer "which mastery track can I afford to
+    /// finish?" by comparing `unspent` against the next tier's
+    /// `point_cost` on each track in that region.
+    ///
+    /// Empty when the points endpoint failed (best-effort enrichment,
+    /// like the metadata table).
+    pub points_by_region: BTreeMap<String, MasteryPointBalance>,
     pub fetched_at: DateTime<Utc>,
+}
+
+/// Per-region mastery-point balance. `unspent` is `earned - spent`,
+/// signed so a misconfiguration ("API says spent > earned") surfaces
+/// instead of underflowing.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MasteryPointBalance {
+    pub earned: u32,
+    pub spent: u32,
+    pub unspent: i32,
 }
 
 fn total_mastery_points_earned(
@@ -968,5 +1038,19 @@ mod tests {
         assert!(v.get("objectives").is_some());
         assert_eq!(v["acclaim_remaining"], 25 + 50);
         assert_eq!(v["acclaim_total"], 75);
+    }
+
+    #[test]
+    fn mastery_point_balance_unspent_computes_correctly() {
+        let b = MasteryPointBalance {
+            earned: 51,
+            spent: 49,
+            unspent: 2,
+        };
+        // Round-trip via serde to ensure the wire shape is stable.
+        let v = serde_json::to_value(b).unwrap();
+        assert_eq!(v["earned"], 51);
+        assert_eq!(v["spent"], 49);
+        assert_eq!(v["unspent"], 2);
     }
 }

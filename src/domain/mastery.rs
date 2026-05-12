@@ -79,6 +79,26 @@ pub struct MasteryLevel {
     pub exp_cost: u64,
 }
 
+/// Wire shape of `/v2/account/mastery/points`. Per-region {earned,
+/// spent} totals plus the flat list of unlocked mastery ids.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountMasteryPoints {
+    #[serde(default)]
+    pub totals: Vec<RegionMasteryPoints>,
+    #[serde(default)]
+    pub unlocked: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegionMasteryPoints {
+    #[serde(default)]
+    pub region: String,
+    #[serde(default)]
+    pub spent: u32,
+    #[serde(default)]
+    pub earned: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

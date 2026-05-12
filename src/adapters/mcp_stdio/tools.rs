@@ -691,7 +691,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::AccountAchievementsSnapshot>(),
         Tool::new(
             "get_account_masteries",
-            "Mastery track progress, enriched with track name, region, current level name. Requires `account` + `progression` scopes.",
+            "Mastery track progress, enriched with track name, region, current level name. Includes points_by_region: per-region {earned, spent, unspent} totals (answers 'what can I afford to finish?'). Requires `account` + `progression` scopes.",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("Get Account Masteries"))

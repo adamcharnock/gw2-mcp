@@ -37,7 +37,7 @@ pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};
 pub use map_neighbors::{
     ConnectionType, Expansion, MapNeighborEntry, MapNeighborLink, MapNeighbors, MapNeighborsError,
 };
-pub use mastery::{Mastery, MasteryId, MasteryLevel};
+pub use mastery::{AccountMasteryPoints, Mastery, MasteryId, MasteryLevel, RegionMasteryPoints};
 pub use reference::{
     Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,
 };

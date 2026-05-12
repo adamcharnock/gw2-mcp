@@ -230,6 +230,16 @@ pub trait Gw2Api: Send + Sync + 'static {
         key: &ApiKey,
     ) -> Result<Vec<AccountMastery>, Gw2ApiError>;
 
+    /// `/v2/account/mastery/points` — requires `progression` scope.
+    /// Returns per-region earned/spent totals plus unlocked mastery ids.
+    /// This is the canonical source for "unspent mastery points" — the
+    /// older /v2/account/masteries endpoint only gives per-track tier
+    /// levels, not totals.
+    async fn fetch_account_mastery_points(
+        &self,
+        key: &ApiKey,
+    ) -> Result<crate::domain::AccountMasteryPoints, Gw2ApiError>;
+
     /// `/v2/masteries` — public, no key. Returns the full id list.
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError>;
 
