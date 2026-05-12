@@ -427,6 +427,28 @@ pub(super) fn build_tools() -> Vec<Tool> {
                 "maximum": 10,
                 "default": 3,
                 "description": "How many distinct shortest-hop routes to return. Capped at 10."
+            },
+            "prefer": {
+                "type": "string",
+                "enum": ["shortest", "walking", "gates"],
+                "default": "shortest",
+                "description": "Re-rank the K paths after K-shortest selects them. 'walking' favours routes with more `physical` edges; 'gates' favours routes with more `asura_gate` edges. Default 'shortest' is the natural Yen's order (ascending hop count). Bump `k` to get more variety to re-rank from."
+            },
+            "exclude_connections": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["physical", "asura_gate", "story_gate", "instance_portal", "guild_hall"] },
+                "default": [],
+                "description": "Skip edges whose `connection` matches any value in this list. Common use: `[\"story_gate\"]` to avoid routes the player may not be able to traverse yet."
+            },
+            "player_access": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Snake-case expansion names the player owns (e.g. [\"core\", \"heart_of_thorns\", \"path_of_fire\"]). Edges to maps whose `expansion` isn't in this list (with `core`/`festival`/`living_world_season1`/`living_world_season2` always permitted) are skipped. ABSENT (the default): auto-fetch from /v2/account using the supplied or configured API key; if that fails, no filtering. EMPTY ARRAY: explicitly disable access filtering (e.g. for hypothetical 'what would I need to buy?' planning)."
+            },
+            "api_key": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional Guild Wars 2 API key. Used only to auto-populate `player_access` when that arg is absent. Falls back to the server's default key if neither is supplied."
             }
         }
     }))
@@ -738,7 +760,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::MapNeighborsResponse>(),
         Tool::new(
             "plan_route",
-            "Find up to `k` (default 3) shortest-hop routes between two maps in the curated adjacency graph. Each of `from` and `to` accepts `{id: int}`, `{name: \"Caledon Forest\"}`, or `{here: true}` (resolves via Mumble Link). Returns paths ordered by fewest hops; each path lists every intermediate map with the `connection` used (`physical`/`asura_gate`/`story_gate`/etc.), the `direction` of the border (compass bearing for physical edges), and `gate_location` / `note` when the curated table has them. Pre-counted `asura_gate_count` / `physical_count` / `story_gate_count` per path let the LLM pick 'mostly walking' vs 'mostly gates' without re-walking `hops`. Same graph coverage as `get_map_neighbors` — open-world + the 11 hub cities, WvW excluded. Use for 'how do I get from X to Y?' questions.",
+            "Find up to `k` (default 3) shortest-hop routes between two maps in the curated adjacency graph. Each of `from` and `to` accepts `{id: int}`, `{name: \"Caledon Forest\"}`, or `{here: true}` (resolves via Mumble Link). Returns paths ordered by fewest hops; each path lists every intermediate map with the `connection` used (`physical`/`asura_gate`/`story_gate`/etc.), the `direction` of the border (compass bearing for physical edges), and `gate_location` / `note` when the curated table has them. Pre-counted `asura_gate_count` / `physical_count` / `story_gate_count` per path let the LLM filter post-hoc; the optional `prefer` arg re-ranks server-side for 'walking' or 'gates' preferences. `exclude_connections` skips entire edge categories during search — e.g. `[\"story_gate\"]` to avoid routes a player may not have story access for. `player_access` filters edges by the expansions the player owns; ABSENT means auto-fetch from /v2/account, EMPTY ARRAY means no filtering, an explicit list overrides both. The response's `filters_applied` field echoes the effective filter state. Same graph coverage as `get_map_neighbors` — open-world + the 11 hub cities, WvW excluded.",
             plan_route_schema,
         )
         .annotate(read_only_open_world("Plan Route"))

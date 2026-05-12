@@ -25,7 +25,7 @@ const EMBEDDED_YAML: &str = include_str!("../../data/map_neighbors.yaml");
 ///
 /// Defaults to [`Self::Physical`] when missing from the YAML — that's
 /// the most common case and the safest assumption.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionType {
     /// Walk or mount across the physical map border. Most open-world
@@ -52,7 +52,7 @@ pub enum ConnectionType {
 ///
 /// Strings rather than abbreviations because the LLM is more likely to
 /// surface them verbatim than to remember the canonical short codes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Expansion {
     /// Core game (Tyria) — released 2012, free since 2015.

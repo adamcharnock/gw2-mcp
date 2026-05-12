@@ -78,6 +78,134 @@ pub(super) fn parse_location_ref(
     })
 }
 
+/// Parse the optional `prefer` arg for `plan_route`.
+pub(super) fn parse_route_preference(
+    v: Option<&serde_json::Value>,
+) -> Result<crate::service::RoutePreference, CallError> {
+    use crate::service::RoutePreference;
+    let Some(v) = v else {
+        return Ok(RoutePreference::default());
+    };
+    if v.is_null() {
+        return Ok(RoutePreference::default());
+    }
+    let Some(s) = v.as_str() else {
+        return Err(CallError::BadArg {
+            name: "prefer",
+            expected: "string: \"shortest\" | \"walking\" | \"gates\"",
+        });
+    };
+    Ok(match s {
+        "shortest" | "" => RoutePreference::Shortest,
+        "walking" => RoutePreference::Walking,
+        "gates" => RoutePreference::Gates,
+        _ => {
+            return Err(CallError::BadArg {
+                name: "prefer",
+                expected: "string: \"shortest\" | \"walking\" | \"gates\"",
+            });
+        }
+    })
+}
+
+/// Parse the optional `exclude_connections` array for `plan_route`.
+pub(super) fn parse_excluded_connections(
+    v: Option<&serde_json::Value>,
+) -> Result<std::collections::HashSet<crate::domain::ConnectionType>, CallError> {
+    use crate::domain::ConnectionType;
+    let mut out = std::collections::HashSet::new();
+    let Some(v) = v else {
+        return Ok(out);
+    };
+    if v.is_null() {
+        return Ok(out);
+    }
+    let Some(arr) = v.as_array() else {
+        return Err(CallError::BadArg {
+            name: "exclude_connections",
+            expected: "array of strings",
+        });
+    };
+    for entry in arr {
+        let Some(s) = entry.as_str() else {
+            return Err(CallError::BadArg {
+                name: "exclude_connections",
+                expected: "array of strings",
+            });
+        };
+        let parsed = match s {
+            "physical" => ConnectionType::Physical,
+            "asura_gate" => ConnectionType::AsuraGate,
+            "story_gate" => ConnectionType::StoryGate,
+            "instance_portal" => ConnectionType::InstancePortal,
+            "guild_hall" => ConnectionType::GuildHall,
+            _ => {
+                return Err(CallError::BadArg {
+                    name: "exclude_connections",
+                    expected: "values from: physical | asura_gate | story_gate | instance_portal | guild_hall",
+                });
+            }
+        };
+        out.insert(parsed);
+    }
+    Ok(out)
+}
+
+/// Parse the optional `player_access` array. Returns:
+/// - `Ok(None)` — argument absent / null (the dispatcher should
+///   attempt auto-fetch from /v2/account).
+/// - `Ok(Some(set))` — argument present, possibly empty (caller
+///   explicitly opted out of access filtering by passing `[]`).
+pub(super) fn parse_player_access(
+    v: Option<&serde_json::Value>,
+) -> Result<Option<std::collections::HashSet<crate::domain::Expansion>>, CallError> {
+    use crate::domain::Expansion;
+    let Some(v) = v else {
+        return Ok(None);
+    };
+    if v.is_null() {
+        return Ok(None);
+    }
+    let Some(arr) = v.as_array() else {
+        return Err(CallError::BadArg {
+            name: "player_access",
+            expected: "array of expansion strings (snake_case enum values)",
+        });
+    };
+    let mut out = std::collections::HashSet::new();
+    for entry in arr {
+        let Some(s) = entry.as_str() else {
+            return Err(CallError::BadArg {
+                name: "player_access",
+                expected: "array of expansion strings",
+            });
+        };
+        let parsed = match s {
+            "core" => Expansion::Core,
+            "living_world_season1" => Expansion::LivingWorldSeason1,
+            "living_world_season2" => Expansion::LivingWorldSeason2,
+            "heart_of_thorns" => Expansion::HeartOfThorns,
+            "living_world_season3" => Expansion::LivingWorldSeason3,
+            "path_of_fire" => Expansion::PathOfFire,
+            "living_world_season4" => Expansion::LivingWorldSeason4,
+            "icebrood_saga" => Expansion::IcebroodSaga,
+            "end_of_dragons" => Expansion::EndOfDragons,
+            "secrets_of_the_obscure" => Expansion::SecretsOfTheObscure,
+            "janthir_wilds" => Expansion::JanthirWilds,
+            "castora" => Expansion::Castora,
+            "festival" => Expansion::Festival,
+            _ => {
+                return Err(CallError::BadArg {
+                    name: "player_access",
+                    expected: "snake_case expansion names (core, heart_of_thorns, path_of_fire, end_of_dragons, secrets_of_the_obscure, janthir_wilds, castora, ...)",
+                });
+            }
+        };
+        out.insert(parsed);
+    }
+    Ok(Some(out))
+}
+
 /// Parse a `MapRef` from MCP args — used by `plan_route` for both
 /// `from` and `to`. The MCP schema is a `oneOf`:
 /// `{id: int}` | `{name: str}` | `{here: true}`. As with

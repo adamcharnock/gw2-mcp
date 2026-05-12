@@ -61,6 +61,38 @@ pub enum MapRef {
     Here,
 }
 
+/// Ranking criterion for the candidate paths after K-shortest selects
+/// them. Re-orders the output without changing which paths are
+/// considered (that's controlled by `k`).
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutePreference {
+    /// Fewest hops (default — same as no preference).
+    #[default]
+    Shortest,
+    /// Among the K shortest, prefer paths with more physical edges
+    /// (walking/mounting between maps).
+    Walking,
+    /// Among the K shortest, prefer paths with more `asura_gate`
+    /// transitions (fewest border-crossings).
+    Gates,
+}
+
+/// Filter knobs applied to `plan_route` paths. All optional; defaults
+/// mean "no filtering".
+#[derive(Debug, Clone, Default)]
+pub struct RouteFilters {
+    pub prefer: RoutePreference,
+    pub exclude_connections: HashSet<ConnectionType>,
+    /// `None` means "no access-based filtering"; `Some(set)` filters
+    /// edges whose target map's `expansion` isn't in `set` (with
+    /// always-permitted variants like `Core`, `Festival`, LW1/LW2
+    /// implicitly added).
+    pub player_access: Option<HashSet<Expansion>>,
+}
+
 /// Echo of which map the caller meant after we resolved it. Lets the
 /// LLM confirm "yes, by 'Caledon Forest' you meant map 873" without a
 /// second lookup.
@@ -78,6 +110,27 @@ pub struct RoutePlan {
     pub to: MapRefResolved,
     pub paths: Vec<RoutePath>,
     pub total: usize,
+    /// Echo of the effective filter state for the call. Lets the LLM
+    /// see what was applied without having to remember its own args.
+    pub filters_applied: RouteFiltersSummary,
+}
+
+/// Serialisable echo of [`RouteFilters`] for the response. Strings
+/// instead of enum variants so the JSON stays self-describing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RouteFiltersSummary {
+    pub prefer: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_connections: Vec<String>,
+    /// `None` when no access filtering was applied (no key, no auto-
+    /// fetch, or caller passed an empty list explicitly).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player_access: Option<Vec<String>>,
+    /// Why `player_access` was populated — `"auto"` (fetched from
+    /// `/v2/account`) or `"explicit"` (caller passed it in). Absent
+    /// when `player_access` is `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player_access_source: Option<String>,
 }
 
 /// One candidate route. Counts are pre-summed so the LLM can pick
@@ -258,17 +311,30 @@ impl Service {
     /// (case-insensitive substring match against the curated table),
     /// or [`MapRef::Here`] (resolves via Mumble Link).
     ///
+    /// `filters` applies post-Yen re-ranking ([`RoutePreference`])
+    /// and during-search edge skipping (`exclude_connections`,
+    /// `player_access`). Defaults — `RouteFilters::default()` — are
+    /// "no preference, no exclusions, no access filter".
+    ///
+    /// `player_access_source` is an informational string echoed back
+    /// in the response (`"auto"` / `"explicit"`); the dispatcher
+    /// passes it so the LLM can see whether the filter came from
+    /// auto-fetched account data or from explicit caller args.
+    ///
     /// `k` is clamped to `1..=10` so a runaway request can't burn CPU.
     pub fn plan_route(
         &self,
         from: MapRef,
         to: MapRef,
         k: usize,
+        filters: RouteFilters,
+        player_access_source: Option<&'static str>,
     ) -> Result<RoutePlan, ServiceError> {
         let table = neighbors_table()?;
         let from_id = self.resolve_map_ref(&from, table)?;
         let to_id = self.resolve_map_ref(&to, table)?;
         let k = k.clamp(1, 10);
+        let summary = summarise_filters(&filters, player_access_source);
 
         let from_entry =
             table
@@ -306,10 +372,11 @@ impl Service {
                     }],
                 }],
                 total: 1,
+                filters_applied: summary,
             });
         }
 
-        let id_paths = k_shortest_paths(table, from_id, to_id, k);
+        let id_paths = k_shortest_paths_filtered(table, from_id, to_id, k, &filters);
         if id_paths.is_empty() {
             return Err(ServiceError::Region(RegionLookupError::NoRouteFound {
                 from: from_id,
@@ -317,10 +384,11 @@ impl Service {
             }));
         }
 
-        let paths: Vec<RoutePath> = id_paths
+        let mut paths: Vec<RoutePath> = id_paths
             .into_iter()
             .map(|p| build_route_path(table, &p))
             .collect();
+        sort_paths_by_preference(&mut paths, filters.prefer);
         Ok(RoutePlan {
             total: paths.len(),
             from: MapRefResolved {
@@ -332,6 +400,7 @@ impl Service {
                 name: to_entry.name.clone(),
             },
             paths,
+            filters_applied: summary,
         })
     }
 
@@ -486,19 +555,51 @@ fn resolve_map_name(table: &MapNeighbors, name: &str) -> Result<u32, ServiceErro
     }
 }
 
+/// Edge-filter checks for Yen's during-search exclusion. Returns
+/// `true` when the edge `src → link` should be traversable under
+/// `filters`.
+fn edge_passes_filters(link: &MapNeighborLink, filters: &RouteFilters) -> bool {
+    if let Some(conn) = link.connection
+        && filters.exclude_connections.contains(&conn)
+    {
+        return false;
+    }
+    if let Some(allowed) = &filters.player_access
+        && let Some(req) = link.expansion
+    {
+        let always_ok = matches!(
+            req,
+            Expansion::Core
+                | Expansion::Festival
+                | Expansion::LivingWorldSeason1
+                | Expansion::LivingWorldSeason2
+        );
+        if !always_ok && !allowed.contains(&req) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Yen's K-shortest loopless paths over the directed graph defined by
-/// `nbrs`. Uniform edge weight (one hop per edge), so the inner
-/// shortest-path call is BFS.
+/// `nbrs`, with edge filters applied during the BFS subroutine.
+/// Uniform edge weight (one hop per edge).
 ///
 /// Returns up to `k` paths, sorted by ascending hop count. Empty if no
-/// path exists.
-fn k_shortest_paths(nbrs: &MapNeighbors, src: u32, dst: u32, k: usize) -> Vec<Vec<u32>> {
+/// path exists under the filters.
+fn k_shortest_paths_filtered(
+    nbrs: &MapNeighbors,
+    src: u32,
+    dst: u32,
+    k: usize,
+    filters: &RouteFilters,
+) -> Vec<Vec<u32>> {
     let mut accepted: Vec<Vec<u32>> = Vec::new();
     // Candidate set keyed by path content. The BTreeSet keeps
     // insertion stable for the same-length tie-break.
     let mut candidates: BTreeSet<Vec<u32>> = BTreeSet::new();
 
-    let Some(first) = bfs_path(nbrs, src, dst, &HashSet::new(), &HashSet::new()) else {
+    let Some(first) = bfs_path(nbrs, src, dst, &HashSet::new(), &HashSet::new(), filters) else {
         return Vec::new();
     };
     accepted.push(first);
@@ -508,34 +609,32 @@ fn k_shortest_paths(nbrs: &MapNeighbors, src: u32, dst: u32, k: usize) -> Vec<Ve
         if prev.len() < 2 {
             break;
         }
-        // Each spur position generates one candidate.
         for i in 0..prev.len() - 1 {
             let spur_node = prev[i];
             let root_path: &[u32] = &prev[0..=i];
 
-            // Block the next-edge of every previously-accepted path
-            // that shares this root, so we don't rediscover an
-            // already-seen continuation.
             let mut blocked_edges: HashSet<(u32, u32)> = HashSet::new();
             for p in &accepted {
                 if p.len() > i + 1 && &p[0..=i] == root_path {
                     blocked_edges.insert((p[i], p[i + 1]));
                 }
             }
-            // Block every node in the root path except the spur node
-            // itself, so the new spur doesn't loop back through them.
             let blocked_nodes: HashSet<u32> = root_path[..i].iter().copied().collect();
 
-            let Some(spur) = bfs_path(nbrs, spur_node, dst, &blocked_nodes, &blocked_edges) else {
+            let Some(spur) = bfs_path(
+                nbrs,
+                spur_node,
+                dst,
+                &blocked_nodes,
+                &blocked_edges,
+                filters,
+            ) else {
                 continue;
             };
-            // Stitch root + spur, dropping spur's first node which
-            // duplicates root's last.
             let mut total = root_path.to_vec();
             total.extend(spur.iter().skip(1).copied());
             candidates.insert(total);
         }
-        // Pick the shortest candidate as the next accepted path.
         let Some(next) = candidates.iter().min_by_key(|p| p.len()).cloned() else {
             break;
         };
@@ -545,13 +644,15 @@ fn k_shortest_paths(nbrs: &MapNeighbors, src: u32, dst: u32, k: usize) -> Vec<Ve
     accepted
 }
 
-/// BFS shortest path that respects blocked nodes and blocked edges.
+/// BFS shortest path with blocked nodes, blocked edges, and the
+/// caller's filter set.
 fn bfs_path(
     nbrs: &MapNeighbors,
     src: u32,
     dst: u32,
     blocked_nodes: &HashSet<u32>,
     blocked_edges: &HashSet<(u32, u32)>,
+    filters: &RouteFilters,
 ) -> Option<Vec<u32>> {
     if blocked_nodes.contains(&src) {
         return None;
@@ -579,6 +680,9 @@ fn bfs_path(
             if blocked_edges.contains(&(cur, next)) {
                 continue;
             }
+            if !edge_passes_filters(link, filters) {
+                continue;
+            }
             prev.insert(next, cur);
             if next == dst {
                 let mut path = vec![dst];
@@ -595,6 +699,148 @@ fn bfs_path(
         }
     }
     None
+}
+
+/// Re-rank the K accepted paths according to the caller's preference.
+/// Yen's already produces them in ascending-hop order; this is purely
+/// a stable secondary sort. For `Shortest` it's a no-op.
+fn sort_paths_by_preference(paths: &mut [RoutePath], prefer: RoutePreference) {
+    match prefer {
+        RoutePreference::Shortest => {}
+        RoutePreference::Walking => {
+            paths.sort_by(|a, b| {
+                b.physical_count
+                    .cmp(&a.physical_count)
+                    .then_with(|| a.hop_count.cmp(&b.hop_count))
+            });
+        }
+        RoutePreference::Gates => {
+            paths.sort_by(|a, b| {
+                b.asura_gate_count
+                    .cmp(&a.asura_gate_count)
+                    .then_with(|| a.hop_count.cmp(&b.hop_count))
+            });
+        }
+    }
+}
+
+fn summarise_filters(
+    filters: &RouteFilters,
+    player_access_source: Option<&'static str>,
+) -> RouteFiltersSummary {
+    let prefer = match filters.prefer {
+        RoutePreference::Shortest => "shortest",
+        RoutePreference::Walking => "walking",
+        RoutePreference::Gates => "gates",
+    }
+    .to_owned();
+    let mut excludes: Vec<String> = filters
+        .exclude_connections
+        .iter()
+        .copied()
+        .map(connection_type_to_snake)
+        .collect();
+    excludes.sort();
+    let player_access = filters.player_access.as_ref().map(|set| {
+        let mut v: Vec<String> = set.iter().copied().map(expansion_to_snake).collect();
+        v.sort();
+        v
+    });
+    RouteFiltersSummary {
+        prefer,
+        exclude_connections: excludes,
+        player_access: player_access.clone(),
+        player_access_source: if player_access.is_some() {
+            player_access_source.map(str::to_owned)
+        } else {
+            None
+        },
+    }
+}
+
+fn connection_type_to_snake(c: ConnectionType) -> String {
+    match c {
+        ConnectionType::Physical => "physical",
+        ConnectionType::AsuraGate => "asura_gate",
+        ConnectionType::StoryGate => "story_gate",
+        ConnectionType::InstancePortal => "instance_portal",
+        ConnectionType::GuildHall => "guild_hall",
+    }
+    .to_owned()
+}
+
+fn expansion_to_snake(e: Expansion) -> String {
+    match e {
+        Expansion::Core => "core",
+        Expansion::LivingWorldSeason1 => "living_world_season1",
+        Expansion::LivingWorldSeason2 => "living_world_season2",
+        Expansion::HeartOfThorns => "heart_of_thorns",
+        Expansion::LivingWorldSeason3 => "living_world_season3",
+        Expansion::PathOfFire => "path_of_fire",
+        Expansion::LivingWorldSeason4 => "living_world_season4",
+        Expansion::IcebroodSaga => "icebrood_saga",
+        Expansion::EndOfDragons => "end_of_dragons",
+        Expansion::SecretsOfTheObscure => "secrets_of_the_obscure",
+        Expansion::JanthirWilds => "janthir_wilds",
+        Expansion::Castora => "castora",
+        Expansion::Festival => "festival",
+    }
+    .to_owned()
+}
+
+/// Map the `access` array from `/v2/account` into the set of
+/// `Expansion` variants the player effectively owns. Includes implicit
+/// LW season access (`HoT` ⇒ LW3 maps; `PoF` ⇒ LW4 maps) and the
+/// always-permitted variants (Core, LW1, LW2, Festival).
+pub fn expand_account_access(access: &[String]) -> HashSet<Expansion> {
+    let mut owned: HashSet<Expansion> = HashSet::new();
+    // Always-permitted maps don't need explicit account flags.
+    owned.insert(Expansion::Core);
+    owned.insert(Expansion::LivingWorldSeason1);
+    owned.insert(Expansion::LivingWorldSeason2);
+    owned.insert(Expansion::Festival);
+    for s in access {
+        match s.as_str() {
+            "GuildWars2" | "PlayForFree" => {
+                owned.insert(Expansion::Core);
+            }
+            "HeartOfThorns" => {
+                owned.insert(Expansion::HeartOfThorns);
+            }
+            "PathOfFire" => {
+                owned.insert(Expansion::PathOfFire);
+            }
+            "EndOfDragons" => {
+                owned.insert(Expansion::EndOfDragons);
+            }
+            "SecretsOfTheObscure" => {
+                owned.insert(Expansion::SecretsOfTheObscure);
+            }
+            "JanthirWilds" => {
+                owned.insert(Expansion::JanthirWilds);
+            }
+            // Future-proofing: the API may surface Castora once it
+            // ships under a specific tag (currently unconfirmed).
+            "Castora" | "VisionsOfEternity" => {
+                owned.insert(Expansion::Castora);
+            }
+            // Icebrood Saga was sold separately at launch; the API
+            // hasn't (historically) returned a dedicated flag for
+            // it, so any LW5/IBS-tagged map is currently treated as
+            // permitted only if explicitly added to the access list.
+            "IcebroodSaga" => {
+                owned.insert(Expansion::IcebroodSaga);
+            }
+            _ => {}
+        }
+    }
+    if owned.contains(&Expansion::HeartOfThorns) {
+        owned.insert(Expansion::LivingWorldSeason3);
+    }
+    if owned.contains(&Expansion::PathOfFire) {
+        owned.insert(Expansion::LivingWorldSeason4);
+    }
+    owned
 }
 
 /// Translate a sequence of map ids into a [`RoutePath`] with hop
@@ -820,7 +1066,7 @@ mod tests {
     fn k_shortest_paths_returns_top_k_by_hop_count() {
         // Diamond: 1 → 2 → 4, 1 → 3 → 4, 1 → 2 → 3 → 4.
         let g = graph_from_edges(&[(1, 2), (1, 3), (2, 4), (3, 4), (2, 3)]);
-        let paths = k_shortest_paths(&g, 1, 4, 3);
+        let paths = k_shortest_paths_filtered(&g, 1, 4, 3, &RouteFilters::default());
         assert_eq!(paths.len(), 3);
         // Two shortest paths of length 3 (1→2→4 and 1→3→4) plus the
         // length-4 path (1→2→3→4).
@@ -833,14 +1079,14 @@ mod tests {
     fn k_shortest_paths_returns_empty_on_no_route() {
         // 1 and 4 are in disjoint components.
         let g = graph_from_edges(&[(1, 2), (3, 4)]);
-        let paths = k_shortest_paths(&g, 1, 4, 3);
+        let paths = k_shortest_paths_filtered(&g, 1, 4, 3, &RouteFilters::default());
         assert!(paths.is_empty());
     }
 
     #[test]
     fn k_shortest_paths_returns_trivial_path_on_self() {
         let g = graph_from_edges(&[(1, 2)]);
-        let paths = k_shortest_paths(&g, 1, 1, 3);
+        let paths = k_shortest_paths_filtered(&g, 1, 1, 3, &RouteFilters::default());
         assert_eq!(paths, vec![vec![1]]);
     }
 
@@ -850,7 +1096,7 @@ mod tests {
         // 1 → 2 → 3 → 4; 2 → 3 → 2 (loop) so we must reject paths
         // that revisit a node.
         let g = graph_from_edges(&[(1, 2), (2, 3), (3, 2), (3, 4)]);
-        let paths = k_shortest_paths(&g, 1, 4, 5);
+        let paths = k_shortest_paths_filtered(&g, 1, 4, 5, &RouteFilters::default());
         // Only one loopless path exists.
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0], vec![1, 2, 3, 4]);
@@ -861,9 +1107,9 @@ mod tests {
         // 1 → 2 → 3, but 3 has no edge back to 2. The reverse query
         // should fail.
         let g = graph_from_edges(&[(1, 2), (2, 3)]);
-        let forward = k_shortest_paths(&g, 1, 3, 3);
+        let forward = k_shortest_paths_filtered(&g, 1, 3, 3, &RouteFilters::default());
         assert_eq!(forward.len(), 1);
-        let reverse = k_shortest_paths(&g, 3, 1, 3);
+        let reverse = k_shortest_paths_filtered(&g, 3, 1, 3, &RouteFilters::default());
         assert!(reverse.is_empty());
     }
 
@@ -873,7 +1119,7 @@ mod tests {
         // route must be reasonably short.
         let table = MapNeighbors::load_embedded().expect("embedded YAML parses");
         // 34 = Caledon Forest, 1043 = Auric Basin.
-        let paths = k_shortest_paths(&table, 34, 1043, 3);
+        let paths = k_shortest_paths_filtered(&table, 34, 1043, 3, &RouteFilters::default());
         assert!(!paths.is_empty(), "expected at least one route");
         let first = &paths[0];
         assert!(first.first() == Some(&34) && first.last() == Some(&1043));
@@ -896,6 +1142,126 @@ mod tests {
         let table = MapNeighbors::load_embedded().expect("parses");
         let err = resolve_map_name(&table, "   ").unwrap_err();
         assert!(err.to_string().contains("no map named"), "got: {err}");
+    }
+
+    #[test]
+    fn expand_account_access_adds_implicit_and_free_variants() {
+        let owned = expand_account_access(&[
+            "GuildWars2".to_owned(),
+            "HeartOfThorns".to_owned(),
+            "PathOfFire".to_owned(),
+        ]);
+        // Direct
+        assert!(owned.contains(&Expansion::Core));
+        assert!(owned.contains(&Expansion::HeartOfThorns));
+        assert!(owned.contains(&Expansion::PathOfFire));
+        // Always-permitted free / festival / LW1-2
+        assert!(owned.contains(&Expansion::Festival));
+        assert!(owned.contains(&Expansion::LivingWorldSeason1));
+        assert!(owned.contains(&Expansion::LivingWorldSeason2));
+        // Implicit-from-direct
+        assert!(owned.contains(&Expansion::LivingWorldSeason3));
+        assert!(owned.contains(&Expansion::LivingWorldSeason4));
+        // Not owned
+        assert!(!owned.contains(&Expansion::EndOfDragons));
+        assert!(!owned.contains(&Expansion::JanthirWilds));
+    }
+
+    #[test]
+    fn k_shortest_paths_filtered_excludes_blocked_connection() {
+        // 1 → 2 (physical), 1 → 3 (asura_gate) → 2 (physical)
+        let yaml = r"
+1:
+  name: A
+  neighbors:
+    - map_id: 2
+      name: B
+      connection: physical
+    - map_id: 3
+      name: C
+      connection: asura_gate
+2:
+  name: B
+  neighbors: []
+3:
+  name: C
+  neighbors:
+    - map_id: 2
+      name: B
+      connection: physical
+";
+        let g = MapNeighbors::from_yaml(yaml).expect("parses");
+        let mut filters = RouteFilters::default();
+        filters
+            .exclude_connections
+            .insert(ConnectionType::AsuraGate);
+        let paths = k_shortest_paths_filtered(&g, 1, 2, 5, &filters);
+        // The direct physical edge is still usable; the gate path is
+        // blocked.
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], vec![1, 2]);
+    }
+
+    #[test]
+    fn k_shortest_paths_filtered_respects_player_access() {
+        // 1 (core) → 2 (heart_of_thorns) → 3 (end_of_dragons)
+        let yaml = r"
+1:
+  name: A
+  expansion: core
+  neighbors:
+    - map_id: 2
+      name: B
+      connection: physical
+      expansion: heart_of_thorns
+2:
+  name: B
+  expansion: heart_of_thorns
+  neighbors:
+    - map_id: 3
+      name: C
+      connection: physical
+      expansion: end_of_dragons
+3:
+  name: C
+  expansion: end_of_dragons
+  neighbors: []
+";
+        let g = MapNeighbors::from_yaml(yaml).expect("parses");
+        // Player owns HoT only — can reach B but not C.
+        let mut filters = RouteFilters::default();
+        let mut access = HashSet::new();
+        access.insert(Expansion::Core);
+        access.insert(Expansion::HeartOfThorns);
+        filters.player_access = Some(access);
+        let paths = k_shortest_paths_filtered(&g, 1, 3, 5, &filters);
+        assert!(paths.is_empty(), "EoD unreachable without that expansion");
+        let two = k_shortest_paths_filtered(&g, 1, 2, 5, &filters);
+        assert_eq!(two.len(), 1, "HoT-only player can reach HoT map");
+    }
+
+    #[test]
+    fn sort_paths_by_preference_walking_promotes_physical_count() {
+        let mut paths = vec![
+            RoutePath {
+                hop_count: 3,
+                asura_gate_count: 3,
+                physical_count: 0,
+                story_gate_count: 0,
+                hops: vec![],
+            },
+            RoutePath {
+                hop_count: 3,
+                asura_gate_count: 0,
+                physical_count: 3,
+                story_gate_count: 0,
+                hops: vec![],
+            },
+        ];
+        sort_paths_by_preference(&mut paths, RoutePreference::Walking);
+        assert_eq!(paths[0].physical_count, 3);
+        sort_paths_by_preference(&mut paths, RoutePreference::Gates);
+        assert_eq!(paths[0].asura_gate_count, 3);
     }
 
     #[test]

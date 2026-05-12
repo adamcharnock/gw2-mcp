@@ -22,10 +22,10 @@ use rmcp::{ErrorData, ServerHandler, ServiceExt};
 
 use parsing::{
     CallError, CursorPayload, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, annotate_endpoint,
-    catalog_filter_hash, decode_cursor, encode_cursor, parse_id_array, parse_location_ref,
-    parse_map_ref, parse_nearby_filter, parse_optional_str, parse_optional_u32,
-    parse_required_id_array, parse_search_limit, parse_search_query, parse_summary,
-    parse_tab_selector,
+    catalog_filter_hash, decode_cursor, encode_cursor, parse_excluded_connections, parse_id_array,
+    parse_location_ref, parse_map_ref, parse_nearby_filter, parse_optional_str, parse_optional_u32,
+    parse_player_access, parse_required_id_array, parse_route_preference, parse_search_limit,
+    parse_search_query, parse_summary, parse_tab_selector,
 };
 use prompts::{PromptError, build_prompts, render_prompt};
 use resources::{
@@ -112,7 +112,7 @@ impl McpServer {
             "find_nearby" => self.handle_find_nearby(&args).await,
             "list_maps_in_region" => self.handle_list_maps_in_region(&args).await,
             "get_map_neighbors" => self.handle_get_map_neighbors(&args),
-            "plan_route" => self.handle_plan_route(&args),
+            "plan_route" => self.handle_plan_route(&args).await,
             "describe_facing" => self.handle_describe_facing().await,
             "search_skills" => self.handle_search_skills(&args).await,
             "search_traits" => self.handle_search_traits(&args).await,
@@ -720,7 +720,10 @@ impl McpServer {
         Ok(serde_json::to_value(&res)?)
     }
 
-    fn handle_plan_route(&self, args: &serde_json::Value) -> Result<serde_json::Value, CallError> {
+    async fn handle_plan_route(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
         let from = parse_map_ref(args.get("from"), "from")?;
         let to = parse_map_ref(args.get("to"), "to")?;
         let k = args
@@ -728,9 +731,58 @@ impl McpServer {
             .and_then(serde_json::Value::as_u64)
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(3);
+
+        let prefer = parse_route_preference(args.get("prefer"))?;
+        let exclude_connections = parse_excluded_connections(args.get("exclude_connections"))?;
+
+        // player_access: explicit caller value wins; otherwise try
+        // auto-fetch from /v2/account. Auto-fetch failures (no key,
+        // network blip, parse error) degrade gracefully to "no
+        // filter" so the tool still works in offline / unauthed
+        // contexts. The response echoes which path was taken.
+        let explicit_access = parse_player_access(args.get("player_access"))?;
+        let (player_access, source): (
+            Option<std::collections::HashSet<crate::domain::Expansion>>,
+            Option<&'static str>,
+        ) = if let Some(set) = explicit_access {
+            if set.is_empty() {
+                (None, None)
+            } else {
+                (Some(set), Some("explicit"))
+            }
+        } else {
+            // Try auto-fetch. Resolve the api key without raising — a
+            // missing key just means "no filter".
+            let auto_key = match args.get("api_key").and_then(|v| v.as_str()) {
+                Some(raw) if !raw.trim().is_empty() => crate::domain::ApiKey::new(raw).ok(),
+                _ => self.service.default_api_key().cloned(),
+            };
+            if let Some(key) = auto_key {
+                match self.service.get_account(&key).await {
+                    Ok(acc) => {
+                        let owned = crate::service::expand_account_access(&acc.access);
+                        if owned.is_empty() {
+                            (None, None)
+                        } else {
+                            (Some(owned), Some("auto"))
+                        }
+                    }
+                    Err(_) => (None, None),
+                }
+            } else {
+                (None, None)
+            }
+        };
+
+        let filters = crate::service::RouteFilters {
+            prefer,
+            exclude_connections,
+            player_access,
+        };
+
         let res = self
             .service
-            .plan_route(from, to, k)
+            .plan_route(from, to, k, filters, source)
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&res)?)
     }
