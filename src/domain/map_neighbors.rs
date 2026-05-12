@@ -57,6 +57,12 @@ pub enum ConnectionType {
 pub enum Expansion {
     /// Core game (Tyria) — released 2012, free since 2015.
     Core,
+    /// Living World Season 1 — 2013–2014. Mostly one-time events; the
+    /// surviving open-world remnants are Southsun Cove and Memory of
+    /// Old Lion's Arch.
+    LivingWorldSeason1,
+    /// Living World Season 2 — 2014. The Silverwastes / Dry Top.
+    LivingWorldSeason2,
     /// Heart of Thorns — 2015. Maguuma Jungle expansion zones.
     HeartOfThorns,
     /// Living World Season 3 — 2016–2017. Bloodstone Fen, Ember Bay,
@@ -81,6 +87,11 @@ pub enum Expansion {
     /// Castora (Visions of Eternity) — 2025. Starlit Weald / Shipwreck
     /// Strand / Sunqua Peak open-world etc.
     Castora,
+    /// Recurring festival content (Super Adventure Box, Labyrinthine
+    /// Cliffs / Festival of the Four Winds, The Crown Pavilion /
+    /// Queen's Jubilee). Not tied to any one expansion; players need
+    /// the festival to be running to access these maps.
+    Festival,
 }
 
 /// One source map's neighbors. The source-side metadata (name,
@@ -335,6 +346,12 @@ mod tests {
         assert!(yaml.contains("secrets_of_the_obscure"), "got: {yaml}");
         let yaml = serde_yaml_bw::to_string(&Expansion::IcebroodSaga).unwrap();
         assert!(yaml.contains("icebrood_saga"), "got: {yaml}");
+        let yaml = serde_yaml_bw::to_string(&Expansion::LivingWorldSeason1).unwrap();
+        assert!(yaml.contains("living_world_season1"), "got: {yaml}");
+        let yaml = serde_yaml_bw::to_string(&Expansion::LivingWorldSeason2).unwrap();
+        assert!(yaml.contains("living_world_season2"), "got: {yaml}");
+        let yaml = serde_yaml_bw::to_string(&Expansion::Festival).unwrap();
+        assert!(yaml.contains("festival"), "got: {yaml}");
     }
 
     #[test]

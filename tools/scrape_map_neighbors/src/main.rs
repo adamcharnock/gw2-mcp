@@ -405,6 +405,8 @@ fn pick_expansion(requires_raw: Option<&str>) -> Option<String> {
     // Order roughly corresponds to release chronology so "later" wins
     // when a map carries multiple tags. Earliest at index 0.
     const PRIORITY: &[(&str, &str)] = &[
+        ("lws1", "living_world_season1"),
+        ("lws2", "living_world_season2"),
         ("hot", "heart_of_thorns"),
         ("lws3", "living_world_season3"),
         ("pof", "path_of_fire"),
@@ -978,6 +980,14 @@ Body text below.
 
     #[test]
     fn pick_expansion_handles_single_tag() {
+        assert_eq!(
+            pick_expansion(Some("lws1")).as_deref(),
+            Some("living_world_season1")
+        );
+        assert_eq!(
+            pick_expansion(Some("lws2")).as_deref(),
+            Some("living_world_season2")
+        );
         assert_eq!(
             pick_expansion(Some("hot")).as_deref(),
             Some("heart_of_thorns")
