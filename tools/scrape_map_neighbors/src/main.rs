@@ -36,8 +36,8 @@
 //!    `asura_gate`. This is the "data convention" the round-1 YAML
 //!    already used implicitly (empty direction = gate) — promoting it
 //!    to an explicit field makes the distinction unmissable to the LLM.
-//!    Hand-curators can override specific edges to `story_gate`,
-//!    `instance_portal`, or `guild_hall` after the scrape.
+//!    Hand-curators can override specific edges to `story_gate` or
+//!    `guild_hall` after the scrape.
 //! 6. Emit YAML keyed by map id, sorted by name for stable diffs.
 //!    Unresolved target page names get reported to stderr for
 //!    hand-review (cities, instance entrances, disambiguation hops).
@@ -237,14 +237,14 @@ struct YamlNeighbor {
     direction: Option<String>,
     /// Snake-case enum value matching `domain::ConnectionType`.
     /// "physical" if the source page gave a direction; "asura_gate"
-    /// otherwise. Hand-curators can override to "story_gate",
-    /// "instance_portal", or "guild_hall".
+    /// otherwise. Hand-curators can override to "story_gate" or
+    /// "guild_hall".
     #[serde(skip_serializing_if = "Option::is_none")]
     connection: Option<String>,
     /// "Where in the source map you portal out from" — only useful
-    /// for non-physical connections (asura gates, story gates,
-    /// instance portals). Populated by hand-curated overrides; the
-    /// wiki infobox doesn't carry this info.
+    /// for non-physical connections (asura gates, story gates).
+    /// Populated by hand-curated overrides; the wiki infobox doesn't
+    /// carry this info.
     #[serde(skip_serializing_if = "Option::is_none")]
     gate_location: Option<String>,
     /// Set to true when the edge is unidirectional (A→B but not B→A).

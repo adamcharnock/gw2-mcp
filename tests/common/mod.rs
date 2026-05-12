@@ -889,8 +889,6 @@ pub fn currency(id: u32, name: &str) -> Currency {
     Currency {
         id: CurrencyId::new(i64::from(id)).unwrap(),
         name: name.to_owned(),
-        description: format!("description for {name}"),
-        order: i32::try_from(id).unwrap_or(0),
     }
 }
 

@@ -36,14 +36,16 @@ impl std::fmt::Display for CurrencyId {
 
 /// Metadata for a single currency.
 ///
-/// Field order mirrors the GW2 API response so serde-deserialised values
-/// round-trip cleanly.
+/// Trimmed to the fields the LLM actually needs (`id`, `name`). Icon
+/// URLs, description text, and the UI sort order are accepted on the
+/// wire but discarded during deserialization — they were collectively
+/// ~50% of the `get_wallet` response payload while contributing nothing
+/// to LLM reasoning (the names are self-explanatory and the LLM can't
+/// render images).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Currency {
     pub id: CurrencyId,
     pub name: String,
-    pub description: String,
-    pub order: i32,
 }
 
 #[cfg(test)]

@@ -78,10 +78,8 @@ pub(super) fn parse_build_uri(uri: &str) -> Option<Result<(&str, &str), String>>
 /// fixed URIs that resolve straight to a service call — no parameters.
 pub(super) fn concrete_resources() -> Vec<rmcp::model::Resource> {
     let mut currencies = RawResource::new(CURRENCIES_RESOURCE_URI, "Guild Wars 2 Currencies");
-    currencies.description = Some(
-        "Complete list of Guild Wars 2 currencies with metadata (name, description, icon, order)."
-            .to_owned(),
-    );
+    currencies.description =
+        Some("Complete list of Guild Wars 2 currencies (id + name).".to_owned());
     currencies.mime_type = Some(RESOURCE_JSON_MIME.to_owned());
 
     let mut discretize = RawResource::new(BUILDS_DISCRETIZE_URI, "Discretize Builds");

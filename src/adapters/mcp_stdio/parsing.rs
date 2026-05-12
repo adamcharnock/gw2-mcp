@@ -137,12 +137,11 @@ pub(super) fn parse_excluded_connections(
             "physical" => ConnectionType::Physical,
             "asura_gate" => ConnectionType::AsuraGate,
             "story_gate" => ConnectionType::StoryGate,
-            "instance_portal" => ConnectionType::InstancePortal,
             "guild_hall" => ConnectionType::GuildHall,
             _ => {
                 return Err(CallError::BadArg {
                     name: "exclude_connections",
-                    expected: "values from: physical | asura_gate | story_gate | instance_portal | guild_hall",
+                    expected: "values from: physical | asura_gate | story_gate | guild_hall",
                 });
             }
         };

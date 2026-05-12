@@ -887,12 +887,23 @@ async fn dispatch_get_account_raids_returns_enriched_snapshot() {
         )
         .await
         .unwrap();
-    let encounters = v["encounters"].as_array().expect("encounters array");
+    let raids = v["raids"].as_array().expect("raids array");
+    let forsaken = raids
+        .iter()
+        .find(|r| r["id"] == "forsaken_thicket")
+        .expect("forsaken_thicket present");
+    let wings = forsaken["wings"].as_array().expect("wings array");
+    let spirit_vale = wings
+        .iter()
+        .find(|w| w["id"] == "spirit_vale")
+        .expect("spirit_vale wing present");
+    let encounters = spirit_vale["encounters"]
+        .as_array()
+        .expect("encounters array");
     let vg = encounters
         .iter()
         .find(|e| e["id"] == "vale_guardian")
         .expect("vale_guardian present");
-    assert_eq!(vg["name"], "Vale Guardian");
     assert_eq!(vg["cleared"], true);
     let gorseval = encounters
         .iter()
@@ -931,7 +942,12 @@ async fn dispatch_get_account_dungeons_returns_enriched_snapshot() {
         )
         .await
         .unwrap();
-    let paths = v["paths"].as_array().expect("paths array");
+    let dungeons = v["dungeons"].as_array().expect("dungeons array");
+    let ac = dungeons
+        .iter()
+        .find(|d| d["id"] == "ascalonian_catacombs")
+        .expect("ascalonian_catacombs present");
+    let paths = ac["paths"].as_array().expect("paths array");
     assert_eq!(paths.len(), 3, "all paths listed regardless of clear state");
     let story = paths
         .iter()

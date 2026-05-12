@@ -433,14 +433,14 @@ pub(super) fn build_tools() -> Vec<Tool> {
             },
             "exclude_connections": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["physical", "asura_gate", "story_gate", "instance_portal", "guild_hall"] },
+                "items": { "type": "string", "enum": ["physical", "asura_gate", "story_gate", "guild_hall"] },
                 "default": [],
                 "description": "Skip edges whose `connection` matches any value in this list. Common use: `[\"story_gate\"]` to avoid routes the player may not be able to traverse yet."
             },
             "player_access": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Snake-case expansion names the player owns (e.g. [\"core\", \"heart_of_thorns\", \"path_of_fire\"]). Edges to maps whose `expansion` isn't in this list (with `core`/`festival`/`living_world_season1`/`living_world_season2` always permitted) are skipped. ABSENT (the default): auto-fetch from /v2/account using the supplied or configured API key; if that fails, no filtering. EMPTY ARRAY: explicitly disable access filtering (e.g. for hypothetical 'what would I need to buy?' planning)."
+                "description": "Snake-case expansion names the player owns (e.g. [\"core\", \"heart_of_thorns\", \"path_of_fire\"]). Edges to maps whose `expansion` isn't in this list are skipped. ABSENT (default): auto-fetch from /v2/account using the supplied or configured API key; if that fails, no filtering. Auto-fetch grants Core/LW1/LW2/Festival to all accounts (those maps are open to anyone who can reach them), then maps /v2/account.access tokens to the corresponding expansions, then heuristically grants LW3 to HoT owners and LW4 to PoF owners. The LW3/LW4 heuristic matches modern bundled accounts but the GW2 API exposes no per-episode unlock signal — pass `player_access` explicitly if you need exact filtering. EMPTY ARRAY: disable access filtering."
             },
             "api_key": {
                 "type": "string",
@@ -582,7 +582,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::domain::SearchResponse>(),
         Tool::new(
             "get_wallet",
-            "Fetch the user's wallet, including currency metadata. Requires an API key.",
+            "Fetch the user's wallet (currency id + balance) joined with a id->name table for every currency the account holds. Requires an API key.",
             get_wallet,
         )
         .annotate(read_only_open_world("Get Wallet"))
@@ -684,7 +684,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::CharacterList>(),
         Tool::new(
             "get_account_achievements",
-            "Per-account achievement progress, enriched with achievement name + description. `summary=true` (default) keeps only in-flight work (heavy: 2-3k entries otherwise). Requires `account` + `progression` scopes.",
+            "Per-account achievement progress, enriched with achievement name. `summary=true` (default) keeps only in-flight work and drops the per-row bits[] array + description (huge in full mode; rarely useful for 'what am I close to?' triage). `summary=false` returns the full 2-3k row response with bits and descriptions. Requires `account` + `progression` scopes.",
             get_account_achievements,
         )
         .annotate(read_only_open_world("Get Account Achievements"))
@@ -698,13 +698,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::AccountMasteriesSnapshot>(),
         Tool::new(
             "get_account_raids",
-            "Raid clears + full encounter list (each with `cleared: bool`), cleared/total counts, next weekly reset (Monday 07:30 UTC). Requires `account` + `progression` scopes.",
+            "Raid clears nested as raids[].wings[].encounters[] — each encounter has id, kind, cleared. Plus cleared/total counts, next weekly reset (Monday 07:30 UTC). Requires `account` + `progression` scopes.",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("Get Account Raids")),
         Tool::new(
             "get_account_dungeons",
-            "Dungeon path clears for today (same shape as get_account_raids, daily cadence). Next reset at 00:00 UTC. Requires `account` + `progression` scopes.",
+            "Dungeon path clears nested as dungeons[].paths[] — each path has id, kind, cleared. Plus cleared/total counts, next daily reset (00:00 UTC). Requires `account` + `progression` scopes.",
             authed_no_args,
         )
         .annotate(read_only_open_world("Get Account Dungeons")),
@@ -750,7 +750,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::RegionMapList>(),
         Tool::new(
             "get_map_neighbors",
-            "Maps bordering `map_id`. Each neighbor has direction (16-pt compass, comma-separated for arcs), connection (physical | asura_gate | story_gate | instance_portal | guild_hall), gate_location, note. Covers open-world + 11 hub cities; excludes instances/fractals/dungeons/raids/WvW.",
+            "Maps bordering `map_id`. Each neighbor has direction (16-pt compass, comma-separated for arcs), connection (physical | asura_gate | story_gate | guild_hall), gate_location, note. Covers open-world + 11 hub cities; excludes instances/fractals/dungeons/raids/WvW.",
             get_map_neighbors_schema,
         )
         .annotate(read_only_open_world("Get Map Neighbors"))

@@ -39,8 +39,6 @@ pub enum ConnectionType {
     /// (e.g. Skywatch Archipelago via the Eye of the North `SotO` portal,
     /// or Wizard's Tower after the `SotO` prologue).
     StoryGate,
-    /// Portal into an instanced dungeon, raid wing, fractal, or strike.
-    InstancePortal,
     /// Guild hall instance, accessed via the guild initiative. Rarely
     /// useful for general navigation but represented for completeness.
     GuildHall,
@@ -322,8 +320,8 @@ mod tests {
         // so a future enum rename doesn't silently break the table.
         let yaml = serde_yaml_bw::to_string(&ConnectionType::AsuraGate).unwrap();
         assert!(yaml.contains("asura_gate"), "got: {yaml}");
-        let yaml = serde_yaml_bw::to_string(&ConnectionType::InstancePortal).unwrap();
-        assert!(yaml.contains("instance_portal"), "got: {yaml}");
+        let yaml = serde_yaml_bw::to_string(&ConnectionType::GuildHall).unwrap();
+        assert!(yaml.contains("guild_hall"), "got: {yaml}");
     }
 
     #[test]

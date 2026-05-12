@@ -769,7 +769,6 @@ fn connection_type_to_snake(c: ConnectionType) -> String {
         ConnectionType::Physical => "physical",
         ConnectionType::AsuraGate => "asura_gate",
         ConnectionType::StoryGate => "story_gate",
-        ConnectionType::InstancePortal => "instance_portal",
         ConnectionType::GuildHall => "guild_hall",
     }
     .to_owned()
@@ -795,9 +794,25 @@ fn expansion_to_snake(e: Expansion) -> String {
 }
 
 /// Map the `access` array from `/v2/account` into the set of
-/// `Expansion` variants the player effectively owns. Includes implicit
-/// LW season access (`HoT` ⇒ LW3 maps; `PoF` ⇒ LW4 maps) and the
-/// always-permitted variants (Core, LW1, LW2, Festival).
+/// `Expansion` variants the player effectively owns, for route-planning
+/// filter purposes.
+///
+/// Heuristic — the GW2 API does NOT expose per-LW-episode unlock state
+/// (no `/v2/account/episodes`, `/v2/account/stories`, etc.; the wiki
+/// confirms `access` is expansion-only). So we approximate:
+///
+/// - **Always granted**: Core, LW1, LW2, Festival. Their maps are open
+///   to anyone who can reach them — LW1/LW2 zones (e.g. Dry Top,
+///   Silverwastes, Memory of Old LA) don't gate map travel behind the
+///   episode unlock the way LW3/LW4 do.
+/// - **From explicit access tokens**: `HeartOfThorns`, `PathOfFire`,
+///   `EndOfDragons`, `SecretsOfTheObscure`, `JanthirWilds`, `IcebroodSaga`,
+///   and the forthcoming Castora / `VisionsOfEternity` tags.
+/// - **Heuristic implicit grants**: `HoT` ⇒ LW3, `PoF` ⇒ LW4. Justified
+///   because Steam-era bundles and current `ANet` pricing typically include
+///   the matching LW season free. False positives are possible for very
+///   old accounts that never unlocked individual LW3/LW4 episodes — those
+///   callers should pass an explicit `player_access` array to override.
 pub fn expand_account_access(access: &[String]) -> HashSet<Expansion> {
     let mut owned: HashSet<Expansion> = HashSet::new();
     // Always-permitted maps don't need explicit account flags.

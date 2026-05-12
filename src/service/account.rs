@@ -201,14 +201,22 @@ impl Service {
         let metadata = self
             .achievement_metadata_for_ids(filtered.iter().map(|a| a.id))
             .await;
+        // Summary mode trims two large per-row fields: the `bits` array
+        // (often 100+ ints for an explorer / category-clearing
+        // achievement; only the per-bit index, never readable text) and
+        // the achievement description (helpful in full mode, noise in
+        // the "what am I close to finishing?" scan that summary serves).
         let achievements: Vec<AccountAchievementEntry> = filtered
             .into_iter()
-            .map(|progress| {
+            .map(|mut progress| {
+                if summary {
+                    progress.bits = None;
+                }
                 let (name, description) = lookup_name_description(&metadata, progress.id);
                 AccountAchievementEntry {
                     progress,
                     name,
-                    description,
+                    description: if summary { None } else { description },
                 }
             })
             .collect();
@@ -316,26 +324,44 @@ impl Service {
         let metadata = self.raid_metadata_table().await;
         let cleared_set: BTreeSet<&str> = cleared.iter().map(String::as_str).collect();
         let now = self.clock.now();
-        let mut encounters = Vec::new();
+        // Nested raids -> wings -> encounters so the dungeon_id and
+        // wing_id repetition that used to flood the flat encounter list
+        // becomes a single field per parent grouping. Per-encounter
+        // `name` was just title_case(id); dropped — the LLM can derive
+        // it from the id when surfacing the result.
+        let mut raids: Vec<RaidGroupEntry> = Vec::new();
         let mut total = 0usize;
+        let mut cleared_count = 0usize;
         for (raid_id, raid) in &metadata {
+            let mut wings_out: Vec<RaidWingEntry> = Vec::new();
             for wing in &raid.wings {
+                let mut encounters: Vec<RaidEncounterEntry> = Vec::new();
                 for event in &wing.events {
                     total += 1;
+                    let was_cleared = cleared_set.contains(event.id.as_str());
+                    if was_cleared {
+                        cleared_count += 1;
+                    }
                     encounters.push(RaidEncounterEntry {
                         id: event.id.clone(),
-                        name: title_case(&event.id),
                         kind: event.kind.clone(),
-                        wing_id: wing.id.clone(),
-                        raid_id: raid_id.clone(),
-                        cleared: cleared_set.contains(event.id.as_str()),
+                        cleared: was_cleared,
                     });
                 }
+                wings_out.push(RaidWingEntry {
+                    id: wing.id.clone(),
+                    name: title_case(&wing.id),
+                    encounters,
+                });
             }
+            raids.push(RaidGroupEntry {
+                id: raid_id.clone(),
+                name: title_case(raid_id),
+                wings: wings_out,
+            });
         }
-        let cleared_count = encounters.iter().filter(|e| e.cleared).count();
         Ok(AccountRaidsSnapshot {
-            encounters,
+            raids,
             cleared_count,
             total_count: total,
             weekly_reset_at: next_raid_reset(now),
@@ -365,23 +391,35 @@ impl Service {
         let metadata = self.dungeon_metadata_table().await;
         let cleared_set: BTreeSet<&str> = cleared.iter().map(String::as_str).collect();
         let now = self.clock.now();
-        let mut paths = Vec::new();
+        // Nested dungeons -> paths shape: the dungeon_id repetition that
+        // existed on every path under the old flat list collapses into
+        // one field per dungeon. Per-path `name` was just
+        // title_case(id); the LLM derives it on demand from the id.
+        let mut dungeons: Vec<DungeonGroupEntry> = Vec::new();
         let mut total = 0usize;
+        let mut cleared_count = 0usize;
         for (dungeon_id, dungeon) in &metadata {
+            let mut paths_out: Vec<DungeonPathEntry> = Vec::new();
             for path in &dungeon.paths {
                 total += 1;
-                paths.push(DungeonPathEntry {
+                let was_cleared = cleared_set.contains(path.id.as_str());
+                if was_cleared {
+                    cleared_count += 1;
+                }
+                paths_out.push(DungeonPathEntry {
                     id: path.id.clone(),
-                    name: title_case(&path.id),
                     kind: path.kind.clone(),
-                    dungeon_id: dungeon_id.clone(),
-                    cleared: cleared_set.contains(path.id.as_str()),
+                    cleared: was_cleared,
                 });
             }
+            dungeons.push(DungeonGroupEntry {
+                id: dungeon_id.clone(),
+                name: title_case(dungeon_id),
+                paths: paths_out,
+            });
         }
-        let cleared_count = paths.iter().filter(|p| p.cleared).count();
         Ok(AccountDungeonsSnapshot {
-            paths,
+            dungeons,
             cleared_count,
             total_count: total,
             daily_reset_at: next_daily_reset(now),
@@ -558,13 +596,14 @@ fn lookup_name_description(
     (name, description)
 }
 
-/// Result of `get_account_raids` — the full list of raid encounters with
-/// a `cleared: bool` flag per encounter plus the next weekly reset
-/// timestamp. Lets an LLM answer "what raids do I still have left this
-/// week?" without a separate call.
+/// Result of `get_account_raids`. Nested raid → wing → encounter shape:
+/// each encounter is identified by id-only with its kind + cleared flag;
+/// the parent `raid_id` / `wing_id` are factored out into the grouping so the
+/// list of ~60 encounters doesn't repeat them. Lets an LLM answer "what
+/// raids do I still have left this week?" without a separate call.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccountRaidsSnapshot {
-    pub encounters: Vec<RaidEncounterEntry>,
+    pub raids: Vec<RaidGroupEntry>,
     pub cleared_count: usize,
     pub total_count: usize,
     pub weekly_reset_at: DateTime<Utc>,
@@ -572,19 +611,31 @@ pub struct AccountRaidsSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct RaidEncounterEntry {
+pub struct RaidGroupEntry {
     pub id: String,
     pub name: String,
+    pub wings: Vec<RaidWingEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RaidWingEntry {
+    pub id: String,
+    pub name: String,
+    pub encounters: Vec<RaidEncounterEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RaidEncounterEntry {
+    pub id: String,
     pub kind: String,
-    pub wing_id: String,
-    pub raid_id: String,
     pub cleared: bool,
 }
 
-/// Sibling of [`AccountRaidsSnapshot`] for dungeons. Daily cadence.
+/// Sibling of [`AccountRaidsSnapshot`] for dungeons. Same nested shape
+/// (dungeon → path), daily cadence instead of weekly.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccountDungeonsSnapshot {
-    pub paths: Vec<DungeonPathEntry>,
+    pub dungeons: Vec<DungeonGroupEntry>,
     pub cleared_count: usize,
     pub total_count: usize,
     pub daily_reset_at: DateTime<Utc>,
@@ -592,11 +643,16 @@ pub struct AccountDungeonsSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct DungeonPathEntry {
+pub struct DungeonGroupEntry {
     pub id: String,
     pub name: String,
+    pub paths: Vec<DungeonPathEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DungeonPathEntry {
+    pub id: String,
     pub kind: String,
-    pub dungeon_id: String,
     pub cleared: bool,
 }
 
