@@ -1,7 +1,11 @@
 [workspace]
 # Build tools (one-shot scrapers etc.) live under `tools/` as separate
 # crates so their dev-time deps don't bloat the gw2-mcp release binary.
-members = [".", "tools/scrape_map_neighbors"]
+members = [
+    ".",
+    "tools/scrape_map_neighbors",
+    "tools/scrape_wiki_access",
+]
 
 [package]
 name = "gw2-mcp"

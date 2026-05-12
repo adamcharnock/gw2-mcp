@@ -2671,6 +2671,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "scrape-wiki-access"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "scraper"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

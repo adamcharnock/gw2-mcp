@@ -96,6 +96,10 @@ run = "cargo clean"
 description = "Re-scrape the GW2 wiki to regenerate data/map_neighbors.yaml. Run when an expansion ships, or to refresh stale wiki edits. Hits live wiki + GW2 API; takes ~30s. The scraper reports unresolved neighbor page names to stderr for hand-review."
 run = "cargo run -p scrape-map-neighbors --release -- --out data/map_neighbors.yaml"
 
+[tasks.refresh-wiki-access]
+description = "Re-scrape the GW2 wiki to regenerate data/wiki_zone_access.md — a per-zone markdown dump of intro paragraphs + infobox fields + every 'Getting there' / 'Access' / 'Portal' / 'Asura gate' / 'Entrance' section. Use as LLM context when proposing edits to data/map_neighbors_overrides.yaml. Hits live wiki + GW2 API; takes ~90s."
+run = "cargo run -p scrape-wiki-access --release -- --out data/wiki_zone_access.md"
+
 [tasks.refresh-map-snapshot]
 description = "Re-fetch the slimmed /v2/maps?ids=all snapshot used by the map-neighbors integrity test. Run after refresh-map-neighbors if a new map id appears (or if ArenaNet renames a map)."
 run = """
