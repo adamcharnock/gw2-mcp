@@ -31,8 +31,12 @@ fn build_search_server(api: Arc<FakeGw2Api>, idx: Arc<dyn SearchIndex>) -> McpSe
     let gw2: Arc<dyn Gw2Api> = api;
     let mumble: Arc<dyn MumbleLink> = Arc::new(StubMumbleLink::new("search test: no mumble"));
     let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
-    let service = Service::new(gw2, wiki, cache, clock, decoder, catalogs, mumble, maps)
-        .with_search_index(idx);
+    let events: Arc<dyn gw2_mcp::ports::EventSchedule> =
+        Arc::new(crate::common::FakeEventSchedule::empty());
+    let service = Service::new(
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
+    )
+    .with_search_index(idx);
     McpServer::new(service)
 }
 
@@ -153,7 +157,11 @@ async fn search_disabled_returns_typed_error() {
     let catalogs = Arc::new(CatalogRegistry::new());
     let mumble: Arc<dyn MumbleLink> = Arc::new(StubMumbleLink::new("search test: no mumble"));
     let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
-    let service = Service::new(api, wiki, cache, clock, decoder, catalogs, mumble, maps);
+    let events: Arc<dyn gw2_mcp::ports::EventSchedule> =
+        Arc::new(crate::common::FakeEventSchedule::empty());
+    let service = Service::new(
+        api, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
+    );
     let mcp = McpServer::new(service);
 
     let err = mcp

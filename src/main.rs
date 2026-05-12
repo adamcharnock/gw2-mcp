@@ -9,16 +9,16 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use gw2_mcp::adapters::probe_default;
 use gw2_mcp::adapters::{
-    ChatrDecoder, DiscretizeCatalog, HolderSupervisor, HolderSupervisorOpts, HttpGw2Api,
-    HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer, MemoryCache, MetaBattleCatalog,
+    ChatrDecoder, DiscretizeCatalog, HolderSupervisor, HolderSupervisorOpts, HttpEventSchedule,
+    HttpGw2Api, HttpMapData, HttpWiki, INDEX_FILE_NAME, McpServer, MemoryCache, MetaBattleCatalog,
     MirrorRescuer, SnowCrowsCatalog, SqliteSearchIndex, SystemClock,
 };
 use gw2_mcp::cli::{doctor, print_config};
 use gw2_mcp::domain::ApiKey;
 use gw2_mcp::indexing::{IndexingOpts, IndexingPipeline};
 use gw2_mcp::ports::{
-    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, Gw2Api, MapData, MumbleLink,
-    SearchIndex, Wiki,
+    BuildCatalog, BuildCodeDecoder, Cache, CatalogRegistry, Clock, EventSchedule, Gw2Api, MapData,
+    MumbleLink, SearchIndex, Wiki,
 };
 use gw2_mcp::service::Service;
 
@@ -271,6 +271,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     }
 
     let maps: Arc<dyn MapData> = Arc::new(HttpMapData::new()?);
+    let event_schedule: Arc<dyn EventSchedule> = Arc::new(HttpEventSchedule::new()?);
 
     let mut service = Service::new(
         gw2.clone(),
@@ -281,6 +282,7 @@ async fn main() -> anyhow::Result<ExitCode> {
         catalogs,
         mumble,
         maps,
+        event_schedule,
     );
     if let Some(k) = default_api_key {
         service = service.with_default_api_key(k);

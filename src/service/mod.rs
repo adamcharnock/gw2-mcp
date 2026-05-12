@@ -5,6 +5,8 @@ mod account;
 mod catalogs;
 mod character_build;
 mod decode_build;
+mod events;
+mod festivals;
 mod maps;
 mod market;
 mod navigation;
@@ -19,6 +21,7 @@ pub use account::{
     WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
+pub use festivals::{ActiveFestivalsResponse, FestivalStatus};
 use maps::RegionLookupError;
 pub use maps::{
     MapNeighborsResponse, MapRef, MapRefResolved, RegionMapEntry, RegionMapList, RegionQuery,
@@ -39,8 +42,9 @@ use thiserror::Error;
 
 use crate::domain::ApiKey;
 use crate::ports::{
-    BuildCodeDecoder, BuildCodeError, Cache, CacheError, Clock, Gw2Api, Gw2ApiError, MapData,
-    MapDataError, MapId, MumbleError, MumbleLink, SearchError, SearchIndex, Wiki, WikiError,
+    BuildCodeDecoder, BuildCodeError, Cache, CacheError, Clock, EventSchedule, EventScheduleError,
+    Gw2Api, Gw2ApiError, MapData, MapDataError, MapId, MumbleError, MumbleLink, SearchError,
+    SearchIndex, Wiki, WikiError,
 };
 
 // Cache TTLs centralised so changes are atomic.
@@ -126,6 +130,9 @@ pub enum ServiceError {
     Wiki(#[from] WikiError),
 
     #[error("{0}")]
+    EventSchedule(#[from] EventScheduleError),
+
+    #[error("{0}")]
     Cache(#[from] CacheError),
 
     #[error("{0}")]
@@ -192,6 +199,8 @@ pub struct Service {
     mumble: Arc<dyn MumbleLink>,
     /// GW2 map / POI client.
     maps: Arc<dyn MapData>,
+    /// Wiki "Event timer" widget client — feeds `get_event_schedule`.
+    event_schedule: Arc<dyn EventSchedule>,
     /// Optional on-disk search index. `None` when started with
     /// `--no-search-index`, in which case the `search_*` methods all return
     /// [`ServiceError::SearchDisabled`].
@@ -213,6 +222,7 @@ impl Service {
         catalogs: Arc<crate::ports::CatalogRegistry>,
         mumble: Arc<dyn MumbleLink>,
         maps: Arc<dyn MapData>,
+        event_schedule: Arc<dyn EventSchedule>,
     ) -> Self {
         Self {
             gw2,
@@ -224,6 +234,7 @@ impl Service {
             default_api_key: None,
             mumble,
             maps,
+            event_schedule,
             search_index: None,
         }
     }

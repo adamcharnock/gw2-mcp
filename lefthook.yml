@@ -60,3 +60,10 @@ pre-commit:
     test-rust:
       glob: "*.rs"
       run: mise run test
+
+    # Reject commits where data/festivals.yaml is older than 30 days.
+    # The runtime's get_active_festivals tool surfaces this data
+    # verbatim, so stale entries silently mislead the LLM. Fix by
+    # running the refresh-festivals Claude skill.
+    festivals-fresh:
+      run: ./scripts/check_festivals_freshness.sh

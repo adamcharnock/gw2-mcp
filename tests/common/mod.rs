@@ -20,9 +20,9 @@ use gw2_mcp::domain::{
 };
 use gw2_mcp::ports::{
     BuildCatalog, BuildCodeDecoder, BuildDetail, BuildSummary, Cache, CacheError, CatalogError,
-    CatalogFilter, CatalogRegistry, Clock, Gw2Api, Gw2ApiError, MapData, MapDataError, MapId,
-    MapInfo, MapPoi, MumbleContext, MumbleError, MumbleIdentity, MumbleLink, MumbleSnapshot, Wiki,
-    WikiError,
+    CatalogFilter, CatalogRegistry, Clock, EventSchedule, EventScheduleError, Gw2Api, Gw2ApiError,
+    MapData, MapDataError, MapId, MapInfo, MapPoi, MumbleContext, MumbleError, MumbleIdentity,
+    MumbleLink, MumbleSnapshot, Wiki, WikiError,
 };
 
 /// Build a `Service` with the in-memory fakes and a real chatr decoder.
@@ -39,7 +39,10 @@ pub fn build_service(
     let mumble: Arc<dyn MumbleLink> =
         Arc::new(StubMumbleLink::new("test default: no mumble link wired"));
     let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
-    Service::new(gw2, wiki, cache, clock, decoder, catalogs, mumble, maps)
+    let events: Arc<dyn EventSchedule> = Arc::new(FakeEventSchedule::empty());
+    Service::new(
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
+    )
 }
 
 /// Build a `Service` with a custom set of catalogs registered.
@@ -55,7 +58,10 @@ pub fn build_service_with_catalogs(
     let mumble: Arc<dyn MumbleLink> =
         Arc::new(StubMumbleLink::new("test default: no mumble link wired"));
     let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
-    Service::new(gw2, wiki, cache, clock, decoder, catalogs, mumble, maps)
+    let events: Arc<dyn EventSchedule> = Arc::new(FakeEventSchedule::empty());
+    Service::new(
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
+    )
 }
 
 /// Build a `Service` with custom navigation ports — used by the
@@ -72,7 +78,10 @@ pub fn build_service_with_navigation(
 ) -> Service {
     let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
     let catalogs = Arc::new(CatalogRegistry::new());
-    Service::new(gw2, wiki, cache, clock, decoder, catalogs, mumble, maps)
+    let events: Arc<dyn EventSchedule> = Arc::new(FakeEventSchedule::empty());
+    Service::new(
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1177,6 +1186,51 @@ pub fn make_poi(id: u64, name: &str, kind: &str, coord: (f64, f64)) -> MapPoi {
         kind: kind.to_owned(),
         coord,
         floor: 1,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Recording fake for the EventSchedule port. The default response is an
+// empty schedule, which is fine for every test that doesn't exercise
+// `get_event_schedule` directly.
+// ---------------------------------------------------------------------------
+
+pub struct FakeEventSchedule {
+    pub calls: Mutex<usize>,
+    pub response: Mutex<Result<gw2_mcp::domain::EventScheduleRaw, EventScheduleError>>,
+}
+
+impl FakeEventSchedule {
+    pub fn empty() -> Self {
+        Self {
+            calls: Mutex::new(0),
+            response: Mutex::new(Ok(gw2_mcp::domain::EventScheduleRaw {
+                config: gw2_mcp::domain::EventScheduleConfig {
+                    version: "test".to_owned(),
+                },
+                events: BTreeMap::new(),
+            })),
+        }
+    }
+
+    pub fn calls(&self) -> usize {
+        *self.calls.lock().unwrap()
+    }
+}
+
+#[async_trait]
+impl EventSchedule for FakeEventSchedule {
+    async fn fetch_raw(&self) -> Result<gw2_mcp::domain::EventScheduleRaw, EventScheduleError> {
+        *self.calls.lock().unwrap() += 1;
+        match &*self.response.lock().unwrap() {
+            Ok(raw) => Ok(gw2_mcp::domain::EventScheduleRaw {
+                config: gw2_mcp::domain::EventScheduleConfig {
+                    version: raw.config.version.clone(),
+                },
+                events: raw.events.clone(),
+            }),
+            Err(e) => Err(EventScheduleError::Transport(e.to_string())),
+        }
     }
 }
 

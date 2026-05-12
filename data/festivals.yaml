@@ -1,0 +1,42 @@
+# Source of truth for GW2 festival schedules in gw2-mcp.
+#
+# Dates are APPROXIMATE — they're derived from prior-year occurrences on
+# the wiki, not authoritative ArenaNet announcements. The runtime tool
+# (get_active_festivals) surfaces this caveat explicitly.
+#
+# Refresh procedure: invoke the `refresh-festivals` Claude skill at
+# `.claude/skills/refresh-festivals/SKILL.md`. The skill fetches the wiki
+# pages, recomputes typical MM-DD windows from the most recent 3-5
+# occurrences, writes this file, and runs the schema test.
+#
+# Pre-commit hook (lefthook): blocks commits whose `last_updated` is
+# older than 30 days. Run the skill if it does.
+schema_version: 1
+last_updated: "2026-05-12"
+sources:
+  - https://wiki.guildwars2.com/wiki/Festival
+festivals:
+  - name: "Lunar New Year"
+    typical_start: "01-25"
+    typical_end: "02-08"
+    wiki_url: https://wiki.guildwars2.com/wiki/Lunar_New_Year
+  - name: "Super Adventure Festival"
+    typical_start: "04-01"
+    typical_end: "04-22"
+    wiki_url: https://wiki.guildwars2.com/wiki/Super_Adventure_Festival
+  - name: "Dragon Bash"
+    typical_start: "06-07"
+    typical_end: "06-28"
+    wiki_url: https://wiki.guildwars2.com/wiki/Dragon_Bash
+  - name: "Festival of the Four Winds"
+    typical_start: "07-04"
+    typical_end: "07-25"
+    wiki_url: https://wiki.guildwars2.com/wiki/Festival_of_the_Four_Winds
+  - name: "Halloween"
+    typical_start: "10-13"
+    typical_end: "11-03"
+    wiki_url: https://wiki.guildwars2.com/wiki/Shadow_of_the_Mad_King
+  - name: "Wintersday"
+    typical_start: "12-12"
+    typical_end: "01-02"
+    wiki_url: https://wiki.guildwars2.com/wiki/Wintersday

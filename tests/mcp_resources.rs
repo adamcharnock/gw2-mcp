@@ -31,8 +31,10 @@ fn build_server_with_fakes(gw2: Arc<FakeGw2Api>, catalogs: Arc<CatalogRegistry>)
     let gw2_port: Arc<dyn Gw2Api> = gw2;
     let mumble: Arc<dyn MumbleLink> = Arc::new(StubMumbleLink::new("test default: no mumble"));
     let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+    let events: Arc<dyn gw2_mcp::ports::EventSchedule> =
+        Arc::new(crate::common::FakeEventSchedule::empty());
     McpServer::new(Service::new(
-        gw2_port, wiki, cache, clock, decoder, catalogs, mumble, maps,
+        gw2_port, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
     ))
 }
 

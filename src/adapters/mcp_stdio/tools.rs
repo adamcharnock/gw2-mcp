@@ -343,6 +343,27 @@ pub(super) fn build_tools() -> Vec<Tool> {
         }))
         .expect("valid schema literal");
 
+    let get_event_schedule: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "within_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1440,
+                    "default": 60,
+                    "description": "Only return events whose next segment starts within this many minutes. Use 1440 for the full 24h schedule."
+                },
+                "category": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "Optional category filter (case-insensitive). Examples: 'Core Tyria', 'Heart of Thorns', 'Path of Fire', 'End of Dragons', 'Secrets of the Obscure', 'Janthir Wilds'."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
     let get_dailies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -802,6 +823,20 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Get Market Prices"))
         .with_output_schema::<crate::service::MarketPricesResponse>(),
+        Tool::new(
+            "get_event_schedule",
+            "Recurring meta / world-boss event schedule. Deterministic — sourced from the wiki Event timer widget (Widget:Event_timer/data.json) and computed against UTC-midnight-anchored cycles. No API key. Each event reports current_segment + next_segment_starts_in_minutes (the delta is what to trust; ISO 8601 timestamps are sibling fields). Filter by `within_minutes` (default 60) and optional `category`. Festivals are NOT here — use get_active_festivals for those.",
+            get_event_schedule,
+        )
+        .annotate(read_only_open_world("Get Event Schedule"))
+        .with_output_schema::<crate::domain::EventScheduleResponse>(),
+        Tool::new(
+            "get_active_festivals",
+            "Live + upcoming GW2 seasonal festivals (Lunar New Year, SAB, Dragon Bash, Festival of the Four Winds, Halloween, Wintersday). Dates are APPROXIMATE — derived from prior-year wiki occurrences, not official ArenaNet announcements; the response includes a `note` field with this disclaimer verbatim, plus `schedule_last_updated_days_ago` so callers can gauge staleness. `live` carries `ends_in_days`; `upcoming` carries `starts_in_days`, sorted nearest-first.",
+            empty_args.clone(),
+        )
+        .annotate(read_only_closed_world("Get Active Festivals"))
+        .with_output_schema::<crate::service::ActiveFestivalsResponse>(),
         Tool::new(
             "get_account_masteries",
             "Mastery track progress, enriched with track name, region, current level name. Includes points_by_region: per-region {earned, spent, unspent} totals (answers 'what can I afford to finish?'). Requires `account` + `progression` scopes.",

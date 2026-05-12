@@ -313,6 +313,17 @@ pub(super) fn parse_optional_u32(args: &serde_json::Value, name: &str) -> Option
         .and_then(|n| u32::try_from(n).ok())
 }
 
+/// Parse `within_minutes` (for `get_event_schedule`). Defaults to 60.
+/// Clamped to [1, 1440] — the LLM has no business asking for a
+/// 0-minute window, and 1440 (one full day) is the cycle ceiling.
+pub(super) fn parse_within_minutes(args: &serde_json::Value) -> u32 {
+    args.get("within_minutes")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(60)
+        .clamp(1, 1440)
+}
+
 pub(super) const DEFAULT_PAGE_SIZE: u32 = 25;
 pub(super) const MAX_PAGE_SIZE: u32 = 100;
 

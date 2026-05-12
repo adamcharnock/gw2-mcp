@@ -107,6 +107,8 @@ impl McpServer {
             "get_account_materials" => self.handle_get_account_materials(&args).await,
             "get_character_inventory" => self.handle_get_character_inventory(&args).await,
             "get_market_prices" => self.handle_get_market_prices(&args).await,
+            "get_event_schedule" => self.handle_get_event_schedule(&args).await,
+            "get_active_festivals" => self.handle_get_active_festivals(),
             "get_account_masteries" => self.handle_get_account_masteries(&args).await,
             "get_account_raids" => self.handle_get_account_raids(&args).await,
             "get_account_dungeons" => self.handle_get_account_dungeons(&args).await,
@@ -649,6 +651,25 @@ impl McpServer {
         Ok(serde_json::to_value(&v)?)
     }
 
+    async fn handle_get_event_schedule(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let within_minutes = parsing::parse_within_minutes(args);
+        let category = parse_optional_str(args, "category");
+        let v = self
+            .service
+            .get_event_schedule(within_minutes, category.as_deref())
+            .await
+            .map_err(|e| annotate_endpoint(e, "get_event_schedule"))?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
+    fn handle_get_active_festivals(&self) -> Result<serde_json::Value, CallError> {
+        let v = self.service.get_active_festivals();
+        Ok(serde_json::to_value(&v)?)
+    }
+
     async fn handle_get_account_masteries(
         &self,
         args: &serde_json::Value,
@@ -1147,8 +1168,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            38,
-            "12 base + get_info + 10 account/coaching + get_market_prices + 7 navigation + 6 search + 1 refresh = 38"
+            40,
+            "12 base + get_info + 10 account/coaching + get_market_prices + get_event_schedule + get_active_festivals + 7 navigation + 6 search + 1 refresh = 40"
         );
     }
 

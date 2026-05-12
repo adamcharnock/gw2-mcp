@@ -32,8 +32,10 @@ fn build_server(gw2_uri: String, wiki_uri: String) -> McpServer {
     let mumble: Arc<dyn MumbleLink> =
         Arc::new(StubMumbleLink::new("integration test: no live mumble link"));
     let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+    let events: Arc<dyn gw2_mcp::ports::EventSchedule> =
+        Arc::new(crate::common::FakeEventSchedule::empty());
     McpServer::new(Service::new(
-        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps,
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
     ))
 }
 
@@ -52,8 +54,10 @@ fn build_server_with_discretize(gh_api: String, gh_raw: String) -> McpServer {
     let mumble: Arc<dyn MumbleLink> =
         Arc::new(StubMumbleLink::new("integration test: no live mumble link"));
     let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+    let events: Arc<dyn gw2_mcp::ports::EventSchedule> =
+        Arc::new(crate::common::FakeEventSchedule::empty());
     McpServer::new(Service::new(
-        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps,
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
     ))
 }
 

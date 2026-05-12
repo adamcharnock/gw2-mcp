@@ -541,6 +541,32 @@ pub trait Wiki: Send + Sync + 'static {
 }
 
 // ---------------------------------------------------------------------------
+// Event schedule (wiki widget JSON) — deterministic meta / world-boss cycles.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum EventScheduleError {
+    #[error("transport error: {0}")]
+    Transport(String),
+
+    #[error("event timer widget returned {status}: {body}")]
+    Status { status: u16, body: String },
+
+    #[error("could not decode event timer widget JSON: {0}")]
+    Decode(String),
+}
+
+/// Read-only fetch of the wiki "Event timer" widget data. Implementations
+/// hit `…/index.php?title=Widget:Event_timer/data.json&action=raw`. The
+/// content is the same JSON the wiki renders into its interactive timer
+/// page; we parse and walk it locally so we never need an account or API
+/// key to answer "what's worth doing in the next hour?".
+#[async_trait]
+pub trait EventSchedule: Send + Sync + 'static {
+    async fn fetch_raw(&self) -> Result<crate::domain::EventScheduleRaw, EventScheduleError>;
+}
+
+// ---------------------------------------------------------------------------
 // Map data (POIs, waypoints, hero points, …) — Tier 6B navigation.
 // ---------------------------------------------------------------------------
 

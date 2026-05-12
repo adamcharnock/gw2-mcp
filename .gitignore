@@ -44,4 +44,10 @@ temp/
 # Backup files
 *.bak
 *.backup
-/.claude/
+# Ignore everything in .claude/ except shared infrastructure. The
+# refresh-festivals skill is referenced by lefthook, so it lives in
+# the repo. (You can't re-include a path whose parent directory is
+# excluded — hence the wildcard-then-exception form.)
+/.claude/*
+!/.claude/skills/
+!/.claude/skills/**
