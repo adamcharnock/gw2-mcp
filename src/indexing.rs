@@ -20,13 +20,30 @@
 //!    index. A crash mid-flight leaves the stamp from the previous build,
 //!    so the next startup retries from scratch.
 //!
-//! ## Why not a worker pool
+//! ## Concurrency model
 //!
-//! GW2's per-key rate limit is 600 req/min. Even with full pipelining we
-//! hit that in seconds, so concurrency would just block on the bucket. A
-//! single-task sequential walk is simpler, easier to reason about, and
-//! puts no load on the `SQLite` single-writer mutex.
+//! The four small kinds (skills, traits, specs, achievements) run in
+//! parallel via `tokio::join!` — the GW2 API is the bottleneck, not
+//! `SQLite`, and the four refreshes are otherwise independent. Sleep
+//! between batches is bumped accordingly so the combined call rate
+//! stays well under GW2's 600 req/min budget.
+//!
+//! The optional `items` refresh stays sequential after the small four:
+//! it owns ~85k entries / ~5 minutes of HTTP and would otherwise
+//! starve the bucket. The other kinds typically finish before it
+//! even gets going.
+//!
+//! ## Failure model
+//!
+//! Each per-kind loop wraps every batch in a 10-second timeout (so a
+//! brown-out endpoint can't hang the indexer for 25s per call) and
+//! tracks consecutive failures. After
+//! [`MAX_CONSECUTIVE_BATCH_FAILURES`] in a row, the kind aborts so we
+//! don't thrash an unhealthy upstream — partial index + clean retry
+//! on next startup is preferred over a 90-second loop of timeouts.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -35,10 +52,28 @@ use tracing::{info, warn};
 
 use crate::ports::{Gw2Api, Gw2ApiError, SearchError, SearchIndex};
 
-/// Per-batch sleep to keep us comfortably under the 600 req/min budget when
-/// many batches run back-to-back. With a 200-id chunk, ~5 batches/sec is
-/// fine (the limit is 10 req/sec) but politeness costs us nothing.
-const INTER_BATCH_SLEEP: Duration = Duration::from_millis(100);
+/// Boxed future returned by per-kind batch closures. Spelling it out
+/// (rather than relying on `impl Future` / `AsyncFnMut` inference)
+/// keeps the `Send` bound nameable so the indexer can be spawned with
+/// `tokio::spawn` without HRTB lifetime grief.
+type BatchFuture<'a> = Pin<Box<dyn Future<Output = Result<(), IndexingError>> + Send + 'a>>;
+
+/// Per-batch sleep to keep the four parallel kinds (≤10 req/sec each)
+/// well under GW2's 600 req/min budget when they run concurrently.
+/// 400 ms × 4 parallel kinds = ~10 req/sec combined when all are
+/// active. The original sequential code used 100 ms.
+const INTER_BATCH_SLEEP: Duration = Duration::from_millis(400);
+
+/// Hard timeout on a single fetch + upsert batch. GW2 endpoints
+/// typically return in <1s; the worst legitimately-slow case is ~3s.
+/// 10s is generous enough to never hit on a healthy day, short enough
+/// to avoid the indexer hanging when GW2 is in a brown-out state.
+const PER_BATCH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// After this many consecutive batch failures within a single kind,
+/// abort the kind. 3 is enough to ride out a single transient blip,
+/// few enough that a real outage stops costing the budget quickly.
+const MAX_CONSECUTIVE_BATCH_FAILURES: u32 = 3;
 
 /// GW2's per-request id cap. Mirrors the constant in `HttpGw2Api::fetch_by_ids`
 /// — kept duplicated here so the pipeline can chunk before crossing the
@@ -52,6 +87,13 @@ pub enum IndexingError {
 
     #[error("{0}")]
     Search(#[from] SearchError),
+
+    #[error("batch {batch} of {kind} timed out after {after:?}")]
+    Timeout {
+        kind: &'static str,
+        batch: usize,
+        after: Duration,
+    },
 }
 
 /// Knobs that callers (the binary, integration tests) toggle when they
@@ -123,25 +165,24 @@ impl IndexingPipeline {
         })
     }
 
-    /// Walk every kind. Per-kind failures are logged and skipped — a
-    /// partial index is more useful than no index.
+    /// Walk every kind. The four small kinds run concurrently; items
+    /// (slow + huge) trails them sequentially. Per-kind hard errors
+    /// (e.g. id enumeration failed entirely) are logged and skipped —
+    /// a partial index is more useful than no index.
     async fn run_full_refresh(&self, build: u32) -> Result<(), IndexingError> {
-        if let Err(e) = self.refresh_skills(build).await {
-            warn!(error = ?e, "skills refresh failed; partial index");
-        }
-        if let Err(e) = self.refresh_traits(build).await {
-            warn!(error = ?e, "traits refresh failed; partial index");
-        }
-        if let Err(e) = self.refresh_specializations(build).await {
-            warn!(error = ?e, "specializations refresh failed; partial index");
-        }
-        if let Err(e) = self.refresh_achievements(build).await {
-            warn!(error = ?e, "achievements refresh failed; partial index");
-        }
-        if self.opts.include_items
-            && let Err(e) = self.refresh_items(build).await
-        {
-            warn!(error = ?e, "items refresh failed; partial index");
+        let (skills_res, traits_res, specs_res, ach_res) = tokio::join!(
+            self.refresh_skills(build),
+            self.refresh_traits(build),
+            self.refresh_specializations(build),
+            self.refresh_achievements(build),
+        );
+        log_kind_outcome("skills", skills_res);
+        log_kind_outcome("traits", traits_res);
+        log_kind_outcome("specializations", specs_res);
+        log_kind_outcome("achievements", ach_res);
+
+        if self.opts.include_items {
+            log_kind_outcome("items", self.refresh_items(build).await);
         }
         // Stamp at the end. If a kind partially failed we still stamp —
         // the next start sees the build number, finds no entries for the
@@ -152,97 +193,164 @@ impl IndexingPipeline {
     }
 
     async fn refresh_skills(&self, build: u32) -> Result<(), IndexingError> {
-        let ids = self.gw2.fetch_all_skill_ids().await?;
-        info!(kind = "skills", total = ids.len(), "indexing");
-        for chunk in ids.chunks(ID_CHUNK_SIZE) {
-            match self.gw2.fetch_skills(chunk).await {
-                Ok(map) => {
-                    let batch: Vec<_> = map.into_values().collect();
-                    if let Err(e) = self.idx.upsert_skills(&batch, build).await {
-                        warn!(error = ?e, "skills upsert failed for batch; continuing");
-                    }
-                }
-                Err(e) => warn!(error = ?e, "skills fetch failed for batch; continuing"),
-            }
-            tokio::time::sleep(INTER_BATCH_SLEEP).await;
-        }
+        let gw2 = Arc::clone(&self.gw2);
+        let idx = Arc::clone(&self.idx);
+        let ids = gw2.fetch_all_skill_ids().await?;
+        run_chunk_loop("skills", ids, |chunk| {
+            let gw2 = Arc::clone(&gw2);
+            let idx = Arc::clone(&idx);
+            let chunk = chunk.to_vec();
+            Box::pin(async move {
+                let map = gw2.fetch_skills(&chunk).await?;
+                let batch: Vec<_> = map.into_values().collect();
+                idx.upsert_skills(&batch, build).await?;
+                Ok(())
+            })
+        })
+        .await;
         Ok(())
     }
 
     async fn refresh_traits(&self, build: u32) -> Result<(), IndexingError> {
-        let ids = self.gw2.fetch_all_trait_ids().await?;
-        info!(kind = "traits", total = ids.len(), "indexing");
-        for chunk in ids.chunks(ID_CHUNK_SIZE) {
-            match self.gw2.fetch_traits(chunk).await {
-                Ok(map) => {
-                    let batch: Vec<_> = map.into_values().collect();
-                    if let Err(e) = self.idx.upsert_traits(&batch, build).await {
-                        warn!(error = ?e, "traits upsert failed for batch; continuing");
-                    }
-                }
-                Err(e) => warn!(error = ?e, "traits fetch failed for batch; continuing"),
-            }
-            tokio::time::sleep(INTER_BATCH_SLEEP).await;
-        }
+        let gw2 = Arc::clone(&self.gw2);
+        let idx = Arc::clone(&self.idx);
+        let ids = gw2.fetch_all_trait_ids().await?;
+        run_chunk_loop("traits", ids, |chunk| {
+            let gw2 = Arc::clone(&gw2);
+            let idx = Arc::clone(&idx);
+            let chunk = chunk.to_vec();
+            Box::pin(async move {
+                let map = gw2.fetch_traits(&chunk).await?;
+                let batch: Vec<_> = map.into_values().collect();
+                idx.upsert_traits(&batch, build).await?;
+                Ok(())
+            })
+        })
+        .await;
         Ok(())
     }
 
     async fn refresh_specializations(&self, build: u32) -> Result<(), IndexingError> {
-        let ids = self.gw2.fetch_all_specialization_ids().await?;
-        info!(kind = "specializations", total = ids.len(), "indexing");
-        for chunk in ids.chunks(ID_CHUNK_SIZE) {
-            match self.gw2.fetch_specializations(chunk).await {
-                Ok(map) => {
-                    let batch: Vec<_> = map.into_values().collect();
-                    if let Err(e) = self.idx.upsert_specializations(&batch, build).await {
-                        warn!(error = ?e, "specs upsert failed for batch; continuing");
-                    }
-                }
-                Err(e) => warn!(error = ?e, "specs fetch failed for batch; continuing"),
-            }
-            tokio::time::sleep(INTER_BATCH_SLEEP).await;
-        }
+        let gw2 = Arc::clone(&self.gw2);
+        let idx = Arc::clone(&self.idx);
+        let ids = gw2.fetch_all_specialization_ids().await?;
+        run_chunk_loop("specializations", ids, |chunk| {
+            let gw2 = Arc::clone(&gw2);
+            let idx = Arc::clone(&idx);
+            let chunk = chunk.to_vec();
+            Box::pin(async move {
+                let map = gw2.fetch_specializations(&chunk).await?;
+                let batch: Vec<_> = map.into_values().collect();
+                idx.upsert_specializations(&batch, build).await?;
+                Ok(())
+            })
+        })
+        .await;
         Ok(())
     }
 
     async fn refresh_items(&self, build: u32) -> Result<(), IndexingError> {
-        let ids = self.gw2.fetch_all_item_ids().await?;
-        info!(
-            kind = "items",
-            total = ids.len(),
-            "indexing (this is the slow one)"
-        );
-        for chunk in ids.chunks(ID_CHUNK_SIZE) {
-            match self.gw2.fetch_items(chunk).await {
-                Ok(map) => {
-                    let batch: Vec<_> = map.into_values().collect();
-                    if let Err(e) = self.idx.upsert_items(&batch, build).await {
-                        warn!(error = ?e, "items upsert failed for batch; continuing");
-                    }
-                }
-                Err(e) => warn!(error = ?e, "items fetch failed for batch; continuing"),
-            }
-            tokio::time::sleep(INTER_BATCH_SLEEP).await;
-        }
+        let gw2 = Arc::clone(&self.gw2);
+        let idx = Arc::clone(&self.idx);
+        let ids = gw2.fetch_all_item_ids().await?;
+        run_chunk_loop("items", ids, |chunk| {
+            let gw2 = Arc::clone(&gw2);
+            let idx = Arc::clone(&idx);
+            let chunk = chunk.to_vec();
+            Box::pin(async move {
+                let map = gw2.fetch_items(&chunk).await?;
+                let batch: Vec<_> = map.into_values().collect();
+                idx.upsert_items(&batch, build).await?;
+                Ok(())
+            })
+        })
+        .await;
         Ok(())
     }
 
     async fn refresh_achievements(&self, build: u32) -> Result<(), IndexingError> {
-        let ids = self.gw2.fetch_all_achievement_ids().await?;
-        info!(kind = "achievements", total = ids.len(), "indexing");
-        for chunk in ids.chunks(ID_CHUNK_SIZE) {
-            match self.gw2.fetch_achievements(chunk).await {
-                Ok(map) => {
-                    let batch: Vec<_> = map.into_values().collect();
-                    if let Err(e) = self.idx.upsert_achievements(&batch, build).await {
-                        warn!(error = ?e, "achievements upsert failed for batch; continuing");
-                    }
-                }
-                Err(e) => warn!(error = ?e, "achievements fetch failed for batch; continuing"),
-            }
-            tokio::time::sleep(INTER_BATCH_SLEEP).await;
-        }
+        let gw2 = Arc::clone(&self.gw2);
+        let idx = Arc::clone(&self.idx);
+        let ids = gw2.fetch_all_achievement_ids().await?;
+        run_chunk_loop("achievements", ids, |chunk| {
+            let gw2 = Arc::clone(&gw2);
+            let idx = Arc::clone(&idx);
+            let chunk = chunk.to_vec();
+            Box::pin(async move {
+                let map = gw2.fetch_achievements(&chunk).await?;
+                let batch: Vec<_> = map.into_values().collect();
+                idx.upsert_achievements(&batch, build).await?;
+                Ok(())
+            })
+        })
+        .await;
         Ok(())
+    }
+}
+
+/// One row in the chunk loop: per-batch timeout, circuit breaker, and
+/// inter-batch sleep all live here. The caller supplies a closure that
+/// does fetch + upsert for one chunk. Pure helper — no `Self`, so each
+/// kind's closure can hold borrows of `&self.gw2` / `&self.idx`
+/// without colliding with this loop's lifetime.
+async fn run_chunk_loop<Id, F>(kind: &'static str, ids: Vec<Id>, mut process_batch: F)
+where
+    F: for<'a> FnMut(&'a [Id]) -> BatchFuture<'a> + Send,
+    Id: Send + Sync,
+{
+    let total = ids.len();
+    let total_batches = ids.chunks(ID_CHUNK_SIZE).count();
+    info!(kind, total, batches = total_batches, "indexing");
+    let mut consecutive_failures: u32 = 0;
+    for (idx, chunk) in ids.chunks(ID_CHUNK_SIZE).enumerate() {
+        let batch_num = idx + 1;
+        let outcome = tokio::time::timeout(PER_BATCH_TIMEOUT, process_batch(chunk))
+            .await
+            .unwrap_or(Err(IndexingError::Timeout {
+                kind,
+                batch: batch_num,
+                after: PER_BATCH_TIMEOUT,
+            }));
+        match outcome {
+            Ok(()) => {
+                if consecutive_failures > 0 {
+                    info!(kind, batch_num, "batch recovered after prior failures");
+                }
+                consecutive_failures = 0;
+            }
+            Err(e) => {
+                consecutive_failures += 1;
+                warn!(
+                    kind,
+                    batch_num,
+                    total_batches,
+                    consecutive_failures,
+                    error = %e,
+                    "batch failed; continuing"
+                );
+                if consecutive_failures >= MAX_CONSECUTIVE_BATCH_FAILURES {
+                    warn!(
+                        kind,
+                        batch_num,
+                        total_batches,
+                        threshold = MAX_CONSECUTIVE_BATCH_FAILURES,
+                        "circuit breaker tripped; aborting kind (upstream appears unhealthy — will retry next startup)"
+                    );
+                    return;
+                }
+            }
+        }
+        tokio::time::sleep(INTER_BATCH_SLEEP).await;
+    }
+    info!(kind, batches = total_batches, "indexing complete");
+}
+
+/// Log helper for `run_full_refresh`: each kind either succeeds or
+/// hit a hard error (id enumeration failed, etc.) — soft per-batch
+/// failures are already logged inside `run_chunk_loop`.
+fn log_kind_outcome(kind: &'static str, result: Result<(), IndexingError>) {
+    if let Err(e) = result {
+        warn!(kind, error = ?e, "kind refresh failed; partial index");
     }
 }
 
@@ -626,5 +734,97 @@ mod tests {
         );
         pipeline.ensure_fresh().await.unwrap();
         assert!(*api.items_fetch_calls.lock().unwrap() >= 1);
+    }
+
+    /// Build a `Vec<u32>` long enough to span N batches at `ID_CHUNK_SIZE`.
+    fn ids_spanning_batches(n: usize) -> Vec<u32> {
+        let total = u32::try_from(n * ID_CHUNK_SIZE).expect("test fixture size fits u32");
+        (0..total).collect()
+    }
+
+    #[tokio::test]
+    async fn circuit_breaker_aborts_kind_after_consecutive_failures() {
+        // 10 batches' worth of ids, but the closure fails every time.
+        // Loop must abort after MAX_CONSECUTIVE_BATCH_FAILURES (3) batches
+        // — proves the indexer doesn't thrash a dead endpoint.
+        let ids = ids_spanning_batches(10);
+        let calls = Arc::new(Mutex::new(0_usize));
+        let calls_c = Arc::clone(&calls);
+        run_chunk_loop("test", ids, move |_chunk| {
+            let calls_c = Arc::clone(&calls_c);
+            Box::pin(async move {
+                *calls_c.lock().unwrap() += 1;
+                Err(IndexingError::Gw2(Gw2ApiError::Upstream {
+                    status: 500,
+                    message: "synthetic failure".into(),
+                }))
+            })
+        })
+        .await;
+        assert_eq!(
+            *calls.lock().unwrap(),
+            MAX_CONSECUTIVE_BATCH_FAILURES as usize,
+            "loop must stop the moment the breaker trips, not the next batch"
+        );
+    }
+
+    #[tokio::test]
+    async fn circuit_breaker_resets_on_successful_batch() {
+        // Pattern: fail, fail, ok, fail, fail, ok (×). The success in
+        // the middle must reset the consecutive-failure counter so the
+        // loop never trips the breaker. Verifies the indexer rides out
+        // transient hiccups instead of giving up after a brief blip.
+        let ids = ids_spanning_batches(6);
+        let calls = Arc::new(Mutex::new(0_usize));
+        let calls_c = Arc::clone(&calls);
+        run_chunk_loop("test", ids, move |_chunk| {
+            let calls_c = Arc::clone(&calls_c);
+            Box::pin(async move {
+                let mut n = calls_c.lock().unwrap();
+                *n += 1;
+                // Succeed on batches 3 and 6, fail on the others.
+                let succeed = matches!(*n, 3 | 6);
+                drop(n);
+                if succeed {
+                    Ok(())
+                } else {
+                    Err(IndexingError::Gw2(Gw2ApiError::Upstream {
+                        status: 500,
+                        message: "transient".into(),
+                    }))
+                }
+            })
+        })
+        .await;
+        assert_eq!(
+            *calls.lock().unwrap(),
+            6,
+            "all 6 batches must run — periodic recoveries keep the counter from tripping"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn batch_timeout_is_treated_as_failure_and_counts_toward_breaker() {
+        // Closure sleeps past PER_BATCH_TIMEOUT every call. Each batch
+        // counts as a failure; after MAX_CONSECUTIVE_BATCH_FAILURES the
+        // breaker trips. `start_paused` makes the tokio timer auto-advance
+        // through sleeps so this finishes in milliseconds.
+        let ids = ids_spanning_batches(10);
+        let calls = Arc::new(Mutex::new(0_usize));
+        let calls_c = Arc::clone(&calls);
+        run_chunk_loop("test", ids, move |_chunk| {
+            let calls_c = Arc::clone(&calls_c);
+            Box::pin(async move {
+                *calls_c.lock().unwrap() += 1;
+                tokio::time::sleep(PER_BATCH_TIMEOUT + Duration::from_secs(1)).await;
+                Ok(())
+            })
+        })
+        .await;
+        assert_eq!(
+            *calls.lock().unwrap(),
+            MAX_CONSECUTIVE_BATCH_FAILURES as usize,
+            "hung batches must trip the breaker just like explicit errors"
+        );
     }
 }

@@ -632,6 +632,13 @@ pub struct MapPoi {
     /// open-world map) to shave tokens on `find_nearby` responses.
     #[serde(default, skip_serializing_if = "is_default_floor")]
     pub floor: i32,
+    /// GW2 chat link the player can paste into in-game chat to be
+    /// offered teleport (waypoints) or have the map jump to that
+    /// landmark/vista. `None` only for upstream rows that omit it —
+    /// the API returns it for every POI today, so this should almost
+    /// always be `Some(...)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_link: Option<String>,
 }
 
 // serde's `skip_serializing_if` signature requires `&T`.

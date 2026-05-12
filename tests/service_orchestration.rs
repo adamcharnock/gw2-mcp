@@ -514,6 +514,7 @@ async fn bank_with_market_prices_enriches_rows_and_sorts_by_best_realized() {
             true,
             &gw2_mcp::service::StorageFilter {
                 with_market_prices: true,
+                market_fields: gw2_mcp::service::MarketFieldsSelector::all(),
                 ..Default::default()
             },
         )
@@ -529,20 +530,30 @@ async fn bank_with_market_prices_enriches_rows_and_sorts_by_best_realized() {
     assert_eq!(coin_mv.tp_sell_unit, Some(20900));
     // 10 * 20900 = 209_000; * 0.85 = 177_650
     assert_eq!(coin_mv.tp_sell_total_after_fee, Some(177_650));
+    assert_eq!(coin_mv.tp_buy_unit, Some(19500));
+    // 10 * 19500 = 195_000; * 0.90 = 175_500
+    assert_eq!(coin_mv.tp_buy_total_after_fee, Some(175_500));
+    assert!(
+        !coin_mv.tp_sell_outlier,
+        "healthy 1.07x sell/buy spread must not be flagged outlier"
+    );
     assert_eq!(coin_mv.vendor_unit, Some(8));
     assert_eq!(coin_mv.vendor_total, Some(80));
-    assert_eq!(coin_mv.best_realized, 177_650);
-    assert_eq!(coin_mv.best_realized_source, "tp");
+    assert_eq!(coin_mv.best_realized, Some(177_650));
+    assert_eq!(coin_mv.best_realized_source.as_deref(), Some("tp"));
 
     // Bound trophy: no TP price, vendor wins.
     let trophy = snap.items.iter().find(|e| e.id == 50000).unwrap();
     let trophy_mv = trophy.market_value.as_ref().unwrap();
     assert_eq!(trophy_mv.tp_sell_unit, None);
     assert_eq!(trophy_mv.tp_sell_total_after_fee, None);
+    assert_eq!(trophy_mv.tp_buy_unit, None);
+    assert_eq!(trophy_mv.tp_buy_total_after_fee, None);
+    assert!(!trophy_mv.tp_sell_outlier);
     assert_eq!(trophy_mv.vendor_unit, Some(5000));
     assert_eq!(trophy_mv.vendor_total, Some(20_000));
-    assert_eq!(trophy_mv.best_realized, 20_000);
-    assert_eq!(trophy_mv.best_realized_source, "vendor");
+    assert_eq!(trophy_mv.best_realized, Some(20_000));
+    assert_eq!(trophy_mv.best_realized_source.as_deref(), Some("vendor"));
 
     // Sort order: Mystic Coin (177_650) > Glob of Ectoplasm
     // (58 * 33000 * 0.85 = 1_627_290) > Bound Trophy (20_000).
@@ -552,6 +563,306 @@ async fn bank_with_market_prices_enriches_rows_and_sorts_by_best_realized() {
         order,
         vec![19721, 19976, 50000],
         "rows must sort by best_realized desc"
+    );
+}
+
+#[tokio::test]
+async fn bank_with_market_prices_flags_outlier_listings() {
+    // Reproduces the Leather Bag scam case: a single sell listing at a
+    // theatrical price (>10x the genuine buy-order price). best_realized
+    // must fall back to the buy-side total, and tp_sell_outlier must be
+    // raised so the LLM can warn the user.
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![gw2_mcp::domain::InventorySlot {
+        id: 8932,
+        count: 1,
+        binding: None,
+        bound_to: None,
+        charges: None,
+    }]);
+    gw2.add_item(common::item_with_vendor(8932, "Leather Bag", 16));
+    // Buy 5c, sell 14_733_773c — a ~2.9M× ratio. Classic scam listing.
+    gw2.set_market_price(8932, 5, 14_733_773);
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                with_market_prices: true,
+                market_fields: gw2_mcp::service::MarketFieldsSelector::all(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let bag = snap.items.iter().find(|e| e.id == 8932).unwrap();
+    let mv = bag.market_value.as_ref().unwrap();
+    assert_eq!(mv.tp_sell_unit, Some(14_733_773));
+    assert_eq!(mv.tp_buy_unit, Some(5));
+    // Buy side: 1 * 5 * 0.9 = 4 copper (integer truncation).
+    assert_eq!(mv.tp_buy_total_after_fee, Some(4));
+    // Sell side is still computed so the LLM can see the listed price,
+    // but it's quarantined by the outlier flag.
+    assert_eq!(
+        mv.tp_sell_total_after_fee,
+        Some(14_733_773 * 85 / 100),
+        "tp_sell_total still computed; outlier flag is what guards it"
+    );
+    assert!(
+        mv.tp_sell_outlier,
+        "2.9M× sell/buy ratio must be flagged outlier"
+    );
+    // best_realized: max(tp_buy_total_after_fee=4, vendor_total=16) = 16.
+    // Vendor wins here, which is the right answer — vendoring is the
+    // actual realisation path for a Leather Bag.
+    assert_eq!(mv.best_realized, Some(16));
+    assert_eq!(mv.best_realized_source.as_deref(), Some("vendor"));
+}
+
+#[tokio::test]
+async fn bank_with_market_prices_uses_buy_side_when_no_sell_listings() {
+    // Item with only a buy order and no sell listings — best_realized
+    // should fall through to tp_buy (after-fee) rather than emit 0.
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![gw2_mcp::domain::InventorySlot {
+        id: 12345,
+        count: 5,
+        binding: None,
+        bound_to: None,
+        charges: None,
+    }]);
+    gw2.add_item(common::item_with_vendor(12345, "Rare Curio", 0));
+    // No sells, only buys.
+    gw2.set_market_price(12345, 1000, 0);
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                with_market_prices: true,
+                market_fields: gw2_mcp::service::MarketFieldsSelector::all(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let curio = snap.items.iter().find(|e| e.id == 12345).unwrap();
+    let mv = curio.market_value.as_ref().unwrap();
+    assert_eq!(mv.tp_sell_unit, None);
+    assert_eq!(mv.tp_sell_total_after_fee, None);
+    assert_eq!(mv.tp_buy_unit, Some(1000));
+    // 5 * 1000 * 0.9 = 4500
+    assert_eq!(mv.tp_buy_total_after_fee, Some(4500));
+    assert!(
+        !mv.tp_sell_outlier,
+        "no sell side means no outlier comparison"
+    );
+    assert_eq!(mv.best_realized, Some(4500));
+    assert_eq!(
+        mv.best_realized_source.as_deref(),
+        Some("tp_buy"),
+        "source must distinguish buy-side fallback from healthy tp"
+    );
+}
+
+#[tokio::test]
+async fn bank_default_market_fields_omits_price_data_but_still_sorts() {
+    // Default market_fields = "none" — caller asked for prices to
+    // drive sort/filter, but the LLM doesn't want the noisy raw
+    // numbers in the response. market_value must be None per row;
+    // sort order must still reflect best_realized desc.
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![
+        gw2_mcp::domain::InventorySlot {
+            id: 1,
+            count: 100,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 2,
+            count: 1,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+    ]);
+    gw2.add_item(common::item_with_vendor(1, "Cheap", 0));
+    gw2.add_item(common::item_with_vendor(2, "Expensive", 50_000));
+    gw2.set_market_price(1, 1, 2);
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                with_market_prices: true,
+                // market_fields defaulted = nothing surfaced
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        snap.items.iter().all(|e| e.market_value.is_none()),
+        "default market_fields must omit all price fields"
+    );
+    let order: Vec<u32> = snap.items.iter().map(|e| e.id).collect();
+    assert_eq!(
+        order,
+        vec![2, 1],
+        "rows still sorted by best_realized desc even with prices hidden"
+    );
+}
+
+#[tokio::test]
+async fn bank_market_top_n_caps_response_rows() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    let mut slots = Vec::new();
+    for id in 1_u32..=10 {
+        slots.push(gw2_mcp::domain::InventorySlot {
+            id,
+            count: id,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        });
+        gw2.add_item(common::item_with_vendor(id, &format!("Item {id}"), 100));
+    }
+    gw2.set_bank(slots);
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                with_market_prices: true,
+                market_top_n: Some(3),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(snap.items.len(), 3, "market_top_n must cap row count");
+    // Highest count (= highest vendor_total = highest best_realized) is 10.
+    let order: Vec<u32> = snap.items.iter().map(|e| e.id).collect();
+    assert_eq!(order, vec![10, 9, 8]);
+}
+
+#[tokio::test]
+async fn bank_market_min_value_filters_below_threshold() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![
+        gw2_mcp::domain::InventorySlot {
+            id: 1,
+            count: 1,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 2,
+            count: 1,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+    ]);
+    gw2.add_item(common::item_with_vendor(1, "Trash", 10));
+    gw2.add_item(common::item_with_vendor(2, "Treasure", 10_000));
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                with_market_prices: true,
+                market_min_value: Some(1_000),
+                market_fields: gw2_mcp::service::MarketFieldsSelector::all(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(snap.items.len(), 1, "Trash row must be filtered out");
+    assert_eq!(snap.items[0].id, 2);
+}
+
+#[tokio::test]
+async fn bank_market_fields_best_only_strips_raw_subprices() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![gw2_mcp::domain::InventorySlot {
+        id: 1,
+        count: 1,
+        binding: None,
+        bound_to: None,
+        charges: None,
+    }]);
+    gw2.add_item(common::item_with_vendor(1, "Thing", 100));
+    gw2.set_market_price(1, 50, 200);
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                with_market_prices: true,
+                market_fields: gw2_mcp::service::MarketFieldsSelector {
+                    best: true,
+                    tp: false,
+                    vendor: false,
+                },
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let mv = snap.items[0].market_value.as_ref().unwrap();
+    assert!(mv.best_realized.is_some(), "best subset selected");
+    assert!(
+        mv.tp_sell_unit.is_none() && mv.tp_buy_unit.is_none(),
+        "tp subfields must be stripped when tp not selected"
+    );
+    assert!(
+        mv.vendor_unit.is_none(),
+        "vendor subfields must be stripped when vendor not selected"
+    );
+    assert!(
+        !mv.tp_sell_outlier,
+        "outlier flag suppressed when tp subset not requested"
     );
 }
 

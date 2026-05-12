@@ -421,7 +421,63 @@ pub(super) fn parse_storage_filter(
             .get("with_market_prices")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false),
+        market_top_n: parse_optional_u32(args, "market_top_n"),
+        market_min_value: args
+            .get("market_min_value")
+            .and_then(serde_json::Value::as_u64),
+        market_fields: parse_market_fields(args)?,
     })
+}
+
+/// Parse the optional `market_fields` arg into a
+/// [`MarketFieldsSelector`]. Accepts an array of strings drawn from
+/// `{"none", "best", "tp", "vendor"}`. "none" must be the only entry
+/// if present. Default (absent / null / empty) is "no fields".
+pub(super) fn parse_market_fields(
+    args: &serde_json::Value,
+) -> Result<crate::service::MarketFieldsSelector, CallError> {
+    use crate::service::MarketFieldsSelector;
+    let Some(v) = args.get("market_fields") else {
+        return Ok(MarketFieldsSelector::default());
+    };
+    if v.is_null() {
+        return Ok(MarketFieldsSelector::default());
+    }
+    let Some(arr) = v.as_array() else {
+        return Err(CallError::BadArg {
+            name: "market_fields",
+            expected: "array of \"none\" | \"best\" | \"tp\" | \"vendor\"",
+        });
+    };
+    let mut out = MarketFieldsSelector::default();
+    let mut saw_none = false;
+    for entry in arr {
+        let Some(s) = entry.as_str() else {
+            return Err(CallError::BadArg {
+                name: "market_fields",
+                expected: "array of \"none\" | \"best\" | \"tp\" | \"vendor\"",
+            });
+        };
+        match s.to_ascii_lowercase().as_str() {
+            "none" => saw_none = true,
+            "best" => out.best = true,
+            "tp" => out.tp = true,
+            "vendor" => out.vendor = true,
+            _ => {
+                return Err(CallError::BadArg {
+                    name: "market_fields",
+                    expected: "array of \"none\" | \"best\" | \"tp\" | \"vendor\"",
+                });
+            }
+        }
+    }
+    if saw_none && (out.best || out.tp || out.vendor) {
+        return Err(CallError::BadArg {
+            name: "market_fields",
+            expected: "\"none\" cannot be combined with other values",
+        });
+    }
+    Ok(out)
 }
 
 /// Parse an optional `u32` array. Returns `None` when the arg is

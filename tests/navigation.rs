@@ -448,6 +448,109 @@ async fn mcp_dispatch_find_nearby_rejects_unknown_filter() {
     assert!(err.contains("filter"), "error must mention filter: {err}");
 }
 
+// ---------------------------------------------------------------------------
+// plan_route — gate_chat_link enrichment
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn plan_route_attaches_gate_chat_link_when_gate_location_resolves_to_a_waypoint() {
+    // The curated YAML carries exactly one gate_location entry today:
+    // "Lake Adorea (Plains of Ashford)" on the Plains of Ashford ↔
+    // Skywatch Archipelago story-gate edge. Seed a POI on map 19
+    // (Plains of Ashford) named "Lake Adorea" with a chat link, plan
+    // the route, and assert the hop into Skywatch carries the chat
+    // link the player can paste.
+    use gw2_mcp::service::{MapRef, RouteFilters};
+
+    let snap = make_mumble_snapshot(15, 0.0, 0.0, [0.0, 1.0, 0.0], "Hero", 1);
+    let mumble = FakeMumbleLink::with_snapshot(snap);
+    let maps = Arc::new(FakeMapData::new());
+    maps.add_pois(
+        19, // Plains of Ashford
+        vec![common::make_poi_with_chat_link(
+            42,
+            "Lake Adorea",
+            "waypoint",
+            (1.0, 2.0),
+            "[&BL4DAAA=]",
+        )],
+    );
+    let svc = build(mumble, maps);
+
+    let plan = svc
+        .plan_route(
+            MapRef::Id(19),
+            MapRef::Id(1510),
+            3,
+            RouteFilters::default(),
+            None,
+        )
+        .await
+        .expect("route resolves");
+    assert!(!plan.paths.is_empty(), "Plains of Ashford → Skywatch path");
+    let first = &plan.paths[0];
+    let gate_hop = first
+        .hops
+        .iter()
+        .find(|h| h.map_id == 1510)
+        .expect("the hop into Skywatch must exist");
+    let edge = gate_hop.arrived_via.as_ref().expect("edge into Skywatch");
+    assert_eq!(
+        edge.gate_location.as_deref(),
+        Some("Lake Adorea (Plains of Ashford)"),
+        "preserve the raw gate_location for context"
+    );
+    assert_eq!(
+        edge.gate_chat_link.as_deref(),
+        Some("[&BL4DAAA=]"),
+        "the joined chat link is what the player pastes into in-game chat"
+    );
+}
+
+#[tokio::test]
+async fn plan_route_leaves_gate_chat_link_none_when_no_matching_waypoint() {
+    // Same Plains of Ashford → Skywatch route, but the seeded POI on
+    // Plains of Ashford has a different name. The route still returns
+    // successfully; gate_chat_link stays None — best-effort enrichment.
+    use gw2_mcp::service::{MapRef, RouteFilters};
+
+    let snap = make_mumble_snapshot(15, 0.0, 0.0, [0.0, 1.0, 0.0], "Hero", 1);
+    let mumble = FakeMumbleLink::with_snapshot(snap);
+    let maps = Arc::new(FakeMapData::new());
+    maps.add_pois(
+        19,
+        vec![common::make_poi_with_chat_link(
+            7,
+            "Some Unrelated Waypoint",
+            "waypoint",
+            (1.0, 2.0),
+            "[&BAAAAAA=]",
+        )],
+    );
+    let svc = build(mumble, maps);
+
+    let plan = svc
+        .plan_route(
+            MapRef::Id(19),
+            MapRef::Id(1510),
+            3,
+            RouteFilters::default(),
+            None,
+        )
+        .await
+        .expect("route resolves");
+    let gate_hop = plan.paths[0]
+        .hops
+        .iter()
+        .find(|h| h.map_id == 1510)
+        .expect("the hop into Skywatch must exist");
+    let edge = gate_hop.arrived_via.as_ref().expect("edge into Skywatch");
+    assert_eq!(
+        edge.gate_chat_link, None,
+        "no matching POI name → enrichment stays None, route still returned"
+    );
+}
+
 // Suppress the unused-import for `ChatrDecoder` (kept symmetric with
 // other test binaries that re-export the build_service builder).
 #[allow(dead_code)]

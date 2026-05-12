@@ -903,6 +903,7 @@ impl McpServer {
         let res = self
             .service
             .plan_route(from, to, k, filters, source)
+            .await
             .map_err(CallError::Service)?;
         Ok(serde_json::to_value(&res)?)
     }

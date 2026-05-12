@@ -192,6 +192,7 @@ fn parse_poi_object(v: &serde_json::Value, floor: i32) -> Option<MapPoi> {
         kind,
         coord,
         floor,
+        chat_link: parse_chat_link(v),
     })
 }
 
@@ -209,6 +210,7 @@ fn parse_task_object(v: &serde_json::Value, floor: i32) -> Option<MapPoi> {
         kind: "task".to_owned(),
         coord,
         floor,
+        chat_link: parse_chat_link(v),
     })
 }
 
@@ -229,7 +231,18 @@ fn parse_skill_challenge(v: &serde_json::Value, floor: i32) -> Option<MapPoi> {
         kind: "hero_point".to_owned(),
         coord,
         floor,
+        chat_link: parse_chat_link(v),
     })
+}
+
+/// Extract the `chat_link` field if present. Returns `None` for any
+/// missing/non-string value rather than erroring — `chat_link` is
+/// enrichment, not load-bearing.
+fn parse_chat_link(v: &serde_json::Value) -> Option<String> {
+    v.get("chat_link")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 fn parse_coord(v: Option<&serde_json::Value>) -> Option<(f64, f64)> {
@@ -287,6 +300,16 @@ mod tests {
         assert!(pois.iter().any(|p| p.kind == "vista" && p.id == 555));
         assert!(pois.iter().any(|p| p.kind == "task" && p.id == 1));
         assert!(pois.iter().any(|p| p.kind == "hero_point" && p.id == 77));
+
+        // chat_link survives the flatten step — the user pastes these
+        // into in-game chat to be offered teleport.
+        let waypoint = pois.iter().find(|p| p.id == 118).unwrap();
+        assert_eq!(waypoint.chat_link.as_deref(), Some("[&BHcAAAA=]"));
+        let task = pois.iter().find(|p| p.id == 1).unwrap();
+        assert_eq!(task.chat_link.as_deref(), Some("[&BAEAAAA=]"));
+        // Vistas without a chat_link in the upstream payload stay None.
+        let vista = pois.iter().find(|p| p.id == 555).unwrap();
+        assert_eq!(vista.chat_link, None);
     }
 
     #[test]

@@ -746,18 +746,46 @@ impl Service {
                 .filter_map(|e| ItemId::new(i64::from(e.id)).ok())
                 .collect();
             let vendor = self.vendor_values_for(&visible_ids).await;
-            let tp_sell = self.tp_sell_unit_for(&visible_ids).await;
+            let tp = self.tp_prices_for(&visible_ids).await;
             let id_u32: Vec<u32> = items.iter().map(|e| e.id).collect();
             let counts: BTreeMap<u32, u32> = items.iter().map(|e| (e.id, e.count)).collect();
-            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp_sell);
+            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp);
             for e in &mut items {
                 e.market_value = valuations.get(&e.id).cloned();
             }
+            // min_value filter before sort/trim — strips low-value rows
+            // so they don't eat into the top_n budget.
+            if let Some(min) = filter.market_min_value {
+                items.retain(|e| {
+                    e.market_value
+                        .as_ref()
+                        .and_then(|m| m.best_realized)
+                        .is_some_and(|v| v >= min)
+                });
+            }
             items.sort_by(|a, b| {
-                let av = a.market_value.as_ref().map_or(0, |m| m.best_realized);
-                let bv = b.market_value.as_ref().map_or(0, |m| m.best_realized);
+                let av = a
+                    .market_value
+                    .as_ref()
+                    .and_then(|m| m.best_realized)
+                    .unwrap_or(0);
+                let bv = b
+                    .market_value
+                    .as_ref()
+                    .and_then(|m| m.best_realized)
+                    .unwrap_or(0);
                 bv.cmp(&av).then(a.id.cmp(&b.id))
             });
+            items.truncate(resolve_market_top_n(filter.market_top_n));
+            // Project per market_fields selector. When nothing is
+            // selected, drop the whole market_value block per row.
+            for e in &mut items {
+                if let Some(mv) = e.market_value.as_mut()
+                    && !project_market_value(mv, filter.market_fields)
+                {
+                    e.market_value = None;
+                }
+            }
         }
 
         // unique_item_count reflects what the caller actually got:
@@ -973,7 +1001,7 @@ impl Service {
                 .filter_map(|e| ItemId::new(i64::from(e.id)).ok())
                 .collect();
             let vendor = self.vendor_values_for(&visible_ids).await;
-            let tp_sell = self.tp_sell_unit_for(&visible_ids).await;
+            let tp = self.tp_prices_for(&visible_ids).await;
             let id_u32: Vec<u32> = categories
                 .iter()
                 .flat_map(|c| c.items.iter().map(|e| e.id))
@@ -982,18 +1010,73 @@ impl Service {
                 .iter()
                 .flat_map(|c| c.items.iter().map(|e| (e.id, e.count)))
                 .collect();
-            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp_sell);
-            // Per-row enrichment + per-category sort by best_realized.
+            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp);
             for cat in &mut categories {
                 for e in &mut cat.items {
                     e.market_value = valuations.get(&e.id).cloned();
                 }
-                cat.items.sort_by(|a, b| {
-                    let av = a.market_value.as_ref().map_or(0, |m| m.best_realized);
-                    let bv = b.market_value.as_ref().map_or(0, |m| m.best_realized);
-                    bv.cmp(&av).then(a.id.cmp(&b.id))
+            }
+
+            // Flatten so top_n applies across all categories (most
+            // valuable N items regardless of category). Re-group after
+            // trimming so the response shape is preserved.
+            let mut flat: Vec<(u32, MaterialItemEntry)> = Vec::new();
+            for c in &mut categories {
+                let cat = c.category;
+                for e in c.items.drain(..) {
+                    flat.push((cat, e));
+                }
+            }
+            if let Some(min) = filter.market_min_value {
+                flat.retain(|(_, e)| {
+                    e.market_value
+                        .as_ref()
+                        .and_then(|m| m.best_realized)
+                        .is_some_and(|v| v >= min)
                 });
             }
+            flat.sort_by(|a, b| {
+                let av =
+                    a.1.market_value
+                        .as_ref()
+                        .and_then(|m| m.best_realized)
+                        .unwrap_or(0);
+                let bv =
+                    b.1.market_value
+                        .as_ref()
+                        .and_then(|m| m.best_realized)
+                        .unwrap_or(0);
+                bv.cmp(&av).then(a.1.id.cmp(&b.1.id))
+            });
+            flat.truncate(resolve_market_top_n(filter.market_top_n));
+
+            // Project market_fields per surviving entry.
+            for (_, e) in &mut flat {
+                if let Some(mv) = e.market_value.as_mut()
+                    && !project_market_value(mv, filter.market_fields)
+                {
+                    e.market_value = None;
+                }
+            }
+
+            // Re-group by category, preserving the existing category
+            // metadata only for categories that have surviving items.
+            let mut surviving: BTreeMap<u32, Vec<MaterialItemEntry>> = BTreeMap::new();
+            for (cat, e) in flat {
+                surviving.entry(cat).or_default().push(e);
+            }
+            let cat_names: BTreeMap<u32, Option<String>> = categories
+                .iter()
+                .map(|c| (c.category, c.name.clone()))
+                .collect();
+            categories = surviving
+                .into_iter()
+                .map(|(cat, items)| MaterialCategoryGroup {
+                    category: cat,
+                    name: cat_names.get(&cat).cloned().flatten(),
+                    items,
+                })
+                .collect();
             // Categories themselves sort by their highest-value item
             // so the most-actionable categories surface first.
             categories.sort_by(|a, b| {
@@ -1001,12 +1084,14 @@ impl Service {
                     .items
                     .first()
                     .and_then(|e| e.market_value.as_ref())
-                    .map_or(0, |m| m.best_realized);
+                    .and_then(|m| m.best_realized)
+                    .unwrap_or(0);
                 let bv = b
                     .items
                     .first()
                     .and_then(|e| e.market_value.as_ref())
-                    .map_or(0, |m| m.best_realized);
+                    .and_then(|m| m.best_realized)
+                    .unwrap_or(0);
                 bv.cmp(&av).then(a.category.cmp(&b.category))
             });
         }
@@ -1156,18 +1241,42 @@ impl Service {
                 .filter_map(|e| ItemId::new(i64::from(e.id)).ok())
                 .collect();
             let vendor = self.vendor_values_for(&visible_ids).await;
-            let tp_sell = self.tp_sell_unit_for(&visible_ids).await;
+            let tp = self.tp_prices_for(&visible_ids).await;
             let id_u32: Vec<u32> = items.iter().map(|e| e.id).collect();
             let counts: BTreeMap<u32, u32> = items.iter().map(|e| (e.id, e.count)).collect();
-            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp_sell);
+            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp);
             for e in &mut items {
                 e.market_value = valuations.get(&e.id).cloned();
             }
+            if let Some(min) = filter.market_min_value {
+                items.retain(|e| {
+                    e.market_value
+                        .as_ref()
+                        .and_then(|m| m.best_realized)
+                        .is_some_and(|v| v >= min)
+                });
+            }
             items.sort_by(|a, b| {
-                let av = a.market_value.as_ref().map_or(0, |m| m.best_realized);
-                let bv = b.market_value.as_ref().map_or(0, |m| m.best_realized);
+                let av = a
+                    .market_value
+                    .as_ref()
+                    .and_then(|m| m.best_realized)
+                    .unwrap_or(0);
+                let bv = b
+                    .market_value
+                    .as_ref()
+                    .and_then(|m| m.best_realized)
+                    .unwrap_or(0);
                 bv.cmp(&av).then(a.id.cmp(&b.id))
             });
+            items.truncate(resolve_market_top_n(filter.market_top_n));
+            for e in &mut items {
+                if let Some(mv) = e.market_value.as_mut()
+                    && !project_market_value(mv, filter.market_fields)
+                {
+                    e.market_value = None;
+                }
+            }
         }
 
         // Same semantics as bank — count what the caller actually got
@@ -1276,13 +1385,15 @@ impl Service {
     }
 
     /// Batch-resolve `/v2/commerce/prices` for a set of ids. Returns
-    /// `id -> sell_unit_price` in copper. Items not on the TP are
-    /// silently omitted (the adapter returns no row for them).
+    /// `id -> (sell_unit, buy_unit)` in copper, both `Option<u32>` since
+    /// an item may have only one side of the book (e.g. nothing listed
+    /// for sale but buy orders exist). Items not on the TP at all are
+    /// silently omitted.
     ///
     /// Goes through `get_market_prices` so we share the per-id 60s
     /// price cache with the standalone `get_market_prices` tool — a
     /// follow-up storage call within the window pays no extra HTTP.
-    async fn tp_sell_unit_for(&self, ids: &[ItemId]) -> BTreeMap<u32, u32> {
+    async fn tp_prices_for(&self, ids: &[ItemId]) -> BTreeMap<u32, TpPrices> {
         if ids.is_empty() {
             return BTreeMap::new();
         }
@@ -1295,65 +1406,44 @@ impl Service {
         };
         resp.items
             .into_iter()
-            .filter_map(|e| {
-                let p = e.sells.unit_price;
-                if p > 0 {
-                    u32::try_from(p).ok().map(|p| (e.id.get(), p))
-                } else {
-                    None
-                }
+            .map(|e| {
+                let sell_price = u32::try_from(e.sells.unit_price).ok().filter(|p| *p > 0);
+                let buy_price = u32::try_from(e.buys.unit_price).ok().filter(|p| *p > 0);
+                (
+                    e.id.get(),
+                    TpPrices {
+                        sell: sell_price,
+                        buy: buy_price,
+                    },
+                )
             })
             .collect()
     }
 
     /// Combine the per-id maps from `vendor_values_for` and
-    /// `tp_sell_unit_for` into one valuation table the row builders
-    /// can index by item id. Pure — no IO.
+    /// `tp_prices_for` into one valuation table the row builders can
+    /// index by item id. Pure — no IO.
+    ///
+    /// Outlier protection: when the TP sell-listing price is more than
+    /// `TP_OUTLIER_RATIO` (10×) the buy-order price, the sell side is
+    /// almost certainly a theatrical/manipulated listing (think the
+    /// Leather Bag listed at 14.7M copper). In that case `best_realized`
+    /// uses the instant-sell-to-buy-order number (`tp_buy_total_after_fee`)
+    /// rather than the optimistic sell total, and `tp_sell_outlier` is
+    /// raised so the LLM can warn the user.
     fn compose_valuations(
         ids: &[u32],
         counts: &BTreeMap<u32, u32>,
         vendor: &BTreeMap<u32, u32>,
-        tp_sell: &BTreeMap<u32, u32>,
+        tp: &BTreeMap<u32, TpPrices>,
     ) -> BTreeMap<u32, MarketValuation> {
-        // TP fees: 5% listing + 10% sale = 15% off the listed price.
-        // The player nets 85% of the listed price.
-        const TP_KEEP_NUMERATOR: u64 = 85;
-        const TP_KEEP_DENOMINATOR: u64 = 100;
         let mut out = BTreeMap::new();
         for &id in ids {
             let count = u64::from(counts.get(&id).copied().unwrap_or(0));
-            let tp_unit = tp_sell.get(&id).copied();
-            let tp_total =
-                tp_unit.map(|p| u64::from(p) * count * TP_KEEP_NUMERATOR / TP_KEEP_DENOMINATOR);
+            let prices = tp.get(&id).copied().unwrap_or_default();
             let v_unit = vendor.get(&id).copied();
             let v_total = v_unit.map(|p| u64::from(p) * count);
-            // Prefer TP when present and at least matches the vendor
-            // floor; vendor otherwise; (0, "none") only when neither
-            // source has a price at all (rare — `NoSell` items + not
-            // listed on TP).
-            let (best, source) = match (tp_total, v_total) {
-                (Some(t), Some(v)) => {
-                    if t >= v {
-                        (t, "tp")
-                    } else {
-                        (v, "vendor")
-                    }
-                }
-                (Some(t), None) => (t, "tp"),
-                (None, Some(v)) => (v, "vendor"),
-                (None, None) => (0, "none"),
-            };
-            out.insert(
-                id,
-                MarketValuation {
-                    tp_sell_unit: tp_unit,
-                    tp_sell_total_after_fee: tp_total,
-                    vendor_unit: v_unit,
-                    vendor_total: v_total,
-                    best_realized: best,
-                    best_realized_source: source.to_owned(),
-                },
-            );
+            out.insert(id, valuation_for_row(prices, v_unit, v_total, count));
         }
         out
     }
@@ -1389,6 +1479,119 @@ impl Service {
             }
         }
     }
+}
+
+/// Trading-post sell + buy unit prices for a single item id (both in
+/// copper). Either side may be `None` when nothing is on that side of
+/// the book.
+#[derive(Debug, Clone, Copy, Default)]
+struct TpPrices {
+    sell: Option<u32>,
+    buy: Option<u32>,
+}
+
+/// Listing fee (5%) + sale tax (10%) = 15% off the listed price when a
+/// sell-listing matches. Player nets 85%.
+const TP_SELL_KEEP_NUMERATOR: u64 = 85;
+/// Instant-selling to an existing buy order skips the listing fee — only
+/// the 10% sale tax applies. Player nets 90%.
+const TP_BUY_KEEP_NUMERATOR: u64 = 90;
+const TP_KEEP_DENOMINATOR: u64 = 100;
+/// Ratio threshold at which a TP sell-listing is treated as theatrical:
+/// when `sell_unit > TP_OUTLIER_RATIO * buy_unit` we fall back to the
+/// buy-order price for `best_realized`. 10× is conservative — typical
+/// sell:buy spreads sit in the 1.1×–2× range; manipulated listings are
+/// orders of magnitude beyond that.
+const TP_OUTLIER_RATIO: u32 = 10;
+
+/// Per-row valuation, including outlier protection. Pure — no IO.
+fn valuation_for_row(
+    prices: TpPrices,
+    v_unit: Option<u32>,
+    v_total: Option<u64>,
+    count: u64,
+) -> MarketValuation {
+    let tp_sell_total = prices
+        .sell
+        .map(|p| u64::from(p) * count * TP_SELL_KEEP_NUMERATOR / TP_KEEP_DENOMINATOR);
+    let tp_buy_total = prices
+        .buy
+        .map(|p| u64::from(p) * count * TP_BUY_KEEP_NUMERATOR / TP_KEEP_DENOMINATOR);
+
+    let outlier = match (prices.sell, prices.buy) {
+        (Some(s), Some(b)) => b > 0 && s / b >= TP_OUTLIER_RATIO,
+        _ => false,
+    };
+
+    // Pick the "realistic" TP realisation. Use buy-side when outlier
+    // protection kicks in or when no sell listing exists; sell-listing
+    // total otherwise. `tp_source` label is only consulted when this
+    // branch ultimately wins against vendor below.
+    let use_buy =
+        (outlier && tp_buy_total.is_some()) || (tp_sell_total.is_none() && tp_buy_total.is_some());
+    let (realistic_tp_total, tp_source) = if use_buy {
+        (tp_buy_total, "tp_buy")
+    } else {
+        (tp_sell_total, "tp")
+    };
+
+    let (best, source): (u64, &str) = match (realistic_tp_total, v_total) {
+        (Some(t), Some(v)) => {
+            if t >= v {
+                (t, tp_source)
+            } else {
+                (v, "vendor")
+            }
+        }
+        (Some(t), None) => (t, tp_source),
+        (None, Some(v)) => (v, "vendor"),
+        (None, None) => (0, "none"),
+    };
+
+    MarketValuation {
+        tp_sell_unit: prices.sell,
+        tp_sell_total_after_fee: tp_sell_total,
+        tp_buy_unit: prices.buy,
+        tp_buy_total_after_fee: tp_buy_total,
+        tp_sell_outlier: outlier,
+        vendor_unit: v_unit,
+        vendor_total: v_total,
+        best_realized: Some(best),
+        best_realized_source: Some(source.to_owned()),
+    }
+}
+
+/// Null out subfields of a [`MarketValuation`] that the caller didn't
+/// request via `market_fields`. Returns whether anything is left to
+/// serialise (`false` means the entire `market_value` block can be
+/// dropped). Pure.
+fn project_market_value(mv: &mut MarketValuation, fields: MarketFieldsSelector) -> bool {
+    if !fields.best {
+        mv.best_realized = None;
+        mv.best_realized_source = None;
+    }
+    if !fields.tp {
+        mv.tp_sell_unit = None;
+        mv.tp_sell_total_after_fee = None;
+        mv.tp_buy_unit = None;
+        mv.tp_buy_total_after_fee = None;
+        // The outlier flag is a TP warning — only meaningful when TP
+        // fields are surfaced. Suppress it otherwise.
+        mv.tp_sell_outlier = false;
+    }
+    if !fields.vendor {
+        mv.vendor_unit = None;
+        mv.vendor_total = None;
+    }
+    fields.best || fields.tp || fields.vendor
+}
+
+/// Clamp `market_top_n` to the documented `[1, 200]` range, returning
+/// the default of 50 when the caller didn't specify.
+fn resolve_market_top_n(requested: Option<u32>) -> usize {
+    const DEFAULT: u32 = 50;
+    const MAX: u32 = 200;
+    requested.unwrap_or(DEFAULT).clamp(1, MAX) as usize
 }
 
 /// Look up name + description (truncated to one paragraph) for the given
@@ -1648,28 +1851,91 @@ pub struct StorageFilter {
     /// When true, every row gets a [`MarketValuation`] populated from
     /// `/v2/commerce/prices` (TP) + the `vendor_value` already in the
     /// item metadata. Rows are re-sorted by `best_realized` descending
-    /// so the items worth selling rise to the top.
+    /// so the items worth selling rise to the top. The companion
+    /// `market_*` knobs only apply when this is true.
     pub with_market_prices: bool,
+    /// Cap the number of rows returned to the top N by `best_realized`
+    /// (descending). Defaults to 50 when [`Self::with_market_prices`]
+    /// is true and `None` here; ignored entirely when it's false.
+    /// Clamped to `[1, 200]`.
+    pub market_top_n: Option<u32>,
+    /// Drop rows whose `best_realized` (copper) falls below this
+    /// threshold. Ignored when [`Self::with_market_prices`] is false
+    /// (no `best_realized` to compare against).
+    pub market_min_value: Option<u64>,
+    /// Which price subfields to surface in [`MarketValuation`]. Default
+    /// is "no price fields" — the LLM still gets rows sorted/filtered
+    /// by value, just without the noisy raw prices. Ignored when
+    /// [`Self::with_market_prices`] is false.
+    pub market_fields: MarketFieldsSelector,
+}
+
+/// Which subsets of [`MarketValuation`] to emit. Driven by the
+/// `market_fields` arg. Default = empty (none) — no price fields
+/// in output, keeping responses lean. Caller opts into specific
+/// subsets ("best" / "tp" / "vendor") when needed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MarketFieldsSelector {
+    pub best: bool,
+    pub tp: bool,
+    pub vendor: bool,
+}
+
+impl MarketFieldsSelector {
+    #[must_use]
+    pub fn nothing_selected(self) -> bool {
+        !self.best && !self.tp && !self.vendor
+    }
+
+    /// Convenience: all three subsets selected (full data).
+    #[must_use]
+    pub fn all() -> Self {
+        Self {
+            best: true,
+            tp: true,
+            vendor: true,
+        }
+    }
 }
 
 /// Per-row enrichment populated when [`StorageFilter::with_market_prices`]
 /// is true. All copper values; gold = copper / 10000. Field nullability
 /// signals data availability — `tp_sell_unit` is `None` for items not
-/// on the trading post; `vendor_unit` is `None` only when the
-/// `/v2/items` lookup didn't resolve (rare).
+/// listed for sale on the trading post; `vendor_unit` is `None` only
+/// when the `/v2/items` lookup didn't resolve (rare).
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 pub struct MarketValuation {
     /// Trading-post sell unit price (lowest listed sell), in copper.
-    /// `None` when the item isn't listed on the TP at all (soulbound,
-    /// account-bound, vendor-trash without listings).
+    /// `None` when the item has no sell listings (soulbound,
+    /// account-bound, or simply nothing posted for sale).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tp_sell_unit: Option<u32>,
     /// Realised total if listed and sold on TP — `count * tp_sell_unit`
-    /// minus the 15% TP fee (5% listing + 10% sale tax). `None`
-    /// whenever `tp_sell_unit` is `None`. Use this for "what would I
-    /// get?" questions.
+    /// minus the 15% sell-listing fee (5% listing + 10% sale tax).
+    /// `None` whenever `tp_sell_unit` is `None`. Use this for "what
+    /// would I get if I listed?" questions — but verify against
+    /// `tp_sell_outlier` first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tp_sell_total_after_fee: Option<u64>,
+    /// Trading-post buy unit price (highest buy order), in copper.
+    /// `None` when no one has a buy order open. This is the instant-
+    /// sell-to-buy-orders price — what you'd actually realise right
+    /// now without waiting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tp_buy_unit: Option<u32>,
+    /// Realised total if instant-sold to existing buy orders —
+    /// `count * tp_buy_unit` minus the 10% sale tax (no listing fee).
+    /// `None` whenever `tp_buy_unit` is `None`. Use this for "what
+    /// would I get right now, instantly?" questions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tp_buy_total_after_fee: Option<u64>,
+    /// `true` when the TP sell listing is more than 10× the buy-order
+    /// price — a strong signal someone has posted a theatrical /
+    /// manipulated listing (think the Leather Bag at 14.7M copper).
+    /// When true, `best_realized` falls back to the buy-order total
+    /// rather than the sell-listing total so the LLM doesn't quote a
+    /// scam price as the bag's value.
+    pub tp_sell_outlier: bool,
     /// NPC vendor sell unit price, in copper. `None` only on metadata
     /// resolution failure. Items flagged `NoSell` get `Some(0)`
     /// rather than `None` — the API returns `vendor_value: 0` for
@@ -1679,13 +1945,20 @@ pub struct MarketValuation {
     /// Realised total if vendored: `count * vendor_unit`. No fees.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vendor_total: Option<u64>,
-    /// Best realised total in copper — `max(tp_sell_total_after_fee,
-    /// vendor_total)`. The LLM should quote this as the practical
-    /// value of holding the stack. 0 when neither price is available.
-    pub best_realized: u64,
-    /// Which source produced `best_realized`: `"tp"`, `"vendor"`, or
-    /// `"none"` (no price at all — soulbound and `NoSell`-flagged).
-    pub best_realized_source: String,
+    /// Best realised total in copper — the practical "what's this
+    /// stack worth right now?" answer. Picks `max(realistic_tp_total,
+    /// vendor_total)`, where `realistic_tp_total` is the sell-listing
+    /// total when prices look healthy and the buy-order total when an
+    /// outlier is detected. `None` when this subset wasn't selected by
+    /// `market_fields`; `Some(0)` only when no source has data at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best_realized: Option<u64>,
+    /// Which source produced `best_realized`: `"tp"` (sell listing,
+    /// healthy spread), `"tp_buy"` (instant-sell, used because of
+    /// outlier or no sell side), `"vendor"`, or `"none"`. `None` when
+    /// this subset wasn't selected by `market_fields`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best_realized_source: Option<String>,
 }
 
 /// Result of `get_account_bank`. See `Service::get_account_bank` for

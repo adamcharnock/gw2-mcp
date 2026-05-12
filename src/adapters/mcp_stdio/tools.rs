@@ -290,7 +290,26 @@ pub(super) fn build_tools() -> Vec<Tool> {
                 "with_market_prices": {
                     "type": "boolean",
                     "default": false,
-                    "description": "When true, every row gains a `market_value` block with `tp_sell_unit`, `tp_sell_total_after_fee` (TP price minus 15% fees × count), `vendor_unit`, `vendor_total`, `best_realized`, and `best_realized_source` (\"tp\"|\"vendor\"|\"none\"). Rows are re-sorted by `best_realized` desc — the highest-value items rise to the top. Use for 'what should I sell?' / 'what's this bank worth?'. Costs one extra `/v2/commerce/prices` fetch (cached 60s)."
+                    "description": "When true, fetches `/v2/commerce/prices` + `vendor_value` for visible items and uses them to sort rows by `best_realized` desc. Companion `market_*` args control what's surfaced and how aggressively to trim. Without `market_fields` (default 'none'), the LLM gets sorted/filtered rows but no raw price fields — keeps the response small. Costs one extra `/v2/commerce/prices` fetch (cached 60s). All `market_*` knobs are ignored when this is false."
+                },
+                "market_top_n": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "maximum": 200,
+                    "default": 50,
+                    "description": "Cap the number of rows to the top N by `best_realized` desc. Default 50; clamp 1–200. Only effective with `with_market_prices: true`."
+                },
+                "market_min_value": {
+                    "type": ["integer", "null"],
+                    "minimum": 0,
+                    "default": null,
+                    "description": "Drop rows whose `best_realized` (copper) is below this threshold. Composes with `market_top_n`. Only effective with `with_market_prices: true`."
+                },
+                "market_fields": {
+                    "type": ["array", "null"],
+                    "items": { "type": "string", "enum": ["none", "best", "tp", "vendor"] },
+                    "default": ["none"],
+                    "description": "Which price subfields to surface per row. `none` (default) emits no price fields — caller still benefits from sort/filter by value, but the response stays compact. `best` surfaces `best_realized` + `best_realized_source`. `tp` surfaces sell + buy unit + after-fee totals + `tp_sell_outlier` (raised when sell ≥ 10× buy — a scam-listing guard). `vendor` surfaces vendor unit + total. Combine for finer control, e.g. `['best','tp']`. `'none'` cannot be combined with other values."
                 }
             }
         }))
@@ -334,7 +353,26 @@ pub(super) fn build_tools() -> Vec<Tool> {
                 "with_market_prices": {
                     "type": "boolean",
                     "default": false,
-                    "description": "When true, every row gains a `market_value` block with `tp_sell_unit`, `tp_sell_total_after_fee` (TP price minus 15% fees × count), `vendor_unit`, `vendor_total`, `best_realized`, and `best_realized_source` (\"tp\"|\"vendor\"|\"none\"). Rows + categories are re-sorted by `best_realized` desc — the highest-value items rise to the top. Use for 'what should I sell?' / 'what's this character/bank worth?'. Costs one extra `/v2/commerce/prices` fetch (cached 60s)."
+                    "description": "When true, fetches `/v2/commerce/prices` + `vendor_value` for visible items and uses them to sort rows by `best_realized` desc. Companion `market_*` args control what's surfaced and how aggressively to trim. Without `market_fields` (default 'none'), the LLM gets sorted/filtered rows but no raw price fields — keeps the response small. Costs one extra `/v2/commerce/prices` fetch (cached 60s). All `market_*` knobs are ignored when this is false."
+                },
+                "market_top_n": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "maximum": 200,
+                    "default": 50,
+                    "description": "Cap the number of rows to the top N by `best_realized` desc. Default 50; clamp 1–200. Only effective with `with_market_prices: true`."
+                },
+                "market_min_value": {
+                    "type": ["integer", "null"],
+                    "minimum": 0,
+                    "default": null,
+                    "description": "Drop rows whose `best_realized` (copper) is below this threshold. Composes with `market_top_n`. Only effective with `with_market_prices: true`."
+                },
+                "market_fields": {
+                    "type": ["array", "null"],
+                    "items": { "type": "string", "enum": ["none", "best", "tp", "vendor"] },
+                    "default": ["none"],
+                    "description": "Which price subfields to surface per row. `none` (default) emits no price fields — caller still benefits from sort/filter by value, but the response stays compact. `best` surfaces `best_realized` + `best_realized_source`. `tp` surfaces sell + buy unit + after-fee totals + `tp_sell_outlier` (raised when sell ≥ 10× buy — a scam-listing guard). `vendor` surfaces vendor unit + total. Combine for finer control, e.g. `['best','tp']`. `'none'` cannot be combined with other values."
                 }
             }
         }))
@@ -374,7 +412,26 @@ pub(super) fn build_tools() -> Vec<Tool> {
                 "with_market_prices": {
                     "type": "boolean",
                     "default": false,
-                    "description": "When true, every row gains a `market_value` block with `tp_sell_unit`, `tp_sell_total_after_fee` (TP price minus 15% fees × count), `vendor_unit`, `vendor_total`, `best_realized`, and `best_realized_source` (\"tp\"|\"vendor\"|\"none\"). Rows + categories are re-sorted by `best_realized` desc — the highest-value items rise to the top. Use for 'what should I sell?' / 'what's this character/bank worth?'. Costs one extra `/v2/commerce/prices` fetch (cached 60s)."
+                    "description": "When true, fetches `/v2/commerce/prices` + `vendor_value` for visible items and uses them to sort rows by `best_realized` desc. Companion `market_*` args control what's surfaced and how aggressively to trim. Without `market_fields` (default 'none'), the LLM gets sorted/filtered rows but no raw price fields — keeps the response small. Costs one extra `/v2/commerce/prices` fetch (cached 60s). All `market_*` knobs are ignored when this is false."
+                },
+                "market_top_n": {
+                    "type": ["integer", "null"],
+                    "minimum": 1,
+                    "maximum": 200,
+                    "default": 50,
+                    "description": "Cap the number of rows to the top N by `best_realized` desc. Default 50; clamp 1–200. Only effective with `with_market_prices: true`."
+                },
+                "market_min_value": {
+                    "type": ["integer", "null"],
+                    "minimum": 0,
+                    "default": null,
+                    "description": "Drop rows whose `best_realized` (copper) is below this threshold. Composes with `market_top_n`. Only effective with `with_market_prices: true`."
+                },
+                "market_fields": {
+                    "type": ["array", "null"],
+                    "items": { "type": "string", "enum": ["none", "best", "tp", "vendor"] },
+                    "default": ["none"],
+                    "description": "Which price subfields to surface per row. `none` (default) emits no price fields — caller still benefits from sort/filter by value, but the response stays compact. `best` surfaces `best_realized` + `best_realized_source`. `tp` surfaces sell + buy unit + after-fee totals + `tp_sell_outlier` (raised when sell ≥ 10× buy — a scam-listing guard). `vendor` surfaces vendor unit + total. Combine for finer control, e.g. `['best','tp']`. `'none'` cannot be combined with other values."
                 }
             }
         }))
@@ -827,7 +884,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         // duplicating the cursor shape, so it's left off intentionally.
         Tool::new(
             "list_catalog_builds",
-            "List builds from a curated catalog source. Returns lightweight summaries plus an opaque pagination cursor — pass `next_cursor` back as `cursor` to continue. Use get_catalog_build for the full per-build details.",
+            "List builds from a curated catalog source. Returns lightweight summaries plus an opaque pagination cursor — pass `next_cursor` back as `cursor` to continue. Use get_catalog_build for the full per-build details. For meta-event planning, filter with `gamemode: 'open_world'`.",
             list_catalog_builds,
         )
         .annotate(read_only_open_world("List Catalog Builds")),
@@ -896,7 +953,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::MarketPricesResponse>(),
         Tool::new(
             "get_event_schedule",
-            "Recurring meta / world-boss event schedule. Deterministic — sourced from the wiki Event timer widget (Widget:Event_timer/data.json) and computed against UTC-midnight-anchored cycles. Each event reports current_segment + next_segment_starts_in_minutes (the delta is what to trust; ISO 8601 timestamps are sibling fields). Filters: `within_minutes` (default 60), optional `category`, `player_access` (auto-fetched from /v2/account when omitted — pass [] to disable), and `active_festivals` (festival-gated events like Halloween/Dragon Bash are EXCLUDED by default since ANet runs festivals off-schedule; call get_active_festivals first and confirm with the user before opting in). `filters_applied` echoes back what was actually applied.",
+            "Recurring meta / world-boss event schedule. Deterministic — sourced from the wiki Event timer widget (Widget:Event_timer/data.json) and computed against UTC-midnight-anchored cycles. Each event reports current_segment + next_segment_starts_in_minutes (the delta is what to trust; ISO 8601 timestamps are sibling fields). Filters: `within_minutes` (default 60), optional `category`, `player_access` (auto-fetched from /v2/account when omitted — pass [] to disable), and `active_festivals` (festival-gated events like Halloween/Dragon Bash are EXCLUDED by default since ANet runs festivals off-schedule; call get_active_festivals first and confirm with the user before opting in). `filters_applied` echoes back what was actually applied. Pair with `list_catalog_builds(profession, gamemode: 'open_world')` for current meta-relevant builds, and `plan_route` to navigate to the start map — its hops carry `gate_chat_link` you can paste into in-game chat.",
             get_event_schedule,
         )
         .annotate(read_only_open_world("Get Event Schedule"))
@@ -985,7 +1042,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::RefreshAccountCacheResult>(),
         Tool::new(
             "plan_route",
-            "Top-K shortest-hop routes between two maps. `from`/`to`: `{id}` | `{name}` | `{here:true}`. Each hop carries connection, direction, gate_location, note. `prefer` re-ranks (shortest|walking|gates). `exclude_connections` blocks edge types. `player_access` filters by expansions owned — absent = auto-fetch from /v2/account; empty array disables filtering. Same coverage as get_map_neighbors.",
+            "Top-K shortest-hop routes between two maps. `from`/`to`: `{id}` | `{name}` | `{here:true}`. Each hop carries connection, direction, gate_location, note, and (when the named gate resolves to a known waypoint) `gate_chat_link` — paste it into in-game chat to teleport. `prefer` re-ranks (shortest|walking|gates). `exclude_connections` blocks edge types. `player_access` filters by expansions owned — absent = auto-fetch from /v2/account; empty array disables filtering. Same coverage as get_map_neighbors. Useful after `get_event_schedule` to travel to a meta-event start map.",
             plan_route_schema,
         )
         .annotate(read_only_open_world("Plan Route"))
@@ -1173,5 +1230,48 @@ mod convention_tests {
                 ));
             }
         }
+    }
+
+    /// The three navigation-adjacent tools (`get_event_schedule`,
+    /// `list_catalog_builds`, `plan_route`) cross-reference each other
+    /// in their descriptions so the LLM reliably chains them when a
+    /// user asks "when's the meta and how do I get there?". This test
+    /// pins those mentions in place — quietly dropping them in a
+    /// future tool-description edit would silently regress the chain
+    /// for every caller.
+    #[test]
+    fn cross_references_in_tool_descriptions_stay_intact() {
+        let tools = build_tools();
+        let lookup: std::collections::BTreeMap<&str, &str> = tools
+            .iter()
+            .map(|t| (t.name.as_ref(), t.description.as_deref().unwrap_or("")))
+            .collect();
+
+        let cases: &[(&str, &[&str])] = &[
+            (
+                "get_event_schedule",
+                &["list_catalog_builds", "plan_route", "gate_chat_link"],
+            ),
+            ("list_catalog_builds", &["open_world"]),
+            ("plan_route", &["get_event_schedule", "gate_chat_link"]),
+        ];
+        let mut missing: Vec<String> = Vec::new();
+        for (tool_name, expected) in cases {
+            let desc = lookup
+                .get(tool_name)
+                .copied()
+                .unwrap_or_else(|| panic!("tool `{tool_name}` not registered"));
+            for needle in *expected {
+                if !desc.contains(needle) {
+                    missing.push(format!("`{tool_name}` description missing `{needle}`"));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "tool-description cross-references regressed:\n  - {}\n\n\
+             Update the matching `Tool::new(...)` literal in this file to restore the cross-reference.",
+            missing.join("\n  - ")
+        );
     }
 }

@@ -169,6 +169,17 @@ pub struct RouteEdge {
     pub gate_location: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Chat link for the waypoint named in `gate_location`, resolved
+    /// against the destination map's cached POIs (and, when the
+    /// `gate_location` carries a `Name (Map)` suffix, the map named
+    /// inside the parentheses). The player pastes this into in-game
+    /// chat to be offered a teleport. `None` when the gate isn't a
+    /// waypoint (some gates are landmarks / portals without chat
+    /// links) or when the POI fetch failed — the route is still
+    /// returned with `gate_location`; this is enrichment, not load
+    /// bearing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_chat_link: Option<String>,
 }
 
 /// Errors specific to the region-lookup path.
@@ -322,7 +333,7 @@ impl Service {
     /// auto-fetched account data or from explicit caller args.
     ///
     /// `k` is clamped to `1..=10` so a runaway request can't burn CPU.
-    pub fn plan_route(
+    pub async fn plan_route(
         &self,
         from: MapRef,
         to: MapRef,
@@ -389,6 +400,8 @@ impl Service {
             .map(|p| build_route_path(table, &p))
             .collect();
         sort_paths_by_preference(&mut paths, filters.prefer);
+        self.enrich_route_paths_with_chat_links(&mut paths, table)
+            .await;
         Ok(RoutePlan {
             total: paths.len(),
             from: MapRefResolved {
@@ -402,6 +415,101 @@ impl Service {
             paths,
             filters_applied: summary,
         })
+    }
+
+    /// For each hop with an `arrived_via.gate_location`, attempt to
+    /// look up the corresponding POI in the cached map data and
+    /// attach its `chat_link` so the player can paste it into in-game
+    /// chat.
+    ///
+    /// `gate_location` may be either a bare waypoint name (assumed to
+    /// be on the hop's `map_id` — the destination of that edge) or
+    /// `Name (Map)` (the waypoint is on the named map). We support
+    /// both. Misses leave `gate_chat_link: None` — this is enrichment,
+    /// the route itself is returned unchanged.
+    ///
+    /// POI fetches across distinct maps are parallelised; cache hits
+    /// (already at `STATIC_TTL`) cost nothing.
+    async fn enrich_route_paths_with_chat_links(
+        &self,
+        paths: &mut [RoutePath],
+        table: &'static MapNeighbors,
+    ) {
+        // Collect each (gate_location, target_map_id) lookup we'll need.
+        // Index back-references so we can update the matching edge
+        // without re-walking on every match. `target_map_id` is the
+        // map we'll search for the waypoint name — either parsed out
+        // of the parenthesized form or defaulted to the hop's map_id.
+        struct PendingLookup {
+            path_idx: usize,
+            hop_idx: usize,
+            poi_name: String,
+            target_map_id: u32,
+        }
+        let mut pending: Vec<PendingLookup> = Vec::new();
+        for (pi, path) in paths.iter().enumerate() {
+            for (hi, hop) in path.hops.iter().enumerate() {
+                let Some(edge) = hop.arrived_via.as_ref() else {
+                    continue;
+                };
+                let Some(raw) = edge.gate_location.as_deref() else {
+                    continue;
+                };
+                let (poi_name, target_map_id) = parse_gate_location(raw, hop.map_id, table);
+                pending.push(PendingLookup {
+                    path_idx: pi,
+                    hop_idx: hi,
+                    poi_name,
+                    target_map_id,
+                });
+            }
+        }
+        if pending.is_empty() {
+            return;
+        }
+
+        // Dedupe target_map_ids so we only fetch each POI list once.
+        let unique_map_ids: BTreeSet<u32> = pending.iter().map(|p| p.target_map_id).collect();
+        let mut pois_by_map: HashMap<u32, Vec<crate::ports::MapPoi>> = HashMap::new();
+        let fetches = unique_map_ids.iter().map(|&id| async move {
+            // `MapId` is `pub type MapId = u32;` (see ports.rs) — the
+            // id is already the right shape; no validation step
+            // needed at this boundary.
+            self.list_pois_cached(id).await.map(|pois| (id, pois))
+        });
+        for result in futures::future::join_all(fetches).await {
+            match result {
+                Ok((id, pois)) => {
+                    pois_by_map.insert(id, pois);
+                }
+                Err(e) => {
+                    warn!(error = ?e, "POI fetch failed during route enrichment; that hop's gate_chat_link will stay None");
+                }
+            }
+        }
+
+        // Per pending lookup: case-insensitive name match against the
+        // fetched POIs, then attach the chat_link onto the edge.
+        for pending in pending {
+            let Some(pois) = pois_by_map.get(&pending.target_map_id) else {
+                continue;
+            };
+            let needle = pending.poi_name.to_ascii_lowercase();
+            let Some(chat_link) = pois
+                .iter()
+                .find(|p| p.name.to_ascii_lowercase() == needle)
+                .and_then(|p| p.chat_link.clone())
+            else {
+                continue;
+            };
+            if let Some(edge) = paths
+                .get_mut(pending.path_idx)
+                .and_then(|path| path.hops.get_mut(pending.hop_idx))
+                .and_then(|hop| hop.arrived_via.as_mut())
+            {
+                edge.gate_chat_link = Some(chat_link);
+            }
+        }
     }
 
     fn resolve_map_ref(
@@ -1037,6 +1145,7 @@ fn build_route_path(nbrs: &MapNeighbors, ids: &[u32]) -> RoutePath {
                             direction: link.direction.clone(),
                             gate_location: link.gate_location.clone(),
                             note: link.note.clone(),
+                            gate_chat_link: None,
                         }
                     })
             })
@@ -1054,6 +1163,29 @@ fn build_route_path(nbrs: &MapNeighbors, ids: &[u32]) -> RoutePath {
         story_gate_count: story,
         hops,
     }
+}
+
+/// Split a `gate_location` string into `(poi_name, map_id_to_search)`.
+///
+/// Curated YAML entries either look like `"Lake Adorea (Plains of
+/// Ashford)"` — explicitly naming the map the waypoint lives on — or
+/// like `"Beta Waypoint"` — implicitly meaning "on the destination
+/// map of this hop". Both forms are handled. Unknown map names in
+/// the parenthesised form fall back to `default_map_id` (the hop's
+/// own `map_id`) so we still attempt a lookup somewhere.
+fn parse_gate_location(raw: &str, default_map_id: u32, table: &MapNeighbors) -> (String, u32) {
+    let trimmed = raw.trim();
+    if let Some((name_part, rest)) = trimmed.rsplit_once(" (")
+        && let Some(map_name) = rest.strip_suffix(')')
+    {
+        if let Ok(id) = resolve_map_name(table, map_name) {
+            return (name_part.trim().to_owned(), id);
+        }
+        // Map name didn't resolve — keep the bare POI name and try the
+        // default map (better than nothing).
+        return (name_part.trim().to_owned(), default_map_id);
+    }
+    (trimmed.to_owned(), default_map_id)
 }
 
 fn resolve_by_name(index: RegionIndex, name: &str) -> Result<RegionIndexEntry, ServiceError> {
@@ -1559,5 +1691,61 @@ mod tests {
         );
         let edge_to_delta = path.hops[3].arrived_via.as_ref().unwrap();
         assert_eq!(edge_to_delta.note.as_deref(), Some("requires story step"));
+    }
+
+    // ----- parse_gate_location ------------------------------------------
+
+    fn two_named_map_yaml() -> MapNeighbors {
+        // Two maps named so resolve_map_name has something to find.
+        // Both are leaf nodes; the structure doesn't matter for the
+        // parser tests.
+        let yaml = r"
+19:
+  name: Plains of Ashford
+  neighbors: []
+1510:
+  name: Skywatch Archipelago
+  neighbors: []
+";
+        MapNeighbors::from_yaml(yaml).expect("parses")
+    }
+
+    #[test]
+    fn parse_gate_location_bare_name_falls_back_to_default_map() {
+        let table = two_named_map_yaml();
+        let (poi, map_id) = parse_gate_location("Beta Waypoint", 99, &table);
+        assert_eq!(poi, "Beta Waypoint");
+        assert_eq!(map_id, 99, "bare name → search on the hop's own map");
+    }
+
+    #[test]
+    fn parse_gate_location_paren_form_resolves_named_map() {
+        let table = two_named_map_yaml();
+        let (poi, map_id) = parse_gate_location("Lake Adorea (Plains of Ashford)", 1510, &table);
+        assert_eq!(poi, "Lake Adorea");
+        assert_eq!(
+            map_id, 19,
+            "parenthesised map name must override the default"
+        );
+    }
+
+    #[test]
+    fn parse_gate_location_paren_form_with_unknown_map_keeps_default() {
+        let table = two_named_map_yaml();
+        let (poi, map_id) = parse_gate_location("Some POI (Unknown Map)", 42, &table);
+        assert_eq!(poi, "Some POI");
+        assert_eq!(
+            map_id, 42,
+            "unresolved paren map must not crash; default is best-effort fallback"
+        );
+    }
+
+    #[test]
+    fn parse_gate_location_trims_whitespace() {
+        let table = two_named_map_yaml();
+        let (poi, map_id) =
+            parse_gate_location("  Lake Adorea (Plains of Ashford)  ", 1510, &table);
+        assert_eq!(poi, "Lake Adorea");
+        assert_eq!(map_id, 19);
     }
 }

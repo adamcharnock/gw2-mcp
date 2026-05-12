@@ -266,7 +266,10 @@ impl Service {
         Ok(info)
     }
 
-    async fn list_pois_cached(&self, map_id: MapId) -> Result<Vec<MapPoi>, ServiceError> {
+    pub(super) async fn list_pois_cached(
+        &self,
+        map_id: MapId,
+    ) -> Result<Vec<MapPoi>, ServiceError> {
         let key = format!("map:pois:{map_id}");
         if let Some(json) = self.cache.get(&key).await
             && let Ok(pois) = serde_json::from_str::<Vec<MapPoi>>(&json)

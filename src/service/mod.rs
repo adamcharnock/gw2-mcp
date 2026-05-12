@@ -18,9 +18,9 @@ mod wiki;
 pub use account::{
     AccountAchievementsSnapshot, AccountBankSnapshot, AccountDungeonsSnapshot,
     AccountMasteriesSnapshot, AccountMaterialsSnapshot, AccountRaidsSnapshot, BankItemEntry,
-    CharacterInventorySnapshot, CharacterList, DailiesWhich, MasteryPointBalance,
-    MaterialCategoryGroup, MaterialItemEntry, RefreshAccountCacheResult, StorageFilter,
-    WizardsVaultSnapshot,
+    CharacterInventorySnapshot, CharacterList, DailiesWhich, MarketFieldsSelector,
+    MasteryPointBalance, MaterialCategoryGroup, MaterialItemEntry, RefreshAccountCacheResult,
+    StorageFilter, WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 pub use events::EventScheduleFilters;

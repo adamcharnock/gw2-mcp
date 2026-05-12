@@ -1229,6 +1229,27 @@ pub fn make_poi(id: u64, name: &str, kind: &str, coord: (f64, f64)) -> MapPoi {
         kind: kind.to_owned(),
         coord,
         floor: 1,
+        chat_link: None,
+    }
+}
+
+/// Same as [`make_poi`] but with a populated chat link, for tests that
+/// exercise the route-enrichment / `find_nearby` `chat_link` path.
+#[must_use]
+pub fn make_poi_with_chat_link(
+    id: u64,
+    name: &str,
+    kind: &str,
+    coord: (f64, f64),
+    chat_link: &str,
+) -> MapPoi {
+    MapPoi {
+        id,
+        name: name.to_owned(),
+        kind: kind.to_owned(),
+        coord,
+        floor: 1,
+        chat_link: Some(chat_link.to_owned()),
     }
 }
 
