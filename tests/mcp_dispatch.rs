@@ -1109,3 +1109,199 @@ async fn tier_6a_tools_are_present_in_build_tools_list() {
             .unwrap_or_else(|e| panic!("{name} failed to dispatch: {e}"));
     }
 }
+
+// --- get_event_schedule + get_active_festivals dispatch smoke tests ---
+//
+// These tests exercise the MCP entry point for the two Phase-4 tools so
+// the dispatch wiring (tool name → handler → service) can't silently
+// drop a tool. Using a snapshot-loaded `FakeEventSchedule` means we
+// don't need wiremock — the JSON the wiki widget would return is
+// already in the fixture.
+
+const WIDGET_SNAPSHOT: &str = include_str!("fixtures/event_schedule/widget_v5.1.json");
+
+fn build_server_with_snapshot_events() -> McpServer {
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let cache: Arc<dyn Cache> = Arc::new(MemoryCache::new(clock.clone()));
+    let gw2: Arc<dyn Gw2Api> =
+        Arc::new(HttpGw2Api::with_base_url("http://unused.invalid".to_owned()).unwrap());
+    let wiki: Arc<dyn Wiki> =
+        Arc::new(HttpWiki::with_base_url("http://unused.invalid/".to_owned()).unwrap());
+    let decoder: Arc<dyn BuildCodeDecoder> = Arc::new(ChatrDecoder);
+    let catalogs = Arc::new(CatalogRegistry::new());
+    let mumble: Arc<dyn MumbleLink> =
+        Arc::new(StubMumbleLink::new("integration test: no live mumble link"));
+    let maps: Arc<dyn MapData> = Arc::new(FakeMapData::new());
+
+    let v: serde_json::Value = serde_json::from_str(WIDGET_SNAPSHOT).unwrap();
+    let raw = gw2_mcp::domain::EventScheduleRaw::from_json_value(v).expect("parse fixture");
+    let fake = Arc::new(crate::common::FakeEventSchedule::empty());
+    fake.set_raw(raw);
+    let events: Arc<dyn gw2_mcp::ports::EventSchedule> = fake;
+
+    McpServer::new(Service::new(
+        gw2, wiki, cache, clock, decoder, catalogs, mumble, maps, events,
+    ))
+}
+
+#[tokio::test]
+async fn dispatch_get_event_schedule_returns_events_with_filters_applied() {
+    let mcp = build_server_with_snapshot_events();
+    let res = mcp
+        .dispatch_tool(
+            "get_event_schedule",
+            json!({ "within_minutes": 1440, "player_access": [] }),
+        )
+        .await
+        .expect("dispatch ok");
+
+    // Top-level shape: events array, widget_version, filters_applied.
+    assert!(res.get("events").and_then(Value::as_array).is_some());
+    let widget_version = res
+        .get("widget_version")
+        .and_then(Value::as_str)
+        .expect("widget_version string");
+    assert!(!widget_version.is_empty());
+
+    let filters = res
+        .get("filters_applied")
+        .and_then(Value::as_object)
+        .expect("filters_applied object");
+    assert_eq!(
+        filters.get("within_minutes").and_then(Value::as_u64),
+        Some(1440)
+    );
+    // player_access was [] (opt-out), so player_access shouldn't be
+    // echoed back (skip_serializing_if).
+    assert!(filters.get("player_access").is_none());
+
+    // Snapshot has 42 walkable events; we expect a healthy fraction
+    // back at within_minutes=1440 with no festival opt-in.
+    let n = res.get("events").and_then(Value::as_array).unwrap().len();
+    assert!(n >= 20, "expected >=20 events; got {n}");
+
+    // Festival rows must be absent — no `active_festivals` passed.
+    let categories: Vec<&str> = res
+        .get("events")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .filter_map(|e| e.get("category").and_then(Value::as_str))
+        .collect();
+    assert!(
+        !categories.contains(&"Special Events"),
+        "festival rows must be excluded by default"
+    );
+}
+
+#[tokio::test]
+async fn dispatch_get_event_schedule_player_access_explicit_filters_hot() {
+    let mcp = build_server_with_snapshot_events();
+    let res = mcp
+        .dispatch_tool(
+            "get_event_schedule",
+            json!({ "within_minutes": 1440, "player_access": ["core"] }),
+        )
+        .await
+        .expect("dispatch ok");
+
+    let filters = res.get("filters_applied").unwrap().as_object().unwrap();
+    assert_eq!(
+        filters.get("player_access_source").and_then(Value::as_str),
+        Some("explicit")
+    );
+    let pa: Vec<&str> = filters
+        .get("player_access")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(pa, vec!["core"]);
+
+    // HoT events should be gone; Core Tyria events should remain.
+    let cats: std::collections::BTreeSet<&str> = res
+        .get("events")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .filter_map(|e| e.get("category").and_then(Value::as_str))
+        .collect();
+    assert!(cats.contains("Core Tyria"));
+    assert!(!cats.contains("Heart of Thorns"));
+    assert!(!cats.contains("End of Dragons"));
+}
+
+#[tokio::test]
+async fn dispatch_get_event_schedule_active_festivals_unlocks_halloween() {
+    let mcp = build_server_with_snapshot_events();
+    let res = mcp
+        .dispatch_tool(
+            "get_event_schedule",
+            json!({
+                "within_minutes": 1440,
+                "player_access": [],
+                "active_festivals": ["Halloween"]
+            }),
+        )
+        .await
+        .expect("dispatch ok");
+
+    let filters = res.get("filters_applied").unwrap().as_object().unwrap();
+    assert_eq!(
+        filters
+            .get("active_festivals")
+            .and_then(Value::as_array)
+            .unwrap()
+            .first()
+            .and_then(Value::as_str),
+        Some("Halloween")
+    );
+
+    let names: Vec<&str> = res
+        .get("events")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .filter_map(|e| e.get("event_name").and_then(Value::as_str))
+        .collect();
+    assert!(
+        names.contains(&"Halloween"),
+        "Halloween should appear once it's opted in; got {names:?}"
+    );
+    assert!(
+        !names.contains(&"Dragon Bash"),
+        "Dragon Bash should still be gated; got {names:?}"
+    );
+}
+
+#[tokio::test]
+async fn dispatch_get_active_festivals_returns_approximate_schedule() {
+    let mcp = build_server_with_snapshot_events();
+    let res = mcp
+        .dispatch_tool("get_active_festivals", json!({}))
+        .await
+        .expect("dispatch ok");
+
+    // Required fields per the response schema. `approximate` must be
+    // true so the LLM never treats this as authoritative timing.
+    assert_eq!(
+        res.get("approximate").and_then(Value::as_bool),
+        Some(true),
+        "approximate must always be true"
+    );
+    assert!(res.get("note").and_then(Value::as_str).is_some());
+    assert!(res.get("live").and_then(Value::as_array).is_some());
+    assert!(res.get("upcoming").and_then(Value::as_array).is_some());
+    assert!(
+        res.get("schedule_version")
+            .and_then(Value::as_u64)
+            .is_some(),
+        "schedule_version must surface for staleness gating"
+    );
+    assert!(
+        res.get("schedule_last_updated_days_ago")
+            .and_then(Value::as_i64)
+            .is_some()
+    );
+}

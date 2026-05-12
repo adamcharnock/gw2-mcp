@@ -324,6 +324,39 @@ pub(super) fn parse_within_minutes(args: &serde_json::Value) -> u32 {
         .clamp(1, 1440)
 }
 
+/// Parse the optional `active_festivals` array. Returns an empty set
+/// when omitted or null — the dispatcher treats that as "no festival
+/// events at all", so the LLM has to opt-in. Non-array values are
+/// rejected with `BadArg`.
+pub(super) fn parse_active_festivals(
+    v: Option<&serde_json::Value>,
+) -> Result<std::collections::HashSet<String>, CallError> {
+    let mut out = std::collections::HashSet::new();
+    let Some(v) = v else { return Ok(out) };
+    if v.is_null() {
+        return Ok(out);
+    }
+    let Some(arr) = v.as_array() else {
+        return Err(CallError::BadArg {
+            name: "active_festivals",
+            expected: "array of festival names",
+        });
+    };
+    for entry in arr {
+        let Some(s) = entry.as_str() else {
+            return Err(CallError::BadArg {
+                name: "active_festivals",
+                expected: "array of festival names (strings)",
+            });
+        };
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            out.insert(trimmed.to_owned());
+        }
+    }
+    Ok(out)
+}
+
 pub(super) const DEFAULT_PAGE_SIZE: u32 = 25;
 pub(super) const MAX_PAGE_SIZE: u32 = 100;
 

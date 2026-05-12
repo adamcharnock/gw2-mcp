@@ -186,6 +186,36 @@ pub struct EventScheduleResponse {
     pub generated_at: DateTime<Utc>,
     pub source_url: String,
     pub widget_version: String,
+    /// Echo of the filters that were actually applied. Lets the LLM
+    /// reason about why a given event is (or isn't) in the result —
+    /// most usefully: whether `player_access` came from the caller
+    /// explicitly or was derived from `/v2/account`.
+    pub filters_applied: EventFiltersSummary,
+}
+
+/// Filters echoed back in the response so the caller can see what
+/// shaped the result. Mirrors the `RouteFiltersSummary` pattern used
+/// by `plan_route`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EventFiltersSummary {
+    pub within_minutes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Sorted `snake_case` expansion names. `None` ≡ no access filter
+    /// applied (no key was available and no list was passed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player_access: Option<Vec<String>>,
+    /// `"explicit"` if the caller passed a list, `"auto"` if it was
+    /// derived from `/v2/account`, `None` if no filter was applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player_access_source: Option<String>,
+    /// Festivals the caller declared to be active. Festival-gated
+    /// events (category `"Special Events"`) are excluded unless their
+    /// festival appears here — the LLM is expected to call
+    /// `get_active_festivals` and confirm with the user before passing
+    /// anything in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub active_festivals: Vec<String>,
 }
 
 /// One row per event matching the filter.

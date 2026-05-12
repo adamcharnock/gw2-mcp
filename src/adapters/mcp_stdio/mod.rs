@@ -657,9 +657,53 @@ impl McpServer {
     ) -> Result<serde_json::Value, CallError> {
         let within_minutes = parsing::parse_within_minutes(args);
         let category = parse_optional_str(args, "category");
+        let active_festivals = parsing::parse_active_festivals(args.get("active_festivals"))?;
+
+        // player_access: explicit caller value wins; otherwise try
+        // auto-fetch from /v2/account. Auto-fetch failures degrade
+        // silently to "no filter" (same pattern as plan_route).
+        let explicit_access = parse_player_access(args.get("player_access"))?;
+        let (player_access, source): (
+            Option<std::collections::HashSet<crate::domain::Expansion>>,
+            Option<&'static str>,
+        ) = if let Some(set) = explicit_access {
+            if set.is_empty() {
+                (None, None)
+            } else {
+                (Some(set), Some("explicit"))
+            }
+        } else {
+            let auto_key = match args.get("api_key").and_then(|v| v.as_str()) {
+                Some(raw) if !raw.trim().is_empty() => crate::domain::ApiKey::new(raw).ok(),
+                _ => self.service.default_api_key().cloned(),
+            };
+            if let Some(key) = auto_key {
+                match self.service.get_account(&key).await {
+                    Ok(acc) => {
+                        let owned = crate::service::expand_account_access(&acc.access);
+                        if owned.is_empty() {
+                            (None, None)
+                        } else {
+                            (Some(owned), Some("auto"))
+                        }
+                    }
+                    Err(_) => (None, None),
+                }
+            } else {
+                (None, None)
+            }
+        };
+
+        let filters = crate::service::EventScheduleFilters {
+            within_minutes,
+            category,
+            player_access,
+            player_access_source: source,
+            active_festivals,
+        };
         let v = self
             .service
-            .get_event_schedule(within_minutes, category.as_deref())
+            .get_event_schedule(filters)
             .await
             .map_err(|e| annotate_endpoint(e, "get_event_schedule"))?;
         Ok(serde_json::to_value(&v)?)

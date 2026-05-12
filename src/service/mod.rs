@@ -21,6 +21,7 @@ pub use account::{
     WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
+pub use events::EventScheduleFilters;
 pub use festivals::{ActiveFestivalsResponse, FestivalStatus};
 use maps::RegionLookupError;
 pub use maps::{

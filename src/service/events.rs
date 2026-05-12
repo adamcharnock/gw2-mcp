@@ -22,6 +22,7 @@
 //! `current_segment` string. Out-of-bounds `r` (segment missing) is
 //! also surfaced as empty.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use chrono::{DateTime, Timelike, Utc};
@@ -30,7 +31,8 @@ use tracing::warn;
 use super::{Service, minutes_between};
 use crate::adapters::DEFAULT_EVENT_SCHEDULE_URL;
 use crate::domain::{
-    EventDefinition, EventOccurrence, EventScheduleRaw, EventScheduleResponse, PatternSlot,
+    EventDefinition, EventFiltersSummary, EventOccurrence, EventScheduleRaw, EventScheduleResponse,
+    Expansion, PatternSlot,
 };
 
 /// Raw widget cache TTL. The widget changes only on game patches; one
@@ -42,25 +44,45 @@ const EVENT_SCHEDULE_TTL: Duration = Duration::from_secs(60 * 60 * 24);
 // future widget-shape change that requires a forced refresh.
 const EVENT_SCHEDULE_CACHE_KEY: &str = "event_schedule:raw:v2";
 
+/// Filters consumed by [`Service::get_event_schedule`]. Built by the
+/// MCP dispatcher from per-call args (plus an auto-fetched `/v2/account`
+/// for `player_access` when the caller doesn't pass one).
+#[derive(Debug, Clone, Default)]
+pub struct EventScheduleFilters {
+    pub within_minutes: u32,
+    pub category: Option<String>,
+    /// Allowed expansions. `None` means "no filter" — the auto-fetch
+    /// path falls back to this on missing key / network failure so the
+    /// tool still works unauthenticated.
+    pub player_access: Option<HashSet<Expansion>>,
+    /// `"explicit"` if the caller passed `player_access`, `"auto"` if
+    /// it was derived from `/v2/account`, `None` if no filter applied.
+    pub player_access_source: Option<&'static str>,
+    /// Festivals the caller asserts to be currently active. Empty ≡
+    /// "no festival events at all" — the LLM has to opt-in by listing
+    /// what it believes (after confirming with the user) is running.
+    pub active_festivals: HashSet<String>,
+}
+
 impl Service {
     /// Compute the per-event "current segment + next segment" view.
     ///
     /// `within_minutes` filters events whose next segment hasn't started
-    /// yet but begins within this window. Events that are *currently*
-    /// running are always included. `category` (case-insensitive
-    /// equality) further filters by `category` field on the event.
+    /// yet but begins within this window. Events currently running are
+    /// always included. `category` (case-insensitive equality) further
+    /// narrows by `category` field. `player_access` excludes events
+    /// from expansions the caller doesn't own. `active_festivals` is
+    /// the only way for `"Special Events"` rows to appear at all.
     pub async fn get_event_schedule(
         &self,
-        within_minutes: u32,
-        category: Option<&str>,
+        filters: EventScheduleFilters,
     ) -> Result<EventScheduleResponse, super::ServiceError> {
         let raw = self.fetch_event_schedule_raw().await?;
         let now = self.clock.now();
         Ok(build_schedule_response(
             &raw,
             now,
-            within_minutes,
-            category,
+            &filters,
             DEFAULT_EVENT_SCHEDULE_URL,
         ))
     }
@@ -141,14 +163,28 @@ fn raw_as_value(raw: &EventScheduleRaw) -> serde_json::Value {
 fn build_schedule_response(
     raw: &EventScheduleRaw,
     now: DateTime<Utc>,
-    within_minutes: u32,
-    category: Option<&str>,
+    filters: &EventScheduleFilters,
     source_url: &str,
 ) -> EventScheduleResponse {
+    // Lower-case the active-festival set once so per-event matching
+    // is a single hash probe.
+    let active_lower: HashSet<String> = filters
+        .active_festivals
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect();
+
     let mut events: Vec<EventOccurrence> = Vec::new();
-    for def in raw.events.values() {
-        if let Some(filter) = category
+    for (slug, def) in &raw.events {
+        if let Some(filter) = &filters.category
             && !def.category.eq_ignore_ascii_case(filter)
+        {
+            continue;
+        }
+        if !passes_player_access(def, filters.player_access.as_ref()) {
+            continue;
+        }
+        if def.category == SPECIAL_EVENTS_CATEGORY && !is_active_festival(slug, def, &active_lower)
         {
             continue;
         }
@@ -159,7 +195,7 @@ fn build_schedule_response(
             // the requested window. Negative starts_in shouldn't happen
             // (the walker reports the *next* segment) but we treat <=
             // window as inclusive for safety.
-            if starts_in <= i64::from(within_minutes) {
+            if starts_in <= i64::from(filters.within_minutes) {
                 events.push(occ);
             }
         }
@@ -169,12 +205,120 @@ fn build_schedule_response(
             .cmp(&b.next_segment_starts_in_minutes)
             .then_with(|| a.event_name.cmp(&b.event_name))
     });
+
     EventScheduleResponse {
         events,
         generated_at: now,
         source_url: source_url.to_owned(),
         widget_version: raw.config.version.clone(),
+        filters_applied: EventFiltersSummary {
+            within_minutes: filters.within_minutes,
+            category: filters.category.clone(),
+            player_access: filters.player_access.as_ref().map(|set| {
+                let mut names: Vec<String> = set
+                    .iter()
+                    .map(|exp| {
+                        serde_json::to_value(exp)
+                            .ok()
+                            .and_then(|v| v.as_str().map(str::to_owned))
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                names.sort();
+                names
+            }),
+            player_access_source: filters.player_access_source.map(str::to_owned),
+            active_festivals: {
+                let mut v: Vec<String> = filters.active_festivals.iter().cloned().collect();
+                v.sort();
+                v
+            },
+        },
     }
+}
+
+const SPECIAL_EVENTS_CATEGORY: &str = "Special Events";
+
+/// Map a widget `category` string to the `Expansion` the player needs
+/// to own. `"Core Tyria"` / `"Living World Season 2"` map to always-
+/// granted expansions, so they pass the filter trivially. `"Public
+/// Instances"` is intentionally not gated (Eye of the North is
+/// core-tier and Convergence opens at `SotO`; the widget doesn't
+/// distinguish, so the conservative call is to surface both and let
+/// the player decide). `"Special Events"` is gated via the
+/// `active_festivals` filter instead, so it returns `None` here.
+fn category_to_expansion(category: &str) -> Option<Expansion> {
+    match category {
+        "Core Tyria" => Some(Expansion::Core),
+        "Living World Season 2" => Some(Expansion::LivingWorldSeason2),
+        "Heart of Thorns" => Some(Expansion::HeartOfThorns),
+        "Living World Season 3" => Some(Expansion::LivingWorldSeason3),
+        "Path of Fire" => Some(Expansion::PathOfFire),
+        "Living World Season 4" => Some(Expansion::LivingWorldSeason4),
+        "The Icebrood Saga" => Some(Expansion::IcebroodSaga),
+        "End of Dragons" => Some(Expansion::EndOfDragons),
+        "Secrets of the Obscure" => Some(Expansion::SecretsOfTheObscure),
+        "Janthir Wilds" => Some(Expansion::JanthirWilds),
+        "Visions of Eternity" => Some(Expansion::Castora),
+        _ => None,
+    }
+}
+
+fn passes_player_access(def: &EventDefinition, allowed: Option<&HashSet<Expansion>>) -> bool {
+    let Some(allowed) = allowed else {
+        return true;
+    };
+    if def.category == SPECIAL_EVENTS_CATEGORY {
+        // Festival events are gated by the separate active_festivals
+        // filter — the Festival expansion grant from /v2/account is
+        // always present and doesn't gate by itself.
+        return true;
+    }
+    let Some(req) = category_to_expansion(&def.category) else {
+        // Unknown category (e.g. "Public Instances", or any new
+        // category the widget adds). Default to permissive — better
+        // to surface a row the player can't enter than to hide a
+        // newly-added category until we update this match.
+        return true;
+    };
+    let always_ok = matches!(
+        req,
+        Expansion::Core
+            | Expansion::Festival
+            | Expansion::LivingWorldSeason1
+            | Expansion::LivingWorldSeason2
+    );
+    always_ok || allowed.contains(&req)
+}
+
+/// Slug-keyed mapping from widget event slug → canonical festival
+/// name as published in `data/festivals.yaml`. Maintained here (not
+/// in the YAML) because the widget's slugs are the authoritative
+/// identifier for the cycle row; the YAML is the authoritative
+/// schedule. Keep both in sync when a new festival event ships.
+fn festival_name_for_slug(slug: &str) -> Option<&'static str> {
+    match slug {
+        // Labyrinthine Cliffs is the hub map for Festival of the Four Winds.
+        "festival-lc" => Some("Festival of the Four Winds"),
+        "festival-db" => Some("Dragon Bash"),
+        "festival-ha" => Some("Halloween"),
+        _ => None,
+    }
+}
+
+fn is_active_festival(slug: &str, def: &EventDefinition, active_lower: &HashSet<String>) -> bool {
+    if active_lower.is_empty() {
+        return false;
+    }
+    if let Some(name) = festival_name_for_slug(slug)
+        && active_lower.contains(&name.to_lowercase())
+    {
+        return true;
+    }
+    // Also accept the literal event name (so "Labyrinthine Cliffs"
+    // matches `festival-lc` without forcing the LLM to know the
+    // canonical festival name).
+    active_lower.contains(&def.name.to_lowercase())
 }
 
 /// Walk a single event's pattern and produce its current-segment +
@@ -393,28 +537,82 @@ mod tests {
         assert_eq!(occ.current_segment_ends_in_minutes, 60);
     }
 
-    #[test]
-    fn within_minutes_filter_excludes_distant_events() {
+    fn filters(within_minutes: u32) -> EventScheduleFilters {
+        EventScheduleFilters {
+            within_minutes,
+            category: None,
+            player_access: None,
+            player_access_source: None,
+            active_festivals: HashSet::new(),
+        }
+    }
+
+    fn raw_with(slug: &str, def: EventDefinition) -> EventScheduleRaw {
         let mut events = BTreeMap::new();
-        // Both events have a "next segment in 70 min" at UTC midnight.
-        events.insert("dn".to_owned(), def_day_and_night());
-        let raw = EventScheduleRaw {
+        events.insert(slug.to_owned(), def);
+        EventScheduleRaw {
             config: EventScheduleConfig {
                 version: "test".into(),
             },
             events,
-        };
+        }
+    }
+
+    fn def_festival_halloween() -> EventDefinition {
+        EventDefinition {
+            category: "Special Events".to_owned(),
+            name: "Halloween".to_owned(),
+            link: None,
+            segments: segments_map(&[(1, "Mad King Says")]),
+            sequences: EventSequences {
+                pattern: vec![PatternSlot { r: 1, d: 60 }],
+                partial: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn within_minutes_filter_excludes_distant_events() {
+        let raw = raw_with("dn", def_day_and_night());
         let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 0, 0).unwrap();
-        let r60 = build_schedule_response(&raw, now, 60, None, "u");
+        let r60 = build_schedule_response(&raw, now, &filters(60), "u");
         assert!(r60.events.is_empty(), "next starts in 70 min > 60");
-        let r90 = build_schedule_response(&raw, now, 90, None, "u");
+        let r90 = build_schedule_response(&raw, now, &filters(90), "u");
         assert_eq!(r90.events.len(), 1);
     }
 
     #[test]
     fn category_filter_is_case_insensitive() {
+        let raw = raw_with("dn", def_day_and_night());
+        let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 0, 0).unwrap();
+        let mut f = filters(1440);
+        f.category = Some("CORE tyria".into());
+        let resp = build_schedule_response(&raw, now, &f, "u");
+        assert_eq!(resp.events.len(), 1);
+        f.category = Some("Maguuma".into());
+        let resp = build_schedule_response(&raw, now, &f, "u");
+        assert!(resp.events.is_empty());
+    }
+
+    #[test]
+    fn player_access_filter_excludes_unowned_expansions() {
+        // Build a HoT event (`hot-vb`) + a Core event (`core-dn`); pass
+        // only Core access. HoT row must drop, Core must pass.
         let mut events = BTreeMap::new();
-        events.insert("dn".to_owned(), def_day_and_night());
+        events.insert("core-dn".to_owned(), def_day_and_night());
+        events.insert(
+            "hot-vb".to_owned(),
+            EventDefinition {
+                category: "Heart of Thorns".to_owned(),
+                name: "Verdant Brink".to_owned(),
+                link: None,
+                segments: segments_map(&[(1, "Daytime")]),
+                sequences: EventSequences {
+                    pattern: vec![PatternSlot { r: 1, d: 60 }],
+                    partial: vec![],
+                },
+            },
+        );
         let raw = EventScheduleRaw {
             config: EventScheduleConfig {
                 version: "test".into(),
@@ -422,9 +620,81 @@ mod tests {
             events,
         };
         let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 0, 0).unwrap();
-        let resp = build_schedule_response(&raw, now, 1440, Some("CORE tyria"), "u");
+        let mut f = filters(1440);
+        f.player_access = Some(HashSet::from([Expansion::Core]));
+        f.player_access_source = Some("explicit");
+        let resp = build_schedule_response(&raw, now, &f, "u");
         assert_eq!(resp.events.len(), 1);
-        let resp = build_schedule_response(&raw, now, 1440, Some("Maguuma"), "u");
-        assert!(resp.events.is_empty());
+        assert_eq!(resp.events[0].event_name, "Day and night");
+        assert_eq!(
+            resp.filters_applied.player_access.as_deref(),
+            Some(["core".to_owned()].as_slice())
+        );
+        assert_eq!(
+            resp.filters_applied.player_access_source.as_deref(),
+            Some("explicit")
+        );
+    }
+
+    #[test]
+    fn special_events_excluded_when_active_festivals_empty() {
+        let raw = raw_with("festival-ha", def_festival_halloween());
+        let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 0, 0).unwrap();
+        let resp = build_schedule_response(&raw, now, &filters(1440), "u");
+        assert!(
+            resp.events.is_empty(),
+            "festival events must be excluded when active_festivals is empty"
+        );
+    }
+
+    #[test]
+    fn special_events_included_when_festival_active() {
+        let raw = raw_with("festival-ha", def_festival_halloween());
+        let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 0, 0).unwrap();
+        let mut f = filters(1440);
+        f.active_festivals = HashSet::from(["Halloween".to_owned()]);
+        let resp = build_schedule_response(&raw, now, &f, "u");
+        assert_eq!(resp.events.len(), 1);
+        assert_eq!(resp.events[0].event_name, "Halloween");
+        assert_eq!(
+            resp.filters_applied.active_festivals,
+            vec!["Halloween".to_owned()]
+        );
+    }
+
+    #[test]
+    fn festival_filter_accepts_hub_map_name() {
+        // `festival-lc` resolves to "Festival of the Four Winds", but
+        // the LLM may pass the literal event name "Labyrinthine Cliffs".
+        let def = EventDefinition {
+            category: "Special Events".to_owned(),
+            name: "Labyrinthine Cliffs".to_owned(),
+            link: None,
+            segments: segments_map(&[(1, "Boss Rush")]),
+            sequences: EventSequences {
+                pattern: vec![PatternSlot { r: 1, d: 60 }],
+                partial: vec![],
+            },
+        };
+        let raw = raw_with("festival-lc", def);
+        let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 0, 0).unwrap();
+        let mut f = filters(1440);
+        f.active_festivals = HashSet::from(["Labyrinthine Cliffs".to_owned()]);
+        let resp = build_schedule_response(&raw, now, &f, "u");
+        assert_eq!(resp.events.len(), 1);
+    }
+
+    #[test]
+    fn player_access_does_not_gate_special_events() {
+        // Passing `player_access = [Core]` shouldn't hide festival events
+        // when active_festivals is populated — the festival filter owns
+        // the gate.
+        let raw = raw_with("festival-ha", def_festival_halloween());
+        let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 0, 0).unwrap();
+        let mut f = filters(1440);
+        f.player_access = Some(HashSet::from([Expansion::Core]));
+        f.active_festivals = HashSet::from(["Halloween".to_owned()]);
+        let resp = build_schedule_response(&raw, now, &f, "u");
+        assert_eq!(resp.events.len(), 1);
     }
 }

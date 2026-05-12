@@ -359,6 +359,23 @@ pub(super) fn build_tools() -> Vec<Tool> {
                     "type": ["string", "null"],
                     "default": null,
                     "description": "Optional category filter (case-insensitive). Examples: 'Core Tyria', 'Heart of Thorns', 'Path of Fire', 'End of Dragons', 'Secrets of the Obscure', 'Janthir Wilds'."
+                },
+                "api_key": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "Optional GW2 API key. If omitted, falls back to the server's configured key. Used to auto-fetch /v2/account so player_access can be derived without an explicit list."
+                },
+                "player_access": {
+                    "type": ["array", "null"],
+                    "items": {"type": "string"},
+                    "default": null,
+                    "description": "Optional explicit access list (snake_case expansion names, e.g. ['core', 'heart_of_thorns']). When omitted, the server auto-fetches /v2/account and derives the player's access; pass [] to disable filtering entirely. Events from non-owned expansions are dropped."
+                },
+                "active_festivals": {
+                    "type": ["array", "null"],
+                    "items": {"type": "string"},
+                    "default": null,
+                    "description": "List of currently-running festivals (e.g. ['Halloween'] or ['Dragon Bash']). Festival-gated events (Labyrinthine Cliffs, Dragon Bash, Halloween) are EXCLUDED by default — ArenaNet occasionally runs festivals off the typical wiki schedule, so the LLM should call get_active_festivals first and confirm with the user before passing anything here. Omit or [] to exclude all festival events."
                 }
             }
         }))
@@ -825,7 +842,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::MarketPricesResponse>(),
         Tool::new(
             "get_event_schedule",
-            "Recurring meta / world-boss event schedule. Deterministic — sourced from the wiki Event timer widget (Widget:Event_timer/data.json) and computed against UTC-midnight-anchored cycles. No API key. Each event reports current_segment + next_segment_starts_in_minutes (the delta is what to trust; ISO 8601 timestamps are sibling fields). Filter by `within_minutes` (default 60) and optional `category`. Festivals are NOT here — use get_active_festivals for those.",
+            "Recurring meta / world-boss event schedule. Deterministic — sourced from the wiki Event timer widget (Widget:Event_timer/data.json) and computed against UTC-midnight-anchored cycles. Each event reports current_segment + next_segment_starts_in_minutes (the delta is what to trust; ISO 8601 timestamps are sibling fields). Filters: `within_minutes` (default 60), optional `category`, `player_access` (auto-fetched from /v2/account when omitted — pass [] to disable), and `active_festivals` (festival-gated events like Halloween/Dragon Bash are EXCLUDED by default since ANet runs festivals off-schedule; call get_active_festivals first and confirm with the user before opting in). `filters_applied` echoes back what was actually applied.",
             get_event_schedule,
         )
         .annotate(read_only_open_world("Get Event Schedule"))

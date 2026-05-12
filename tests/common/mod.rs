@@ -187,6 +187,12 @@ impl TestClock {
         )))
     }
 
+    /// Pin the clock to a specific instant. Useful for tests that need
+    /// deterministic UTC-midnight anchoring (e.g. event schedule cycle math).
+    pub fn at(when: DateTime<Utc>) -> Arc<Self> {
+        Arc::new(Self(Mutex::new(when)))
+    }
+
     pub fn advance(&self, by: Duration) {
         let mut t = self.0.lock().unwrap();
         *t += chrono::Duration::from_std(by).unwrap();
@@ -1215,6 +1221,12 @@ impl FakeEventSchedule {
 
     pub fn calls(&self) -> usize {
         *self.calls.lock().unwrap()
+    }
+
+    /// Replace the canned response. Used by tests that need the
+    /// service to surface a specific parsed widget snapshot.
+    pub fn set_raw(&self, raw: gw2_mcp::domain::EventScheduleRaw) {
+        *self.response.lock().unwrap() = Ok(raw);
     }
 }
 

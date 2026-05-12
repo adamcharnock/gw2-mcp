@@ -38,8 +38,8 @@ pub use continents::{Region, RegionMap};
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
 pub use events::{
-    EventDefinition, EventOccurrence, EventScheduleConfig, EventScheduleRaw, EventScheduleResponse,
-    EventSequences, PatternSlot, SegmentDefinition,
+    EventDefinition, EventFiltersSummary, EventOccurrence, EventScheduleConfig, EventScheduleRaw,
+    EventScheduleResponse, EventSequences, PatternSlot, SegmentDefinition,
 };
 pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};
 pub use inventory::{
