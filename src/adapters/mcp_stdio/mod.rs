@@ -390,12 +390,13 @@ impl McpServer {
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
         let ids = parse_required_id_array(args, "ids", ItemId::new)?;
-        let map = self
+        let summary = parse_summary(args);
+        let v = self
             .service
-            .get_items(&ids)
+            .get_items_view(&ids, summary)
             .await
             .map_err(CallError::Service)?;
-        Ok(serde_json::to_value(&map)?)
+        Ok(v)
     }
 
     async fn handle_get_character_build(

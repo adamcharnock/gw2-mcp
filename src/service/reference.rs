@@ -213,6 +213,23 @@ impl Service {
             Ok(serde_json::to_value(map).unwrap_or(Value::Null))
         }
     }
+
+    pub async fn get_items_view(
+        &self,
+        ids: &[ItemId],
+        summary: bool,
+    ) -> Result<Value, ServiceError> {
+        let map = self.get_items(ids).await?;
+        if summary {
+            Ok(Value::Object(
+                map.into_iter()
+                    .map(|(id, it)| (id.to_string(), summarise_item(&it)))
+                    .collect(),
+            ))
+        } else {
+            Ok(serde_json::to_value(map).unwrap_or(Value::Null))
+        }
+    }
 }
 
 fn currency_cache_key(id: CurrencyId) -> String {
@@ -267,6 +284,22 @@ fn summarise_specialization(s: &Specialization) -> Value {
     obj.insert("name".to_owned(), json!(s.name));
     for k in ["profession", "elite", "minor_traits", "major_traits"] {
         if let Some(v) = extract(&s.extra, k) {
+            obj.insert(k.to_owned(), v);
+        }
+    }
+    Value::Object(obj)
+}
+
+/// Summary projection for [`Item`]. Drops `icon` URLs, the full `details`
+/// blob (stat breakdowns, recipe ingredients), `description`, and other
+/// large/rare-need fields so a 200-id `get_items` call doesn't ship 100KB
+/// per response. Callers needing the full payload pass `summary=false`.
+fn summarise_item(i: &Item) -> Value {
+    let mut obj = Map::new();
+    obj.insert("id".to_owned(), json!(i.id.get()));
+    obj.insert("name".to_owned(), json!(i.name));
+    for k in ["rarity", "level", "type", "weight_class", "chat_link"] {
+        if let Some(v) = extract(&i.extra, k) {
             obj.insert(k.to_owned(), v);
         }
     }

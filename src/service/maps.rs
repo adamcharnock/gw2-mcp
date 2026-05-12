@@ -557,15 +557,21 @@ fn resolve_map_name(table: &MapNeighbors, name: &str) -> Result<u32, ServiceErro
 
 /// Edge-filter checks for Yen's during-search exclusion. Returns
 /// `true` when the edge `src → link` should be traversable under
-/// `filters`.
-fn edge_passes_filters(link: &MapNeighborLink, filters: &RouteFilters) -> bool {
+/// `filters`. The target map's `expansion` is looked up from `nbrs`
+/// rather than carried on the link — same data, less duplication on
+/// the wire.
+fn edge_passes_filters(
+    nbrs: &MapNeighbors,
+    link: &MapNeighborLink,
+    filters: &RouteFilters,
+) -> bool {
     if let Some(conn) = link.connection
         && filters.exclude_connections.contains(&conn)
     {
         return false;
     }
     if let Some(allowed) = &filters.player_access
-        && let Some(req) = link.expansion
+        && let Some(req) = nbrs.get(link.map_id).and_then(|e| e.expansion)
     {
         let always_ok = matches!(
             req,
@@ -680,7 +686,7 @@ fn bfs_path(
             if blocked_edges.contains(&(cur, next)) {
                 continue;
             }
-            if !edge_passes_filters(link, filters) {
+            if !edge_passes_filters(nbrs, link, filters) {
                 continue;
             }
             prev.insert(next, cur);

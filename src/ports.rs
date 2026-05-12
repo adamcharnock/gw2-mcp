@@ -550,9 +550,16 @@ pub struct MapPoi {
     /// Continent-space (x, y) — same coordinate frame the Mumble Link
     /// `context.player_x` / `context.player_y` reports.
     pub coord: (f64, f64),
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub chat_link: Option<String>,
+    /// Floor id. Omitted from JSON when 1 (the default for every public
+    /// open-world map) to shave tokens on `find_nearby` responses.
+    #[serde(default, skip_serializing_if = "is_default_floor")]
     pub floor: i32,
+}
+
+// serde's `skip_serializing_if` signature requires `&T`.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_default_floor(f: &i32) -> bool {
+    *f == 1
 }
 
 #[async_trait]

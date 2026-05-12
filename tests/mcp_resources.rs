@@ -186,14 +186,12 @@ async fn read_currencies_concrete_resource_returns_full_list() {
         id: CurrencyId::new(1).unwrap(),
         name: "Coin".to_owned(),
         description: "Coins.".to_owned(),
-        icon: "https://x.png".to_owned(),
         order: 1,
     });
     gw2.add_currency(Currency {
         id: CurrencyId::new(2).unwrap(),
         name: "Karma".to_owned(),
         description: "Karma.".to_owned(),
-        icon: "https://y.png".to_owned(),
         order: 2,
     });
     let mcp = build_server_with_fakes(gw2, Arc::new(CatalogRegistry::new()));

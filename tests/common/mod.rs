@@ -890,7 +890,6 @@ pub fn currency(id: u32, name: &str) -> Currency {
         id: CurrencyId::new(i64::from(id)).unwrap(),
         name: name.to_owned(),
         description: format!("description for {name}"),
-        icon: format!("https://render.example/{name}.png"),
         order: i32::try_from(id).unwrap_or(0),
     }
 }
@@ -1085,7 +1084,6 @@ pub fn make_poi(id: u64, name: &str, kind: &str, coord: (f64, f64)) -> MapPoi {
         name: name.to_owned(),
         kind: kind.to_owned(),
         coord,
-        chat_link: None,
         floor: 1,
     }
 }

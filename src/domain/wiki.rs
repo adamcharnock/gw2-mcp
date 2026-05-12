@@ -81,16 +81,14 @@ impl Default for SearchLimit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SearchResult {
     pub title: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub snippet: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub timestamp: String,
     pub url: String,
+    /// Page extract (intro paragraph). Pre-enriched via a follow-up
+    /// `prop=extracts` fetch — the LLM only needs one prose blob per
+    /// result, so we surface this and drop the search-API's `snippet`
+    /// plus metadata fields (`timestamp`, `page_id`, `size`,
+    /// `word_count`) which were token bloat for typical answers.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub extract: String,
-    pub page_id: i64,
-    pub size: i64,
-    pub word_count: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -136,13 +134,8 @@ mod tests {
     fn search_result_round_trip() {
         let r = SearchResult {
             title: "Dragon Bash".to_owned(),
-            snippet: "snippet".to_owned(),
-            timestamp: "2026-01-01T00:00:00Z".to_owned(),
             url: "https://wiki.guildwars2.com/wiki/Dragon%20Bash".to_owned(),
             extract: "Festival".to_owned(),
-            page_id: 12345,
-            size: 5000,
-            word_count: 800,
         };
         let json = serde_json::to_string(&r).unwrap();
         let back: SearchResult = serde_json::from_str(&json).unwrap();

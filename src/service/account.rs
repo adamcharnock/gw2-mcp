@@ -319,9 +319,7 @@ impl Service {
         let mut encounters = Vec::new();
         let mut total = 0usize;
         for (raid_id, raid) in &metadata {
-            let raid_name = title_case(raid_id);
             for wing in &raid.wings {
-                let wing_name = title_case(&wing.id);
                 for event in &wing.events {
                     total += 1;
                     encounters.push(RaidEncounterEntry {
@@ -329,9 +327,7 @@ impl Service {
                         name: title_case(&event.id),
                         kind: event.kind.clone(),
                         wing_id: wing.id.clone(),
-                        wing_name: wing_name.clone(),
                         raid_id: raid_id.clone(),
-                        raid_name: raid_name.clone(),
                         cleared: cleared_set.contains(event.id.as_str()),
                     });
                 }
@@ -372,7 +368,6 @@ impl Service {
         let mut paths = Vec::new();
         let mut total = 0usize;
         for (dungeon_id, dungeon) in &metadata {
-            let dungeon_name = title_case(dungeon_id);
             for path in &dungeon.paths {
                 total += 1;
                 paths.push(DungeonPathEntry {
@@ -380,7 +375,6 @@ impl Service {
                     name: title_case(&path.id),
                     kind: path.kind.clone(),
                     dungeon_id: dungeon_id.clone(),
-                    dungeon_name: dungeon_name.clone(),
                     cleared: cleared_set.contains(path.id.as_str()),
                 });
             }
@@ -583,9 +577,7 @@ pub struct RaidEncounterEntry {
     pub name: String,
     pub kind: String,
     pub wing_id: String,
-    pub wing_name: String,
     pub raid_id: String,
-    pub raid_name: String,
     pub cleared: bool,
 }
 
@@ -605,7 +597,6 @@ pub struct DungeonPathEntry {
     pub name: String,
     pub kind: String,
     pub dungeon_id: String,
-    pub dungeon_name: String,
     pub cleared: bool,
 }
 

@@ -100,23 +100,6 @@ pub(super) fn build_tools() -> Vec<Tool> {
         }))
         .expect("valid schema literal");
 
-    let by_required_ids: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-            "ids": {
-                "type": "array",
-                "items": { "type": "integer", "minimum": 1 },
-                "minItems": 1,
-                "maxItems": 200,
-                "uniqueItems": true,
-                "description": "Ids to fetch. Required — there are 1000s of entries; pass only what you need. Max 200 per call (GW2 API cap)."
-            }
-        },
-        "required": ["ids"]
-    }))
-    .expect("valid schema literal");
-
     let get_character_build: rmcp::model::JsonObject =
         serde_json::from_value(serde_json::json!({
             "type": "object",
@@ -633,13 +616,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         Tool::new(
             "get_specializations",
             "Resolve GW2 specialization ids (core + elite) into name, profession, and minor/major trait ids. Pass `summary=false` for the full payload.",
-            by_required_ids_with_summary,
+            by_required_ids_with_summary.clone(),
         )
         .annotate(read_only_closed_world("Get Specializations")),
         Tool::new(
             "get_items",
-            "Resolve GW2 equipment / item ids (e.g. those returned by get_character_build) into name and details.",
-            by_required_ids,
+            "Resolve item ids → id, name, rarity, level, type, weight_class, chat_link. Pass `summary=false` for the full payload (icon URL, details, recipe data).",
+            by_required_ids_with_summary,
         )
         .annotate(read_only_closed_world("Get Items")),
         Tool::new(
@@ -687,47 +670,47 @@ pub(super) fn build_tools() -> Vec<Tool> {
         // Tier 6A — PvE coaching surface.
         Tool::new(
             "get_account",
-            "Fetch account-level snapshot: id, name, world, age, expansion access list, guilds, fractal level, daily/monthly AP, WvW rank, commander status. Requires an API key with `account` scope. The single most useful endpoint for 'what does this player have?' (e.g. checking whether mounts/jade-bot/etc. are unlocked via expansion ownership before recommending content).",
+            "Fetch /v2/account snapshot: world, age, `access` list (expansions owned), guilds, fractal level, daily/monthly AP, WvW rank. Requires `account` scope.",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("Get Account"))
         .with_output_schema::<crate::domain::Account>(),
         Tool::new(
             "list_characters",
-            "List the names of all characters on the account. Cheap — returns just the names, not their builds. Response shape: `{characters: string[], total: number}`. Requires an API key with `characters` scope. Pair with `get_character_build` to fetch a specific character's setup.",
+            "List character names on the account. Cheap — names only, not builds. Pair with `get_character_build`. Requires `characters` scope.",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("List Characters"))
         .with_output_schema::<crate::service::CharacterList>(),
         Tool::new(
             "get_account_achievements",
-            "Fetch per-account achievement progress, each row enriched with the achievement's `name` and `description` so you don't need a follow-up `get_achievements` to identify entries. Response shape: `{achievements: [...], total, summary, fetched_at}`. Heavy: 2000–3000 entries on a long-lived account, so summary mode (default true) drops both completed and not-started entries — what's left is the player's in-flight work. Requires an API key with `account` + `progression` scopes. Pass `summary=false` for the raw list.",
+            "Per-account achievement progress, enriched with achievement name + description. `summary=true` (default) keeps only in-flight work (heavy: 2-3k entries otherwise). Requires `account` + `progression` scopes.",
             get_account_achievements,
         )
         .annotate(read_only_open_world("Get Account Achievements"))
         .with_output_schema::<crate::service::AccountAchievementsSnapshot>(),
         Tool::new(
             "get_account_masteries",
-            "Fetch unlocked-mastery progress per track, enriched with the track's `name`, `region`, and `current_level_name`. Response shape: `{masteries: [...], total, total_points_earned, fetched_at}`. Requires an API key with `account` + `progression` scopes. Useful for recommending zones/collections gated by mastery levels (gliding, mounts, fishing, jade-bot, etc.).",
+            "Mastery track progress, enriched with track name, region, current level name. Requires `account` + `progression` scopes.",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("Get Account Masteries"))
         .with_output_schema::<crate::service::AccountMasteriesSnapshot>(),
         Tool::new(
             "get_account_raids",
-            "Fetch raid clears + the full encounter list so the LLM can answer 'what raids do I still have left this week?' from one call. Returns every encounter with a `cleared: bool` flag, encounter/wing/raid names (e.g. Vale Guardian / Spirit Vale / Forsaken Thicket), `cleared_count` + `total_count`, and the next `weekly_reset_at` (Monday 07:30 UTC). Requires an API key with `account` + `progression` scopes.",
+            "Raid clears + full encounter list (each with `cleared: bool`), cleared/total counts, next weekly reset (Monday 07:30 UTC). Requires `account` + `progression` scopes.",
             authed_no_args.clone(),
         )
         .annotate(read_only_open_world("Get Account Raids")),
         Tool::new(
             "get_account_dungeons",
-            "Fetch dungeon-path clears for today + the full path list. Same shape as `get_account_raids` but on the daily cadence: every path is returned with a `cleared: bool` flag, dungeon name + path name, `cleared_count` + `total_count`, and the next `daily_reset_at` (00:00 UTC). Requires an API key with `account` + `progression` scopes.",
+            "Dungeon path clears for today (same shape as get_account_raids, daily cadence). Next reset at 00:00 UTC. Requires `account` + `progression` scopes.",
             authed_no_args,
         )
         .annotate(read_only_open_world("Get Account Dungeons")),
         Tool::new(
             "get_dailies",
-            "Fetch the player's current Wizard's Vault track (`daily` by default; `weekly` or `special` also available). Each objective embeds its `title`, `track` (PvE/PvP/WvW), Astral Acclaim `acclaim`, and per-objective `progress_current/progress_complete/claimed` — so a single call answers 'what's left for me today?'. Also returns `meta_progress_*` for the bonus chest and `meta_reward_astral/_item_id/_claimed`, plus the precomputed `acclaim_remaining`, `acclaim_earned`, and `acclaim_total` rollups so you can cross-check against the player's wallet to flag overcapping. Replaces the deprecated `/v2/achievements/daily` endpoint, which ArenaNet retired when Wizard's Vault launched. Requires an API key with `account` + `progression` scopes.",
+            "Wizard's Vault track (`daily` (default) | `weekly` | `special`). Each objective: title, track, acclaim, progress, claimed. Includes meta-chest progress + precomputed acclaim_earned/remaining/total. Requires `account` + `progression` scopes.",
             get_dailies,
         )
         .annotate(read_only_open_world("Get Dailies"))
@@ -739,7 +722,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         // never changes server-side state.
         Tool::new(
             "get_my_location",
-            "Return where the player currently is: character name, profession, race, map name + region, 2D map coordinates, the 16-point compass bearing they're facing, and whether they're on a mount (`mount.index == 0` means dismounted; otherwise `mount.name` carries the mount name — Springer, Skyscale, etc.). Pass `include_neighbors: true` to also inline the curated map-adjacency list (same data `get_map_neighbors` returns) so 'where am I and what's nearby?' takes one call instead of two — defaults to false to keep the cheap path cheap. Reads live state from the Guild Wars 2 client via Mumble Link; requires GW2 to be running on the same host as this MCP server.",
+            "Live player state via Mumble Link: character, profession, map, coords, 16-point facing, mount (`mount.index == 0` = dismounted). Pass `include_neighbors:true` to inline get_map_neighbors. Requires GW2 running on the same host.",
             get_my_location_schema,
         )
         .annotate(read_only_open_world("Get My Location"))
@@ -753,35 +736,35 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::DirectionsResult>(),
         Tool::new(
             "find_nearby",
-            "List the closest POIs to `around` (defaults to the player's current location). `filter` narrows by kind: `waypoint`, `poi` (landmarks + unlocks), `vista`, `hero_point`, `task` (renown hearts), or `any`. Up to 25 results sorted nearest-first. Response shape: `{results: [...], origin, map_id, filter, total}`.",
+            "List closest POIs to `around` (default: current location). `filter`: waypoint | poi | vista | hero_point | task | any. Up to 25 results sorted nearest-first.",
             find_nearby_schema,
         )
         .annotate(read_only_open_world("Find Nearby"))
         .with_output_schema::<crate::service::NearbySearchResult>(),
         Tool::new(
             "list_maps_in_region",
-            "List every map (zone) in a named GW2 region. Pass `region: {name: \"Maguuma Jungle\"}` for a case-insensitive substring match, or `region: {id: 4}` for a direct lookup. Returns map ids, names, and level ranges sorted by min_level so the LLM can recommend zones in progression order. Response shape: `{region_id, region_name, continent_id, maps: [{map_id, name, min_level, max_level}], total}`.",
+            "List maps in a region. `region: {name: \"...\"}` (case-insensitive substring) or `{id: 4}`. Sorted by min_level for progression order.",
             list_maps_in_region_schema,
         )
         .annotate(read_only_open_world("List Maps In Region"))
         .with_output_schema::<crate::service::RegionMapList>(),
         Tool::new(
             "get_map_neighbors",
-            "List the maps that border `map_id` (curated from the GW2 wiki). Pair with `get_my_location` to answer 'where can I go from here?'. Each neighbor carries: `map_id`, `name`, `direction` (16-point compass — N/NE/ENE/.../NNW, comma-separated for borders along an arc like 'SW, S', omitted for non-physical connections), `connection` (`physical` = walk/mount across the border; `asura_gate` = magical portal in a hub area; `story_gate`, `instance_portal`, `guild_hall` reserved for hand-curated overrides), and per-neighbor `min_level`/`max_level`/`expansion` so the LLM can filter recommendations by what's level-appropriate or which content the player owns. Source-map level + expansion are echoed on the response object for the same reason. Covers public open-world zones + the major hub cities (Lion's Arch, DR, BC, Rata Sum, Hoelbrak, The Grove, Eye of the North, Arborstone, Mistlock Sanctuary, Thousand Seas Pavilion, Wizard's Tower). Excludes: instances, fractals, dungeons, raids, guild halls, WvW.",
+            "Maps bordering `map_id`. Each neighbor has direction (16-pt compass, comma-separated for arcs), connection (physical | asura_gate | story_gate | instance_portal | guild_hall), gate_location, note. Covers open-world + 11 hub cities; excludes instances/fractals/dungeons/raids/WvW.",
             get_map_neighbors_schema,
         )
         .annotate(read_only_open_world("Get Map Neighbors"))
         .with_output_schema::<crate::service::MapNeighborsResponse>(),
         Tool::new(
             "refresh_account_cache",
-            "Invalidate every cached entry tied to this API key (account snapshot, wallet, characters, achievements, masteries, raids, dungeons, Wizard's Vault daily/weekly/special). Use after buying an expansion or completing in-game progress so the next call refetches from the live Guild Wars 2 API. Returns the list of cache keys that were cleared. Does NOT clear the static reference catalogues (items, skills, traits) — those are shared across all users and don't go stale per-account.",
+            "Invalidate cached account data (account/wallet/characters/achievements/masteries/raids/dungeons/wizards-vault) so the next call refetches live. Use after buying an expansion or completing progress. Static catalogues (items/skills/traits) not touched.",
             refresh_account_cache_schema,
         )
         .annotate(read_only_open_world("Refresh Account Cache"))
         .with_output_schema::<crate::service::RefreshAccountCacheResult>(),
         Tool::new(
             "plan_route",
-            "Find up to `k` (default 3) shortest-hop routes between two maps in the curated adjacency graph. Each of `from` and `to` accepts `{id: int}`, `{name: \"Caledon Forest\"}`, or `{here: true}` (resolves via Mumble Link). Returns paths ordered by fewest hops; each path lists every intermediate map with the `connection` used (`physical`/`asura_gate`/`story_gate`/etc.), the `direction` of the border (compass bearing for physical edges), and `gate_location` / `note` when the curated table has them. Pre-counted `asura_gate_count` / `physical_count` / `story_gate_count` per path let the LLM filter post-hoc; the optional `prefer` arg re-ranks server-side for 'walking' or 'gates' preferences. `exclude_connections` skips entire edge categories during search — e.g. `[\"story_gate\"]` to avoid routes a player may not have story access for. `player_access` filters edges by the expansions the player owns; ABSENT means auto-fetch from /v2/account, EMPTY ARRAY means no filtering, an explicit list overrides both. The response's `filters_applied` field echoes the effective filter state. Same graph coverage as `get_map_neighbors` — open-world + the 11 hub cities, WvW excluded.",
+            "Top-K shortest-hop routes between two maps. `from`/`to`: `{id}` | `{name}` | `{here:true}`. Each hop carries connection, direction, gate_location, note. `prefer` re-ranks (shortest|walking|gates). `exclude_connections` blocks edge types. `player_access` filters by expansions owned — absent = auto-fetch from /v2/account; empty array disables filtering. Same coverage as get_map_neighbors.",
             plan_route_schema,
         )
         .annotate(read_only_open_world("Plan Route"))

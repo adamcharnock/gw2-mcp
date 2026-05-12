@@ -148,17 +148,6 @@ pub struct MapNeighborLink {
     /// to false (bidirectional) when missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub one_way: Option<bool>,
-    /// Minimum recommended level for the target map. Cheap to inline
-    /// here so the LLM doesn't have to follow up with `list_maps_in_region`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_level: Option<u32>,
-    /// Maximum recommended level for the target map.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_level: Option<u32>,
-    /// Which expansion / release the target map belongs to. Pairs with
-    /// the account's access list for filtering ("show only maps I own").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expansion: Option<Expansion>,
     /// Free-text note for anything else worth surfacing — unlock
     /// prerequisites ("requires Aerodrome key"), story-step gating
     /// ("after `SotO` prologue"), or one-line context the wiki carries
@@ -319,7 +308,6 @@ mod tests {
         assert_eq!(cf.max_level, Some(15));
         assert_eq!(cf.expansion, Some(Expansion::Core));
         assert_eq!(cf.neighbors[0].connection, Some(ConnectionType::Physical));
-        assert_eq!(cf.neighbors[0].min_level, Some(15));
         assert_eq!(cf.neighbors[1].connection, Some(ConnectionType::AsuraGate));
         assert_eq!(
             cf.neighbors[1].gate_location.as_deref(),

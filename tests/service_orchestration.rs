@@ -199,13 +199,8 @@ async fn wiki_search_caches_response() {
 
     wiki.set_search_results(vec![SearchResult {
         title: "Dragon Bash".to_owned(),
-        snippet: "festival".to_owned(),
-        timestamp: "2026-01-01T00:00:00Z".to_owned(),
         url: String::new(),
         extract: String::new(),
-        page_id: 12345,
-        size: 5000,
-        word_count: 800,
     }]);
     wiki.set_extract("Dragon Bash", "Dragon Bash is an annual festival.");
 
@@ -249,13 +244,8 @@ async fn wiki_search_query_normalisation_dedupes_cache() {
     let wiki = FakeWiki::new();
     wiki.set_search_results(vec![SearchResult {
         title: "Test".to_owned(),
-        snippet: String::new(),
-        timestamp: String::new(),
         url: String::new(),
         extract: String::new(),
-        page_id: 1,
-        size: 1,
-        word_count: 1,
     }]);
 
     let svc = build(gw2, wiki.clone(), cache, clock);

@@ -43,7 +43,6 @@ pub struct Currency {
     pub id: CurrencyId,
     pub name: String,
     pub description: String,
-    pub icon: String,
     pub order: i32,
 }
 

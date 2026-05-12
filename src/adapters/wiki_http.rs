@@ -50,16 +50,6 @@ struct SearchWireQuery {
 #[derive(Deserialize)]
 struct SearchWireHit {
     title: String,
-    #[serde(default)]
-    snippet: String,
-    #[serde(default)]
-    timestamp: String,
-    #[serde(default, rename = "pageid")]
-    page_id: i64,
-    #[serde(default)]
-    size: i64,
-    #[serde(default)]
-    wordcount: i64,
 }
 
 // MediaWiki extracts response shape (only the fields we need).
@@ -106,13 +96,8 @@ impl Wiki for HttpWiki {
             .into_iter()
             .map(|h| SearchResult {
                 title: h.title,
-                snippet: clean_snippet(&h.snippet),
-                timestamp: h.timestamp,
                 url: String::new(), // Filled in by service layer.
                 extract: String::new(),
-                page_id: h.page_id,
-                size: h.size,
-                word_count: h.wordcount,
             })
             .collect())
     }

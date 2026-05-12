@@ -186,16 +186,11 @@ fn parse_poi_object(v: &serde_json::Value, floor: i32) -> Option<MapPoi> {
         .unwrap_or("landmark")
         .to_owned();
     let coord = parse_coord(v.get("coord"))?;
-    let chat_link = v
-        .get("chat_link")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned);
     Some(MapPoi {
         id,
         name,
         kind,
         coord,
-        chat_link,
         floor,
     })
 }
@@ -208,16 +203,11 @@ fn parse_task_object(v: &serde_json::Value, floor: i32) -> Option<MapPoi> {
         .unwrap_or("(renown heart)")
         .to_owned();
     let coord = parse_coord(v.get("coord"))?;
-    let chat_link = v
-        .get("chat_link")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned);
     Some(MapPoi {
         id,
         name,
         kind: "task".to_owned(),
         coord,
-        chat_link,
         floor,
     })
 }
@@ -238,7 +228,6 @@ fn parse_skill_challenge(v: &serde_json::Value, floor: i32) -> Option<MapPoi> {
         name: format!("Hero Point {raw_id}"),
         kind: "hero_point".to_owned(),
         coord,
-        chat_link: None,
         floor,
     })
 }

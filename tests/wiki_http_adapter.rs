@@ -47,9 +47,6 @@ async fn search_sends_correct_params_and_parses_hits() {
     assert_eq!(results.len(), 1);
     let hit = &results[0];
     assert_eq!(hit.title, "Dragon Bash");
-    assert_eq!(hit.page_id, 12345);
-    // snippet must have HTML stripped
-    assert_eq!(hit.snippet, "Dragon Bash is a festival");
     // url is filled in by the service layer, not the adapter
     assert!(hit.url.is_empty());
     assert!(hit.extract.is_empty());
