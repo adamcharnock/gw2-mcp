@@ -242,6 +242,7 @@ async fn bank_item_ids_filter_includes_zero_count_for_missing_ids() {
                 item_ids: Some(vec![19721, 19976]),
                 categories: None,
                 name_contains: None,
+                ..Default::default()
             },
         )
         .await
@@ -291,6 +292,7 @@ async fn bank_name_contains_filter_matches_case_insensitive_token() {
                 item_ids: None,
                 categories: None,
                 name_contains: Some("mystic".into()),
+                ..Default::default()
             },
         )
         .await
@@ -343,6 +345,7 @@ async fn materials_categories_filter_narrows_to_requested_categories() {
                 item_ids: None,
                 categories: Some(vec![46]),
                 name_contains: None,
+                ..Default::default()
             },
         )
         .await
@@ -351,6 +354,205 @@ async fn materials_categories_filter_narrows_to_requested_categories() {
     assert_eq!(snap.categories[0].category, 46);
     assert_eq!(snap.categories[0].items.len(), 1);
     assert_eq!(snap.categories[0].items[0].id, 24277);
+}
+
+#[tokio::test]
+async fn bank_unique_item_count_reflects_filtered_response_not_unfiltered_total() {
+    // Bug: prior to the fix, unique_item_count was the full bank's
+    // distinct-id count regardless of name_contains / item_ids
+    // filters. After fix: counts only what's actually in the returned
+    // items list with count > 0.
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![
+        gw2_mcp::domain::InventorySlot {
+            id: 19721,
+            count: 58,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 19976,
+            count: 13,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 42,
+            count: 1,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+    ]);
+    gw2.add_item(common::item_named(19721, "Glob of Ectoplasm"));
+    gw2.add_item(common::item_named(19976, "Mystic Coin"));
+    gw2.add_item(common::item_named(42, "Random Thing"));
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                name_contains: Some("mystic".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(snap.items.len(), 1);
+    assert_eq!(
+        snap.unique_item_count, 1,
+        "unique_item_count must reflect filtered response, not unfiltered bank"
+    );
+}
+
+#[tokio::test]
+async fn inventory_unique_item_count_excludes_count_zero_placeholder_rows() {
+    // Bug: passing `item_ids: [..., bogus_id]` injected a count: 0
+    // row that bumped unique_item_count, misleading the LLM into
+    // thinking the player owned the placeholder.
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_character_inventory(gw2_mcp::domain::CharacterInventory {
+        bags: vec![Some(gw2_mcp::domain::CharacterBag {
+            id: 1,
+            size: 20,
+            inventory: vec![Some(gw2_mcp::domain::InventorySlot {
+                id: 19976,
+                count: 10,
+                binding: None,
+                bound_to: None,
+                charges: None,
+            })],
+        })],
+    });
+    gw2.add_item(common::item_named(19976, "Mystic Coin"));
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_character_inventory(
+            &valid_api_key(),
+            &gw2_mcp::domain::CharacterName::new("Vesta Vey").unwrap(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                item_ids: Some(vec![19976, 99_999_999]),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        snap.items.len(),
+        2,
+        "should include both the matched row and the count: 0 placeholder"
+    );
+    assert!(
+        snap.items
+            .iter()
+            .any(|e| e.id == 99_999_999 && e.count == 0),
+        "placeholder row must be present"
+    );
+    assert_eq!(
+        snap.unique_item_count, 1,
+        "placeholder count: 0 row must NOT bump unique_item_count"
+    );
+}
+
+#[tokio::test]
+async fn bank_with_market_prices_enriches_rows_and_sorts_by_best_realized() {
+    // Three items with diverging value profiles:
+    //   - Mystic Coin (19976): TP-rich, vendor floor 8c
+    //   - Glob of Ectoplasm (19721): TP-rich, vendor floor 24c
+    //   - Bound Trophy (50000): TP-absent, vendor 5000c (5s) — TP can't
+    //     beat vendor when the item isn't listed at all.
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+    gw2.set_bank(vec![
+        gw2_mcp::domain::InventorySlot {
+            id: 19976,
+            count: 10,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 19721,
+            count: 58,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 50000,
+            count: 4,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+    ]);
+    gw2.add_item(common::item_with_vendor(19976, "Mystic Coin", 8));
+    gw2.add_item(common::item_with_vendor(19721, "Glob of Ectoplasm", 24));
+    gw2.add_item(common::item_with_vendor(50000, "Bound Trophy", 5000));
+    gw2.set_market_price(19976, 19500, 20900); // ~2g sell
+    gw2.set_market_price(19721, 30000, 33000); // ~3.3s sell
+    // No market price entry for 50000 — not on TP.
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc
+        .get_account_bank(
+            &valid_api_key(),
+            true,
+            &gw2_mcp::service::StorageFilter {
+                with_market_prices: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Per-row market_value populated.
+    let coin = snap.items.iter().find(|e| e.id == 19976).unwrap();
+    let coin_mv = coin
+        .market_value
+        .as_ref()
+        .expect("Mystic Coin has TP price");
+    assert_eq!(coin_mv.tp_sell_unit, Some(20900));
+    // 10 * 20900 = 209_000; * 0.85 = 177_650
+    assert_eq!(coin_mv.tp_sell_total_after_fee, Some(177_650));
+    assert_eq!(coin_mv.vendor_unit, Some(8));
+    assert_eq!(coin_mv.vendor_total, Some(80));
+    assert_eq!(coin_mv.best_realized, 177_650);
+    assert_eq!(coin_mv.best_realized_source, "tp");
+
+    // Bound trophy: no TP price, vendor wins.
+    let trophy = snap.items.iter().find(|e| e.id == 50000).unwrap();
+    let trophy_mv = trophy.market_value.as_ref().unwrap();
+    assert_eq!(trophy_mv.tp_sell_unit, None);
+    assert_eq!(trophy_mv.tp_sell_total_after_fee, None);
+    assert_eq!(trophy_mv.vendor_unit, Some(5000));
+    assert_eq!(trophy_mv.vendor_total, Some(20_000));
+    assert_eq!(trophy_mv.best_realized, 20_000);
+    assert_eq!(trophy_mv.best_realized_source, "vendor");
+
+    // Sort order: Mystic Coin (177_650) > Glob of Ectoplasm
+    // (58 * 33000 * 0.85 = 1_627_290) > Bound Trophy (20_000).
+    // Wait — Globs are worth more! Let me re-check the order.
+    let order: Vec<u32> = snap.items.iter().map(|e| e.id).collect();
+    assert_eq!(
+        order,
+        vec![19721, 19976, 50000],
+        "rows must sort by best_realized desc"
+    );
 }
 
 #[tokio::test]

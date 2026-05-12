@@ -142,6 +142,7 @@ impl Service {
         debug!(fingerprint = %fingerprint, cleared = keys.len(), "account cache cleared");
         RefreshAccountCacheResult {
             cleared_at: self.clock.now(),
+            cleared_minutes_ago: 0,
             cleared_count: keys.len(),
             scopes: [
                 "account",
@@ -247,6 +248,7 @@ impl Service {
             summary,
             achievements,
             fetched_at: self.clock.now(),
+            fetched_minutes_ago: 0,
         })
     }
 
@@ -289,6 +291,7 @@ impl Service {
             points_by_region,
             masteries,
             fetched_at: self.clock.now(),
+            fetched_minutes_ago: 0,
         })
     }
 
@@ -438,6 +441,7 @@ impl Service {
             weekly_reset_at,
             weekly_reset_in_minutes: super::minutes_between(now, weekly_reset_at),
             fetched_at: now,
+            fetched_minutes_ago: 0,
         })
     }
 
@@ -498,6 +502,7 @@ impl Service {
             daily_reset_at,
             daily_reset_in_minutes: super::minutes_between(now, daily_reset_at),
             fetched_at: now,
+            fetched_minutes_ago: 0,
         })
     }
 
@@ -623,6 +628,7 @@ impl Service {
     /// have to follow up with `get_items`. Name lookup is best-effort
     /// — a failure leaves `name: None` rather than poisoning the whole
     /// response.
+    #[allow(clippy::too_many_lines)] // filter passes + market enrichment
     pub async fn get_account_bank(
         &self,
         key: &ApiKey,
@@ -684,6 +690,7 @@ impl Service {
                     binding: None,
                     bound_to: None,
                     charges: None,
+                    market_value: None,
                 })
                 .collect();
             entries.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
@@ -698,6 +705,7 @@ impl Service {
                     binding: s.binding.clone(),
                     bound_to: s.bound_to.clone(),
                     charges: s.charges,
+                    market_value: None,
                 })
                 .collect()
         };
@@ -718,6 +726,7 @@ impl Service {
                         binding: None,
                         bound_to: None,
                         charges: None,
+                        market_value: None,
                     });
                 }
             }
@@ -731,12 +740,44 @@ impl Service {
             });
         }
 
+        if filter.with_market_prices {
+            let visible_ids: Vec<ItemId> = items
+                .iter()
+                .filter_map(|e| ItemId::new(i64::from(e.id)).ok())
+                .collect();
+            let vendor = self.vendor_values_for(&visible_ids).await;
+            let tp_sell = self.tp_sell_unit_for(&visible_ids).await;
+            let id_u32: Vec<u32> = items.iter().map(|e| e.id).collect();
+            let counts: BTreeMap<u32, u32> = items.iter().map(|e| (e.id, e.count)).collect();
+            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp_sell);
+            for e in &mut items {
+                e.market_value = valuations.get(&e.id).cloned();
+            }
+            items.sort_by(|a, b| {
+                let av = a.market_value.as_ref().map_or(0, |m| m.best_realized);
+                let bv = b.market_value.as_ref().map_or(0, |m| m.best_realized);
+                bv.cmp(&av).then(a.id.cmp(&b.id))
+            });
+        }
+
+        // unique_item_count reflects what the caller actually got:
+        // distinct ids in the post-filter response with count > 0.
+        // Count: 0 placeholder rows (injected for unfound item_ids)
+        // are deliberately excluded — they're "you don't have this"
+        // sentinels, not items the player owns.
+        let unique_item_count = items
+            .iter()
+            .filter(|e| e.count > 0)
+            .map(|e| e.id)
+            .collect::<BTreeSet<_>>()
+            .len();
         Ok(AccountBankSnapshot {
             summary,
-            unique_item_count: unique_ids.len(),
+            unique_item_count,
             used_slots: slots.len(),
             items,
             fetched_at: self.clock.now(),
+            fetched_minutes_ago: 0,
         })
     }
 
@@ -857,6 +898,7 @@ impl Service {
                     name,
                     count: s.count,
                     binding: if summary { None } else { s.binding.clone() },
+                    market_value: None,
                 });
         }
 
@@ -896,6 +938,7 @@ impl Service {
                         name,
                         count,
                         binding: None,
+                        market_value: None,
                     });
             }
         }
@@ -921,6 +964,53 @@ impl Service {
                 .then(a.category.cmp(&b.category))
         });
 
+        if filter.with_market_prices {
+            // Collect every visible id across all categories in one
+            // batch so the metadata + price fetches chunk efficiently.
+            let visible_ids: Vec<ItemId> = categories
+                .iter()
+                .flat_map(|c| c.items.iter())
+                .filter_map(|e| ItemId::new(i64::from(e.id)).ok())
+                .collect();
+            let vendor = self.vendor_values_for(&visible_ids).await;
+            let tp_sell = self.tp_sell_unit_for(&visible_ids).await;
+            let id_u32: Vec<u32> = categories
+                .iter()
+                .flat_map(|c| c.items.iter().map(|e| e.id))
+                .collect();
+            let counts: BTreeMap<u32, u32> = categories
+                .iter()
+                .flat_map(|c| c.items.iter().map(|e| (e.id, e.count)))
+                .collect();
+            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp_sell);
+            // Per-row enrichment + per-category sort by best_realized.
+            for cat in &mut categories {
+                for e in &mut cat.items {
+                    e.market_value = valuations.get(&e.id).cloned();
+                }
+                cat.items.sort_by(|a, b| {
+                    let av = a.market_value.as_ref().map_or(0, |m| m.best_realized);
+                    let bv = b.market_value.as_ref().map_or(0, |m| m.best_realized);
+                    bv.cmp(&av).then(a.id.cmp(&b.id))
+                });
+            }
+            // Categories themselves sort by their highest-value item
+            // so the most-actionable categories surface first.
+            categories.sort_by(|a, b| {
+                let av = a
+                    .items
+                    .first()
+                    .and_then(|e| e.market_value.as_ref())
+                    .map_or(0, |m| m.best_realized);
+                let bv = b
+                    .items
+                    .first()
+                    .and_then(|e| e.market_value.as_ref())
+                    .map_or(0, |m| m.best_realized);
+                bv.cmp(&av).then(a.category.cmp(&b.category))
+            });
+        }
+
         let total_slots = slots.len();
         let used_slots = slots.iter().filter(|s| s.count > 0).count();
 
@@ -930,6 +1020,7 @@ impl Service {
             used_slots,
             total_slots,
             fetched_at: self.clock.now(),
+            fetched_minutes_ago: 0,
         })
     }
 
@@ -1012,6 +1103,7 @@ impl Service {
                     binding: None,
                     bound_to: None,
                     charges: None,
+                    market_value: None,
                 })
                 .collect();
             entries.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
@@ -1026,6 +1118,7 @@ impl Service {
                     binding: s.binding.clone(),
                     bound_to: s.bound_to.clone(),
                     charges: s.charges,
+                    market_value: None,
                 })
                 .collect()
         };
@@ -1043,6 +1136,7 @@ impl Service {
                         binding: None,
                         bound_to: None,
                         charges: None,
+                        market_value: None,
                     });
                 }
             }
@@ -1056,14 +1150,44 @@ impl Service {
             });
         }
 
+        if filter.with_market_prices {
+            let visible_ids: Vec<ItemId> = items
+                .iter()
+                .filter_map(|e| ItemId::new(i64::from(e.id)).ok())
+                .collect();
+            let vendor = self.vendor_values_for(&visible_ids).await;
+            let tp_sell = self.tp_sell_unit_for(&visible_ids).await;
+            let id_u32: Vec<u32> = items.iter().map(|e| e.id).collect();
+            let counts: BTreeMap<u32, u32> = items.iter().map(|e| (e.id, e.count)).collect();
+            let valuations = Self::compose_valuations(&id_u32, &counts, &vendor, &tp_sell);
+            for e in &mut items {
+                e.market_value = valuations.get(&e.id).cloned();
+            }
+            items.sort_by(|a, b| {
+                let av = a.market_value.as_ref().map_or(0, |m| m.best_realized);
+                let bv = b.market_value.as_ref().map_or(0, |m| m.best_realized);
+                bv.cmp(&av).then(a.id.cmp(&b.id))
+            });
+        }
+
+        // Same semantics as bank — count what the caller actually got
+        // with count > 0, not the unfiltered total or the count: 0
+        // placeholders we inject for missing item_ids.
+        let unique_item_count = items
+            .iter()
+            .filter(|e| e.count > 0)
+            .map(|e| e.id)
+            .collect::<BTreeSet<_>>()
+            .len();
         Ok(CharacterInventorySnapshot {
             character_name: name.as_str().to_owned(),
             summary,
-            unique_item_count: unique_ids.len(),
+            unique_item_count,
             used_slots: occupied.len(),
             total_slots,
             items,
             fetched_at: self.clock.now(),
+            fetched_minutes_ago: 0,
         })
     }
 
@@ -1116,6 +1240,122 @@ impl Service {
                 BTreeMap::new()
             }
         }
+    }
+
+    /// Batch-resolve `vendor_value` (NPC sell price, copper) for a set
+    /// of ids. Best-effort — empty map on any failure. Ids missing
+    /// from the API response or with no `vendor_value` field yield no
+    /// entry (treated as "vendor data unknown" downstream).
+    ///
+    /// Item metadata is cached at `STATIC_TTL`, so this is effectively
+    /// free on warm caches even for large id sets — the adapter
+    /// chunks at 200 ids per /v2/items request.
+    async fn vendor_values_for(&self, ids: &[ItemId]) -> BTreeMap<u32, u32> {
+        if ids.is_empty() {
+            return BTreeMap::new();
+        }
+        let map = match self.get_items(ids).await {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(error = ?e, "failed to resolve item metadata for vendor values");
+                return BTreeMap::new();
+            }
+        };
+        let mut out = BTreeMap::new();
+        for (id, item) in map {
+            if let Some(v) = item
+                .extra
+                .get("vendor_value")
+                .and_then(serde_json::Value::as_u64)
+                && let Ok(v) = u32::try_from(v)
+            {
+                out.insert(id.get(), v);
+            }
+        }
+        out
+    }
+
+    /// Batch-resolve `/v2/commerce/prices` for a set of ids. Returns
+    /// `id -> sell_unit_price` in copper. Items not on the TP are
+    /// silently omitted (the adapter returns no row for them).
+    ///
+    /// Goes through `get_market_prices` so we share the per-id 60s
+    /// price cache with the standalone `get_market_prices` tool — a
+    /// follow-up storage call within the window pays no extra HTTP.
+    async fn tp_sell_unit_for(&self, ids: &[ItemId]) -> BTreeMap<u32, u32> {
+        if ids.is_empty() {
+            return BTreeMap::new();
+        }
+        let resp = match self.get_market_prices(ids).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(error = ?e, "failed to fetch market prices; rows will not be enriched with TP value");
+                return BTreeMap::new();
+            }
+        };
+        resp.items
+            .into_iter()
+            .filter_map(|e| {
+                let p = e.sells.unit_price;
+                if p > 0 {
+                    u32::try_from(p).ok().map(|p| (e.id.get(), p))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Combine the per-id maps from `vendor_values_for` and
+    /// `tp_sell_unit_for` into one valuation table the row builders
+    /// can index by item id. Pure — no IO.
+    fn compose_valuations(
+        ids: &[u32],
+        counts: &BTreeMap<u32, u32>,
+        vendor: &BTreeMap<u32, u32>,
+        tp_sell: &BTreeMap<u32, u32>,
+    ) -> BTreeMap<u32, MarketValuation> {
+        // TP fees: 5% listing + 10% sale = 15% off the listed price.
+        // The player nets 85% of the listed price.
+        const TP_KEEP_NUMERATOR: u64 = 85;
+        const TP_KEEP_DENOMINATOR: u64 = 100;
+        let mut out = BTreeMap::new();
+        for &id in ids {
+            let count = u64::from(counts.get(&id).copied().unwrap_or(0));
+            let tp_unit = tp_sell.get(&id).copied();
+            let tp_total =
+                tp_unit.map(|p| u64::from(p) * count * TP_KEEP_NUMERATOR / TP_KEEP_DENOMINATOR);
+            let v_unit = vendor.get(&id).copied();
+            let v_total = v_unit.map(|p| u64::from(p) * count);
+            // Prefer TP when present and at least matches the vendor
+            // floor; vendor otherwise; (0, "none") only when neither
+            // source has a price at all (rare — `NoSell` items + not
+            // listed on TP).
+            let (best, source) = match (tp_total, v_total) {
+                (Some(t), Some(v)) => {
+                    if t >= v {
+                        (t, "tp")
+                    } else {
+                        (v, "vendor")
+                    }
+                }
+                (Some(t), None) => (t, "tp"),
+                (None, Some(v)) => (v, "vendor"),
+                (None, None) => (0, "none"),
+            };
+            out.insert(
+                id,
+                MarketValuation {
+                    tp_sell_unit: tp_unit,
+                    tp_sell_total_after_fee: tp_total,
+                    vendor_unit: v_unit,
+                    vendor_total: v_total,
+                    best_realized: best,
+                    best_realized_source: source.to_owned(),
+                },
+            );
+        }
+        out
     }
 
     pub(super) async fn fetch_currencies_for(
@@ -1196,6 +1436,7 @@ pub struct AccountRaidsSnapshot {
     /// computing from `weekly_reset_at` itself.
     pub weekly_reset_in_minutes: i64,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1231,6 +1472,7 @@ pub struct AccountDungeonsSnapshot {
     /// timestamp per the time-delta convention.
     pub daily_reset_in_minutes: i64,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1325,6 +1567,7 @@ pub struct CharacterList {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RefreshAccountCacheResult {
     pub cleared_at: DateTime<Utc>,
+    pub cleared_minutes_ago: i64,
     pub cleared_count: usize,
     pub scopes: Vec<String>,
 }
@@ -1338,6 +1581,7 @@ pub struct AccountAchievementsSnapshot {
     pub total: usize,
     pub summary: bool,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 /// Object wrapper around the per-account mastery list.
@@ -1363,6 +1607,7 @@ pub struct AccountMasteriesSnapshot {
     /// like the metadata table).
     pub points_by_region: BTreeMap<String, MasteryPointBalance>,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 /// Per-region mastery-point balance. `unspent` is `earned - spent`,
@@ -1400,6 +1645,47 @@ pub struct StorageFilter {
     /// Case-insensitive, token-based substring match on the item
     /// name. See `text_match::name_contains_match`.
     pub name_contains: Option<String>,
+    /// When true, every row gets a [`MarketValuation`] populated from
+    /// `/v2/commerce/prices` (TP) + the `vendor_value` already in the
+    /// item metadata. Rows are re-sorted by `best_realized` descending
+    /// so the items worth selling rise to the top.
+    pub with_market_prices: bool,
+}
+
+/// Per-row enrichment populated when [`StorageFilter::with_market_prices`]
+/// is true. All copper values; gold = copper / 10000. Field nullability
+/// signals data availability — `tp_sell_unit` is `None` for items not
+/// on the trading post; `vendor_unit` is `None` only when the
+/// `/v2/items` lookup didn't resolve (rare).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub struct MarketValuation {
+    /// Trading-post sell unit price (lowest listed sell), in copper.
+    /// `None` when the item isn't listed on the TP at all (soulbound,
+    /// account-bound, vendor-trash without listings).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tp_sell_unit: Option<u32>,
+    /// Realised total if listed and sold on TP — `count * tp_sell_unit`
+    /// minus the 15% TP fee (5% listing + 10% sale tax). `None`
+    /// whenever `tp_sell_unit` is `None`. Use this for "what would I
+    /// get?" questions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tp_sell_total_after_fee: Option<u64>,
+    /// NPC vendor sell unit price, in copper. `None` only on metadata
+    /// resolution failure. Items flagged `NoSell` get `Some(0)`
+    /// rather than `None` — the API returns `vendor_value: 0` for
+    /// those.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_unit: Option<u32>,
+    /// Realised total if vendored: `count * vendor_unit`. No fees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_total: Option<u64>,
+    /// Best realised total in copper — `max(tp_sell_total_after_fee,
+    /// vendor_total)`. The LLM should quote this as the practical
+    /// value of holding the stack. 0 when neither price is available.
+    pub best_realized: u64,
+    /// Which source produced `best_realized`: `"tp"`, `"vendor"`, or
+    /// `"none"` (no price at all — soulbound and `NoSell`-flagged).
+    pub best_realized_source: String,
 }
 
 /// Result of `get_account_bank`. See `Service::get_account_bank` for
@@ -1409,12 +1695,16 @@ pub struct AccountBankSnapshot {
     /// Echoes the request arg. Lets the LLM disambiguate at call time
     /// without re-checking its arguments.
     pub summary: bool,
-    /// Number of distinct item ids found across the bank.
+    /// Distinct item ids in the returned `items` list (after filters,
+    /// excluding count: 0 placeholder rows). Reflects what the caller
+    /// actually got back, not the unfiltered total — pass an empty
+    /// `StorageFilter` to see the full bank count.
     pub unique_item_count: usize,
     /// Number of occupied bank slots (after null-filtering by adapter).
     pub used_slots: usize,
     pub items: Vec<BankItemEntry>,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 /// One row in the bank response. In summary mode each row aggregates a
@@ -1432,6 +1722,10 @@ pub struct BankItemEntry {
     pub bound_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charges: Option<u32>,
+    /// Present only when the caller passed `with_market_prices: true`.
+    /// All copper; see [`MarketValuation`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_value: Option<MarketValuation>,
 }
 
 /// Result of `get_character_inventory`. Bag structure is flattened —
@@ -1447,6 +1741,7 @@ pub struct CharacterInventorySnapshot {
     /// (id, name, count, optional binding/charges).
     pub items: Vec<BankItemEntry>,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 /// Result of `get_account_materials`. See `Service::get_account_materials`
@@ -1466,6 +1761,7 @@ pub struct AccountMaterialsSnapshot {
     /// Every slot the material storage tab has, even count=0 ones.
     pub total_slots: usize,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1488,6 +1784,10 @@ pub struct MaterialItemEntry {
     pub count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,
+    /// Present only when the caller passed `with_market_prices: true`.
+    /// All copper; see [`MarketValuation`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_value: Option<MarketValuation>,
 }
 
 fn total_mastery_points_earned(

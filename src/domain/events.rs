@@ -184,6 +184,7 @@ pub struct PatternSlot {
 pub struct EventScheduleResponse {
     pub events: Vec<EventOccurrence>,
     pub generated_at: DateTime<Utc>,
+    pub generated_minutes_ago: i64,
     pub source_url: String,
     pub widget_version: String,
     /// Echo of the filters that were actually applied. Lets the LLM

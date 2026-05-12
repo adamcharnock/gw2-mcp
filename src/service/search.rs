@@ -64,8 +64,10 @@ impl Service {
     }
 
     pub async fn get_index_status(&self) -> Result<IndexStatusView, ServiceError> {
-        Ok(IndexStatusView::from(
+        let now_unix = self.clock.now().timestamp();
+        Ok(IndexStatusView::from_index_status(
             self.search_index()?.index_status().await?,
+            now_unix,
         ))
     }
 }

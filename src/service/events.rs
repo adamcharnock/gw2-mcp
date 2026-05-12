@@ -209,6 +209,7 @@ fn build_schedule_response(
     EventScheduleResponse {
         events,
         generated_at: now,
+        generated_minutes_ago: 0,
         source_url: source_url.to_owned(),
         widget_version: raw.config.version.clone(),
         filters_applied: EventFiltersSummary {

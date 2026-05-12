@@ -81,6 +81,7 @@ impl Service {
             facing_bearing: facing,
             ui_tick: snap.ui_tick,
             captured_at: self.clock.now(),
+            captured_minutes_ago: 0,
             neighbors,
         })
     }
@@ -377,6 +378,7 @@ pub struct MyLocationSnapshot {
     pub facing_bearing: Bearing16,
     pub ui_tick: u32,
     pub captured_at: DateTime<Utc>,
+    pub captured_minutes_ago: i64,
     /// Curated adjacency list for `map_id`, populated when the caller
     /// passed `include_neighbors: true`. Same data
     /// [`Service::get_map_neighbors`] returns. `None` either when the

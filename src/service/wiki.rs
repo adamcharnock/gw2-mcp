@@ -17,9 +17,13 @@ impl Service {
         let cache_key = wiki_search_cache_key(query, limit);
 
         if let Some(json) = self.cache.get(&cache_key).await
-            && let Ok(resp) = serde_json::from_str::<SearchResponse>(&json)
+            && let Ok(mut resp) = serde_json::from_str::<SearchResponse>(&json)
         {
             debug!(query = %query, "wiki search cache hit");
+            // Recompute the delta against current clock so the LLM
+            // sees how stale a cached response is. searched_at stays
+            // pinned to the original fetch moment.
+            resp.searched_minutes_ago = super::minutes_between(resp.searched_at, self.clock.now());
             return Ok(resp);
         }
 
@@ -34,17 +38,22 @@ impl Service {
         }
 
         let total = results.len();
-        let response = SearchResponse {
+        let searched_at = self.clock.now();
+        let mut response = SearchResponse {
             query: query.as_str().to_owned(),
             results,
             total,
-            searched_at: self.clock.now(),
+            searched_at,
+            searched_minutes_ago: 0,
         };
 
         if let Ok(json) = serde_json::to_string(&response) {
             self.cache.set(&cache_key, json, WIKI_TTL).await;
         }
-
+        // Compute delta against the call's own clock-now so a cached
+        // re-read surfaces real staleness (vs. zero on fresh calls).
+        response.searched_minutes_ago =
+            super::minutes_between(response.searched_at, self.clock.now());
         Ok(response)
     }
 

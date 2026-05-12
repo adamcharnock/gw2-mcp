@@ -32,6 +32,7 @@ impl Service {
                 items: Vec::new(),
                 total: 0,
                 fetched_at: self.clock.now(),
+                fetched_minutes_ago: 0,
             });
         }
 
@@ -103,6 +104,7 @@ impl Service {
             total: items.len(),
             items,
             fetched_at: self.clock.now(),
+            fetched_minutes_ago: 0,
         })
     }
 }
@@ -113,6 +115,7 @@ pub struct MarketPricesResponse {
     pub items: Vec<MarketPriceEntry>,
     pub total: usize,
     pub fetched_at: DateTime<Utc>,
+    pub fetched_minutes_ago: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]

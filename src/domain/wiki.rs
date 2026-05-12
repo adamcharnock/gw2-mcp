@@ -97,6 +97,9 @@ pub struct SearchResponse {
     pub results: Vec<SearchResult>,
     pub total: usize,
     pub searched_at: DateTime<Utc>,
+    /// Minutes since `searched_at` (~0 on fresh calls; non-zero when
+    /// the response came out of cache). Convention pair for the LLM.
+    pub searched_minutes_ago: i64,
 }
 
 #[cfg(test)]

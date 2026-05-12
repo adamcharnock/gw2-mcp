@@ -286,6 +286,11 @@ pub(super) fn build_tools() -> Vec<Tool> {
                     "type": ["string", "null"],
                     "default": null,
                     "description": "Case-insensitive, token-based substring filter on item name. `'mystic coin'` matches `'Mystic Coin'` and `'Coin, Mystic'` (order-agnostic). Items with unresolved names are dropped from the result."
+                },
+                "with_market_prices": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, every row gains a `market_value` block with `tp_sell_unit`, `tp_sell_total_after_fee` (TP price minus 15% fees × count), `vendor_unit`, `vendor_total`, `best_realized`, and `best_realized_source` (\"tp\"|\"vendor\"|\"none\"). Rows are re-sorted by `best_realized` desc — the highest-value items rise to the top. Use for 'what should I sell?' / 'what's this bank worth?'. Costs one extra `/v2/commerce/prices` fetch (cached 60s)."
                 }
             }
         }))
@@ -325,6 +330,11 @@ pub(super) fn build_tools() -> Vec<Tool> {
                     "type": ["string", "null"],
                     "default": null,
                     "description": "Case-insensitive, token-based substring filter on item name."
+                },
+                "with_market_prices": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, every row gains a `market_value` block with `tp_sell_unit`, `tp_sell_total_after_fee` (TP price minus 15% fees × count), `vendor_unit`, `vendor_total`, `best_realized`, and `best_realized_source` (\"tp\"|\"vendor\"|\"none\"). Rows + categories are re-sorted by `best_realized` desc — the highest-value items rise to the top. Use for 'what should I sell?' / 'what's this character/bank worth?'. Costs one extra `/v2/commerce/prices` fetch (cached 60s)."
                 }
             }
         }))
@@ -360,6 +370,11 @@ pub(super) fn build_tools() -> Vec<Tool> {
                     "type": ["string", "null"],
                     "default": null,
                     "description": "Case-insensitive, token-based substring filter on item name."
+                },
+                "with_market_prices": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, every row gains a `market_value` block with `tp_sell_unit`, `tp_sell_total_after_fee` (TP price minus 15% fees × count), `vendor_unit`, `vendor_total`, `best_realized`, and `best_realized_source` (\"tp\"|\"vendor\"|\"none\"). Rows + categories are re-sorted by `best_realized` desc — the highest-value items rise to the top. Use for 'what should I sell?' / 'what's this character/bank worth?'. Costs one extra `/v2/commerce/prices` fetch (cached 60s)."
                 }
             }
         }))
@@ -905,13 +920,15 @@ pub(super) fn build_tools() -> Vec<Tool> {
             "Raid clears nested as raids[].wings[].encounters[] — each encounter has id, kind, cleared. Plus cleared/total counts, next weekly reset (Monday 07:30 UTC). Requires `account` + `progression` scopes.",
             authed_no_args.clone(),
         )
-        .annotate(read_only_open_world("Get Account Raids")),
+        .annotate(read_only_open_world("Get Account Raids"))
+        .with_output_schema::<crate::service::AccountRaidsSnapshot>(),
         Tool::new(
             "get_account_dungeons",
             "Dungeon path clears nested as dungeons[].paths[] — each path has id, kind, cleared. Plus cleared/total counts, next daily reset (00:00 UTC). Requires `account` + `progression` scopes.",
             authed_no_args,
         )
-        .annotate(read_only_open_world("Get Account Dungeons")),
+        .annotate(read_only_open_world("Get Account Dungeons"))
+        .with_output_schema::<crate::service::AccountDungeonsSnapshot>(),
         Tool::new(
             "get_dailies",
             "Wizard's Vault track (`daily` (default) | `weekly` | `special`). Each objective: title, track, acclaim, progress, claimed. Includes meta-chest progress + precomputed acclaim_earned/remaining/total. Requires `account` + `progression` scopes.",
@@ -1039,4 +1056,122 @@ fn read_only_closed_world(title: &str) -> ToolAnnotations {
         .idempotent(true)
         .destructive(false)
         .open_world(false)
+}
+
+#[cfg(test)]
+mod convention_tests {
+    //! Convention enforcement for response shapes — running this at
+    //! `cargo test` time keeps the codebase from drifting away from
+    //! decisions documented in `service/mod.rs`.
+
+    use super::build_tools;
+    use serde_json::Value;
+
+    /// Every `*_at` timestamp field in a response struct must have a
+    /// sibling `*_in_minutes` (future event) or `*_minutes_ago`
+    /// (past event) populated by `minutes_between`. The convention
+    /// exists because LLMs are bad at converting ISO timestamps to
+    /// relative times; pre-computing the delta kills that
+    /// hallucination class.
+    ///
+    /// This test walks every tool's output schema and asserts the
+    /// pairing. Add a new response shape with a `*_at` field and
+    /// you'll fail here until the sibling is added.
+    #[test]
+    fn every_timestamp_field_has_a_sibling_minute_delta() {
+        let tools = build_tools();
+        let mut violations: Vec<String> = Vec::new();
+
+        for tool in &tools {
+            let Some(schema) = tool.output_schema.as_ref() else {
+                continue;
+            };
+            let schema_value: Value = Value::Object((**schema).clone());
+            check_object_recursively(
+                &schema_value,
+                &schema_value,
+                tool.name.as_ref(),
+                &mut violations,
+            );
+        }
+
+        assert!(
+            violations.is_empty(),
+            "timestamp/delta convention violations:\n  - {}\n\n\
+             Every `*_at` field in a response struct must ship with a sibling \
+             `*_in_minutes` (future) or `*_minutes_ago` (past). See \
+             `service::minutes_between` for the helper.",
+            violations.join("\n  - ")
+        );
+    }
+
+    /// Walk a JSON schema and check every nested object's `properties`
+    /// map for the convention. Recurses through nested objects + array
+    /// items + `$defs` references.
+    fn check_object_recursively(
+        root: &Value,
+        node: &Value,
+        tool: &str,
+        violations: &mut Vec<String>,
+    ) {
+        match node {
+            Value::Object(obj) => {
+                if let Some(Value::Object(props)) = obj.get("properties") {
+                    check_properties_for_pairs(props, tool, violations);
+                    for (_, sub) in props {
+                        check_object_recursively(root, sub, tool, violations);
+                    }
+                }
+                if let Some(items) = obj.get("items") {
+                    check_object_recursively(root, items, tool, violations);
+                }
+                if let Some(Value::Object(defs)) = obj.get("$defs") {
+                    for (_, sub) in defs {
+                        check_object_recursively(root, sub, tool, violations);
+                    }
+                }
+                // Resolve $ref into $defs and re-check (the schemars
+                // generator hoists nested structs into $defs and
+                // references them by name).
+                if let Some(Value::String(reference)) = obj.get("$ref") {
+                    let bare = reference.trim_start_matches("#/$defs/");
+                    if let Some(target) = root
+                        .get("$defs")
+                        .and_then(Value::as_object)
+                        .and_then(|d| d.get(bare))
+                    {
+                        check_object_recursively(root, target, tool, violations);
+                    }
+                }
+            }
+            Value::Array(arr) => {
+                for v in arr {
+                    check_object_recursively(root, v, tool, violations);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Inspect the `properties` object of a single JSON schema node.
+    /// For every `<base>_at` key, the same map must contain
+    /// `<base>_in_minutes` or `<base>_minutes_ago`.
+    fn check_properties_for_pairs(
+        props: &serde_json::Map<String, Value>,
+        tool: &str,
+        violations: &mut Vec<String>,
+    ) {
+        for name in props.keys() {
+            let Some(base) = name.strip_suffix("_at") else {
+                continue;
+            };
+            let future = format!("{base}_in_minutes");
+            let past = format!("{base}_minutes_ago");
+            if !props.contains_key(&future) && !props.contains_key(&past) {
+                violations.push(format!(
+                    "tool `{tool}`: field `{name}` lacks sibling `{future}` or `{past}`"
+                ));
+            }
+        }
+    }
 }

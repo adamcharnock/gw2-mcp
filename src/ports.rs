@@ -973,14 +973,26 @@ pub struct KindStatusView {
     pub indexed: u32,
     /// Derived: `"ready"` or `"indexing"`. See [`KindStatus::state`].
     pub state: &'static str,
+    /// Unix timestamp (seconds) of the last successful refresh.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_refreshed_at: Option<i64>,
+    /// Minutes between `last_refreshed_at` and "now". Convention
+    /// sibling so the LLM doesn't have to math from a unix timestamp.
+    /// `None` whenever `last_refreshed_at` is `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_refreshed_minutes_ago: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_number: Option<u32>,
 }
 
-impl From<IndexStatus> for IndexStatusView {
-    fn from(s: IndexStatus) -> Self {
+impl IndexStatusView {
+    /// Construct an LLM-facing view from the raw [`IndexStatus`].
+    /// Pass `now_unix_seconds` so `last_refreshed_minutes_ago` can be
+    /// computed against the same clock the rest of the service uses
+    /// (rather than `SystemTime::now()` here, which would side-step
+    /// the test clock).
+    #[must_use]
+    pub fn from_index_status(s: IndexStatus, now_unix_seconds: i64) -> Self {
         let overall = if s.kinds.iter().all(|k| k.state() == "ready") {
             "ready"
         } else {
@@ -990,17 +1002,30 @@ impl From<IndexStatus> for IndexStatusView {
             kinds: s
                 .kinds
                 .into_iter()
-                .map(|k| KindStatusView {
-                    state: k.state(),
-                    name: k.name,
-                    total: k.total,
-                    indexed: k.indexed,
-                    last_refreshed_at: k.last_refreshed_at,
-                    build_number: k.build_number,
+                .map(|k| {
+                    let minutes_ago = k.last_refreshed_at.map(|t| (now_unix_seconds - t) / 60);
+                    KindStatusView {
+                        state: k.state(),
+                        name: k.name,
+                        total: k.total,
+                        indexed: k.indexed,
+                        last_refreshed_at: k.last_refreshed_at,
+                        last_refreshed_minutes_ago: minutes_ago,
+                        build_number: k.build_number,
+                    }
                 })
                 .collect(),
             overall,
         }
+    }
+}
+
+impl From<IndexStatus> for IndexStatusView {
+    /// Convenience for tests + non-LLM contexts that don't need the
+    /// minute-delta populated. Real callers should use
+    /// [`Self::from_index_status`] with a clock-derived `now`.
+    fn from(s: IndexStatus) -> Self {
+        Self::from_index_status(s, 0)
     }
 }
 

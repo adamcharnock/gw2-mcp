@@ -16,10 +16,11 @@ mod text_match;
 mod wiki;
 
 pub use account::{
-    AccountAchievementsSnapshot, AccountBankSnapshot, AccountMasteriesSnapshot,
-    AccountMaterialsSnapshot, BankItemEntry, CharacterInventorySnapshot, CharacterList,
-    DailiesWhich, MasteryPointBalance, MaterialCategoryGroup, MaterialItemEntry,
-    RefreshAccountCacheResult, StorageFilter, WizardsVaultSnapshot,
+    AccountAchievementsSnapshot, AccountBankSnapshot, AccountDungeonsSnapshot,
+    AccountMasteriesSnapshot, AccountMaterialsSnapshot, AccountRaidsSnapshot, BankItemEntry,
+    CharacterInventorySnapshot, CharacterList, DailiesWhich, MasteryPointBalance,
+    MaterialCategoryGroup, MaterialItemEntry, RefreshAccountCacheResult, StorageFilter,
+    WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 pub use events::EventScheduleFilters;

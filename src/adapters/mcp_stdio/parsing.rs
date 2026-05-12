@@ -417,6 +417,10 @@ pub(super) fn parse_storage_filter(
         name_contains: parse_optional_str(args, "name_contains")
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty()),
+        with_market_prices: args
+            .get("with_market_prices")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
     })
 }
 

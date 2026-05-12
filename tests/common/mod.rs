@@ -463,6 +463,25 @@ impl FakeGw2Api {
         self.items.lock().unwrap().insert(i.id, i);
     }
 
+    pub fn set_market_price(&self, id: u32, buy_unit: i64, sell_unit: i64) {
+        let typed = ItemId::new(i64::from(id)).unwrap();
+        self.market_prices.lock().unwrap().insert(
+            typed,
+            gw2_mcp::domain::MarketPrice {
+                id: typed,
+                whitelisted: true,
+                buys: gw2_mcp::domain::PriceOrderbook {
+                    unit_price: buy_unit,
+                    quantity: 1000,
+                },
+                sells: gw2_mcp::domain::PriceOrderbook {
+                    unit_price: sell_unit,
+                    quantity: 1000,
+                },
+            },
+        );
+    }
+
     pub fn set_buildtabs(&self, name: &CharacterName, tabs: Vec<serde_json::Value>) {
         self.buildtabs
             .lock()
@@ -1006,6 +1025,16 @@ pub fn item_named(id: u32, name: &str) -> Item {
         id: ItemId::new(i64::from(id)).unwrap(),
         name: name.to_owned(),
         extra: std::collections::BTreeMap::new(),
+    }
+}
+
+pub fn item_with_vendor(id: u32, name: &str, vendor_value: u32) -> Item {
+    let mut extra = std::collections::BTreeMap::new();
+    extra.insert("vendor_value".to_owned(), serde_json::json!(vendor_value));
+    Item {
+        id: ItemId::new(i64::from(id)).unwrap(),
+        name: name.to_owned(),
+        extra,
     }
 }
 
