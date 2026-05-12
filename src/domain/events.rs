@@ -219,18 +219,28 @@ pub struct EventFiltersSummary {
 }
 
 /// One row per event matching the filter.
+///
+/// Note: there is no `next_segment_starts_at` field — by construction
+/// it would always equal `current_segment_ends_at` (the boundary
+/// instant is shared). The minute deltas remain split so the LLM
+/// doesn't need to subtract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct EventOccurrence {
     pub event_name: String,
     pub category: String,
-    /// Name of the segment that is active right now. Empty string when
-    /// the cycle is in a gap (`r == 0`); the LLM should interpret an
-    /// empty string as "nothing scheduled at the moment".
+    /// Name of the segment that is active right now. Surfaced as
+    /// `"(idle)"` when the cycle is in an explicit gap slot (`r == 0`)
+    /// — most commonly "Hard world bosses" between bosses. The LLM
+    /// should interpret `"(idle)"` as "nothing scheduled at the moment;
+    /// the `next_segment_*` fields tell you what's coming."
     pub current_segment: String,
+    /// Total length of the current segment (or gap), in minutes. Lets
+    /// the LLM say "5 minutes left of 30" instead of just "5 minutes
+    /// left" — useful for "should I head to Tarir now?" planning.
+    pub current_segment_total_minutes: u32,
     pub current_segment_ends_at: DateTime<Utc>,
     pub current_segment_ends_in_minutes: i64,
     pub next_segment_name: String,
-    pub next_segment_starts_at: DateTime<Utc>,
     pub next_segment_starts_in_minutes: i64,
 }
 

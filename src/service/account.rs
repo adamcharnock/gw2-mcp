@@ -740,26 +740,52 @@ impl Service {
         let item_names = self.item_names_for(&unique_item_ids).await;
         let category_table = self.material_category_table().await;
 
-        let mut items: Vec<MaterialItemEntry> = slots
-            .iter()
-            .filter(|s| !summary || s.count > 0)
-            .map(|s| MaterialItemEntry {
-                id: s.id,
-                name: item_names.get(&s.id).cloned(),
-                category: s.category,
-                category_name: category_table.get(&s.category).map(|c| c.name.clone()),
-                count: s.count,
-                binding: if summary { None } else { s.binding.clone() },
+        // Group slots into categories[].items[]. The flat shape carried
+        // category_name on every row (293× redundancy on a real
+        // account). One copy per category here.
+        let mut by_category: BTreeMap<u32, Vec<MaterialItemEntry>> = BTreeMap::new();
+        for s in &slots {
+            if summary && s.count == 0 {
+                continue;
+            }
+            by_category
+                .entry(s.category)
+                .or_default()
+                .push(MaterialItemEntry {
+                    id: s.id,
+                    name: item_names.get(&s.id).cloned(),
+                    count: s.count,
+                    binding: if summary { None } else { s.binding.clone() },
+                });
+        }
+
+        // Order: categories by name (then id as tiebreaker for missing
+        // metadata); items within a category by count desc, id asc.
+        let mut categories: Vec<MaterialCategoryGroup> = by_category
+            .into_iter()
+            .map(|(cat, mut items)| {
+                items.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+                MaterialCategoryGroup {
+                    category: cat,
+                    name: category_table.get(&cat).map(|c| c.name.clone()),
+                    items,
+                }
             })
             .collect();
-        items.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+        categories.sort_by(|a, b| {
+            a.name
+                .as_deref()
+                .unwrap_or("")
+                .cmp(b.name.as_deref().unwrap_or(""))
+                .then(a.category.cmp(&b.category))
+        });
 
         let total_slots = slots.len();
         let used_slots = slots.iter().filter(|s| s.count > 0).count();
 
         Ok(AccountMaterialsSnapshot {
             summary,
-            items,
+            categories,
             used_slots,
             total_slots,
             fetched_at: self.clock.now(),
@@ -1216,10 +1242,16 @@ pub struct CharacterInventorySnapshot {
 
 /// Result of `get_account_materials`. See `Service::get_account_materials`
 /// for summary-vs-full shape semantics.
+///
+/// Items are nested under their category (`categories[].items[]`) to
+/// avoid emitting `category_name` once per row — the original flat
+/// shape carried ~293 redundant copies of the same handful of strings.
+/// Mirrors the structure used by `get_account_raids` /
+/// `get_account_dungeons`.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccountMaterialsSnapshot {
     pub summary: bool,
-    pub items: Vec<MaterialItemEntry>,
+    pub categories: Vec<MaterialCategoryGroup>,
     /// Slots with `count > 0`. The denominator of fill ratio.
     pub used_slots: usize,
     /// Every slot the material storage tab has, even count=0 ones.
@@ -1228,13 +1260,22 @@ pub struct AccountMaterialsSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MaterialCategoryGroup {
+    /// Material category id from the GW2 API (`/v2/materials`).
+    pub category: u32,
+    /// Human-readable category name (`"Basic Crafting Materials"`,
+    /// `"Festive Materials"`, …). `None` only if the metadata catalog
+    /// failed to load — graceful degradation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub items: Vec<MaterialItemEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MaterialItemEntry {
     pub id: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    pub category: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category_name: Option<String>,
     pub count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,

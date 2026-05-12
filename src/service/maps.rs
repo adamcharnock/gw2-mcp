@@ -813,6 +813,13 @@ fn expansion_to_snake(e: Expansion) -> String {
 ///   the matching LW season free. False positives are possible for very
 ///   old accounts that never unlocked individual LW3/LW4 episodes — those
 ///   callers should pass an explicit `player_access` array to override.
+///
+/// **Known gap**: as of 2026-05 the `/v2/account.access` array does NOT
+/// expose a Castora / Visions-of-Eternity token even for accounts that
+/// own the expansion. The richer [`derive_owned_expansions`] function
+/// in this module layers `/v2/account/masteries` and
+/// `/v2/account/mastery/points` on top to recover the missing signal.
+/// Prefer that function over this one when the data is available.
 pub fn expand_account_access(access: &[String]) -> HashSet<Expansion> {
     let mut owned: HashSet<Expansion> = HashSet::new();
     // Always-permitted maps don't need explicit account flags.
@@ -829,7 +836,14 @@ pub fn expand_account_access(access: &[String]) -> HashSet<Expansion> {
                 owned.insert(Expansion::HeartOfThorns);
             }
             "PathOfFire" => {
+                // Per the wiki's API:2/account documentation, the
+                // `PathOfFire` flag also implies HoT — ANet has
+                // bundled HoT with PoF since 2022. Accounts that
+                // bought HoT separately still see HoT in the list
+                // explicitly, so granting it here is a no-op for
+                // those callers.
                 owned.insert(Expansion::PathOfFire);
+                owned.insert(Expansion::HeartOfThorns);
             }
             "EndOfDragons" => {
                 owned.insert(Expansion::EndOfDragons);
@@ -862,6 +876,134 @@ pub fn expand_account_access(access: &[String]) -> HashSet<Expansion> {
         owned.insert(Expansion::LivingWorldSeason4);
     }
     owned
+}
+
+// ---------------------------------------------------------------------------
+// Combined expansion-ownership inference.
+//
+// This block is the single place where the "what does the player
+// actually own" inference lives. The primary signal is
+// `/v2/account.access` — it's authoritative for every expansion ANet
+// has bothered to add a token for. As of 2026-05 that's HoT, PoF,
+// EoD, SotO, and JW. The sixth expansion — Castora / Visions of
+// Eternity (released 2025-10-28) — has no token, presumably because
+// the API just hasn't been updated yet.
+//
+// So the fallback below is scoped *only* to Castora: we look at the
+// masteries + mastery-points endpoints to recover the missing VoE
+// signal, and we trust the token list for everything else. If ANet
+// later adds a `VisionsOfEternity` token (or whatever they call it),
+// this whole fallback becomes dead code and can be deleted; until
+// then it's the only way users who own VoE can get Castora content
+// recommended without an explicit `player_access` override.
+//
+// VoE-specific signals, in order of reliability:
+//
+//   #2 — `/v2/account/masteries[].level`:
+//     `level >= 1` on a VoE track (ids 45..=47) ⇒ definitely owns
+//     VoE. You can't train a tier without the expansion. `level == 0`
+//     is NOT a signal — the API seeds level-0 entries for tracks the
+//     account has merely been exposed to (mastery 38 / SotO appears
+//     at level 0 even for accounts that don't own SotO).
+//
+//   #3 — `/v2/account/mastery/points.totals["Visions of Eternity"]`:
+//     `earned > spent` ⇒ unspent VoE points are sitting in the
+//     account → it's actively earning → currently owns VoE. The
+//     looser `spent > 0` test would catch ghosts of past trials /
+//     refunds (an account that briefly trialed SotO had `spent ==
+//     earned == 2` lingering forever). Requiring unspent filters that
+//     out: a refunded account stops earning after the refund (so
+//     `earned == spent`); an active owner keeps earning faster than
+//     they train.
+//
+//     False negative mode: a fully-trained VoE owner (`earned ==
+//     spent`) would be rejected. They should pass `player_access`
+//     explicitly. VoE is brand-new content as of writing so this is
+//     a vanishingly rare case.
+//
+// Calling code that wants strict semantics — or that disagrees with
+// any of the heuristics here — should pass an explicit `player_access`
+// list instead of relying on auto-derivation.
+// ---------------------------------------------------------------------------
+
+/// Combine the available account-state signals into a best-guess set
+/// of owned expansions. Trusts `/v2/account.access` for everything
+/// `ANet` has added a token for; falls back to mastery + mastery-points
+/// data *only* to detect Castora / Visions of Eternity, which the
+/// access endpoint doesn't surface as of 2026-05.
+///
+/// `masteries` and `points_totals` are optional — passing empty
+/// slices is equivalent to "couldn't fetch / not available", and the
+/// function falls back to access-token-only behaviour. Useful for
+/// tests + offline environments.
+pub fn derive_owned_expansions(
+    access: &[String],
+    masteries: &[crate::domain::AccountMastery],
+    points_totals: &[crate::domain::RegionMasteryPoints],
+) -> HashSet<Expansion> {
+    let mut owned = expand_account_access(access);
+
+    // VoE / Castora fallback. Two independent signals; either is
+    // sufficient. Scoped to one expansion on purpose: the goal is to
+    // bridge the API gap for ONE specific expansion, not to second-
+    // guess the (reliable) token list for any other.
+    let trained_a_castora_tier = masteries
+        .iter()
+        .any(|m| m.level >= 1 && mastery_id_to_expansion(m.id) == Some(Expansion::Castora));
+    let active_in_voe_region = points_totals
+        .iter()
+        .any(|t| t.region == "Visions of Eternity" && t.earned > t.spent);
+    if trained_a_castora_tier || active_in_voe_region {
+        owned.insert(Expansion::Castora);
+    }
+    owned
+}
+
+/// Map a `/v2/account/masteries` entry's `id` to the expansion that
+/// introduced it. Currently only resolves Castora / `VoE` tracks
+/// (ids 45..=47) — the existing access-token logic covers every
+/// other expansion, so adding more ranges here would just be noise.
+/// Extend the match when a new expansion ships before its access
+/// token does.
+fn mastery_id_to_expansion(id: u32) -> Option<Expansion> {
+    match id {
+        45..=47 => Some(Expansion::Castora),
+        _ => None,
+    }
+}
+
+impl Service {
+    /// Auto-derive the player's owned expansions. Fetches `/v2/account`
+    /// for the access tokens, then layers `/v2/account/masteries` and
+    /// `/v2/account/mastery/points` on top to fill in gaps (notably
+    /// VoE/Castora, which the access endpoint doesn't surface as of
+    /// 2026-05). Returns `None` if the account fetch itself fails —
+    /// callers degrade to "no filter" in that case. Mastery / points
+    /// fetch failures are tolerated: the function just skips that
+    /// signal and proceeds with whatever it has.
+    ///
+    /// The single entry point for ownership inference. Callers that
+    /// need the same logic from a different context should call this
+    /// rather than recombining the pieces.
+    pub async fn infer_owned_expansions(
+        &self,
+        key: &crate::domain::ApiKey,
+    ) -> Option<HashSet<Expansion>> {
+        let acc = self.get_account(key).await.ok()?;
+        // Best-effort: missing data just drops that signal.
+        let masteries = self
+            .gw2
+            .fetch_account_masteries(key)
+            .await
+            .unwrap_or_default();
+        let points = self
+            .gw2
+            .fetch_account_mastery_points(key)
+            .await
+            .map(|p| p.totals)
+            .unwrap_or_default();
+        Some(derive_owned_expansions(&acc.access, &masteries, &points))
+    }
 }
 
 /// Translate a sequence of map ids into a [`RoutePath`] with hop
@@ -1186,6 +1328,91 @@ mod tests {
         // Not owned
         assert!(!owned.contains(&Expansion::EndOfDragons));
         assert!(!owned.contains(&Expansion::JanthirWilds));
+        // Castora has no implicit grant from any other token.
+        assert!(!owned.contains(&Expansion::Castora));
+    }
+
+    #[test]
+    fn derive_owned_expansions_uses_access_tokens_alone_when_no_masteries() {
+        let owned = derive_owned_expansions(
+            &["GuildWars2".to_owned(), "HeartOfThorns".to_owned()],
+            &[],
+            &[],
+        );
+        assert!(owned.contains(&Expansion::HeartOfThorns));
+        assert!(owned.contains(&Expansion::LivingWorldSeason3));
+        assert!(!owned.contains(&Expansion::Castora));
+    }
+
+    #[test]
+    fn derive_owned_expansions_combines_real_world_signals() {
+        // Live data captured from a known account (2026-05): JW owner
+        // who also owns VoE/Castora, but the access list lags and only
+        // reports JW. Masteries shows level 0 for VoE (insufficient on
+        // its own); mastery_points for VoE has earned=6 spent=1
+        // (positive unspent balance → "actively earning, owns now").
+        //
+        // The same account has earned=2 spent=2 for SotO from an old
+        // trial / refunded purchase — equal totals mean no unspent
+        // balance, so the points signal correctly rejects SotO.
+        use crate::domain::{AccountMastery, RegionMasteryPoints};
+        let access = vec![
+            "GuildWars2".to_owned(),
+            "PlayForFree".to_owned(),
+            "PathOfFire".to_owned(),
+            "JanthirWilds".to_owned(),
+        ];
+        let masteries = vec![
+            AccountMastery { id: 8, level: 1 },  // HoT — confirmed via level
+            AccountMastery { id: 14, level: 3 }, // PoF — confirmed via level
+            AccountMastery { id: 38, level: 0 }, // SotO seeded — NOT a signal
+            AccountMastery { id: 45, level: 0 }, // VoE seeded — NOT a signal
+        ];
+        let points = vec![
+            RegionMasteryPoints {
+                region: "Heart of Thorns".to_owned(),
+                spent: 4,
+                earned: 11,
+            },
+            // SotO: residual progress from past access. spent==earned
+            // → no unspent balance → MUST be rejected.
+            RegionMasteryPoints {
+                region: "Secrets of the Obscure".to_owned(),
+                spent: 2,
+                earned: 2,
+            },
+            // VoE: account is actively earning. earned > spent →
+            // currently owns.
+            RegionMasteryPoints {
+                region: "Visions of Eternity".to_owned(),
+                spent: 1,
+                earned: 6,
+            },
+        ];
+        let owned = derive_owned_expansions(&access, &masteries, &points);
+        assert!(owned.contains(&Expansion::HeartOfThorns));
+        assert!(owned.contains(&Expansion::PathOfFire));
+        assert!(owned.contains(&Expansion::JanthirWilds));
+        assert!(
+            owned.contains(&Expansion::Castora),
+            "VoE earned=6 spent=1 → unspent balance → must promote to Castora"
+        );
+        // Level-0 SotO mastery + spent==earned points → both signals
+        // reject. This is the SotO false-positive regression test.
+        assert!(
+            !owned.contains(&Expansion::SecretsOfTheObscure),
+            "SotO with no token, level-0 mastery, and spent==earned must NOT be granted"
+        );
+    }
+
+    #[test]
+    fn derive_owned_expansions_mastery_level_promotes_without_token() {
+        use crate::domain::AccountMastery;
+        // Hypothetical account that has trained a Castora mastery (level
+        // 1) but the access list is empty. The level-1 signal alone
+        // must promote — that's the strict "owns expansion" guarantee.
+        let owned = derive_owned_expansions(&[], &[AccountMastery { id: 45, level: 1 }], &[]);
+        assert!(owned.contains(&Expansion::Castora));
     }
 
     #[test]

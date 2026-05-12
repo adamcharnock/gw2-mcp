@@ -89,7 +89,9 @@ async fn walker_finds_day_and_night_at_utc_midnight() {
     assert_eq!(dn.current_segment_ends_in_minutes, 70);
     assert_eq!(dn.next_segment_name, "Dusk");
     assert_eq!(dn.next_segment_starts_in_minutes, 70);
-    assert_eq!(dn.current_segment_ends_at, dn.next_segment_starts_at);
+    // next_segment_starts_at was dropped as redundant — by
+    // construction it always equals current_segment_ends_at.
+    assert_eq!(dn.current_segment_total_minutes, 70);
 }
 
 #[tokio::test]
@@ -111,19 +113,14 @@ async fn walker_invariants_hold_for_all_snapshot_events() {
     // current/next must have a name (otherwise the cycle is "gap →
     // gap" which would be a meaningless row to surface).
     //
-    // We deliberately do NOT assert that `next_segment_name` is always
-    // populated — "Hard world bosses" alternates real bosses with
-    // explicit gap slots (`r == 0`), so the gap is sometimes the next
-    // thing on the schedule.
+    // We deliberately do NOT assert that `next_segment_name` is
+    // anything specific — "Hard world bosses" alternates real bosses
+    // with explicit gap slots (`r == 0`), so the gap (now surfaced as
+    // `"(idle)"`) is sometimes the next thing on the schedule.
     for occ in &resp.events {
         assert_eq!(
-            occ.current_segment_ends_at, occ.next_segment_starts_at,
-            "{}: end-of-current != start-of-next",
-            occ.event_name
-        );
-        assert_eq!(
             occ.current_segment_ends_in_minutes, occ.next_segment_starts_in_minutes,
-            "{}: minute deltas disagree",
+            "{}: minute deltas disagree (next must coincide with end-of-current)",
             occ.event_name
         );
         assert!(
@@ -132,8 +129,13 @@ async fn walker_invariants_hold_for_all_snapshot_events() {
             occ.event_name
         );
         assert!(
-            !occ.current_segment.is_empty() || !occ.next_segment_name.is_empty(),
-            "{}: both current and next segments are empty",
+            !occ.current_segment.is_empty() && !occ.next_segment_name.is_empty(),
+            "{}: both current and next segments must be populated (gap slots are surfaced as `(idle)`)",
+            occ.event_name
+        );
+        assert!(
+            occ.current_segment_total_minutes >= 1,
+            "{}: current_segment_total_minutes should be >= 1",
             occ.event_name
         );
     }

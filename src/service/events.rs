@@ -360,7 +360,6 @@ fn walk_event(def: &EventDefinition, now: DateTime<Utc>) -> Option<EventOccurren
 
     let current_remaining = i64::from(current_slot.d) - i64::from(minutes_into_current);
     let ends_at = now + chrono::Duration::minutes(current_remaining);
-    let starts_at = ends_at;
 
     let current_segment = segment_name(def, current_slot.r);
     let next_segment_name = segment_name(def, next_slot.r);
@@ -369,24 +368,27 @@ fn walk_event(def: &EventDefinition, now: DateTime<Utc>) -> Option<EventOccurren
         event_name: def.name.clone(),
         category: def.category.clone(),
         current_segment,
+        current_segment_total_minutes: current_slot.d,
         current_segment_ends_at: ends_at,
         current_segment_ends_in_minutes: minutes_between(now, ends_at),
         next_segment_name,
-        next_segment_starts_at: starts_at,
-        next_segment_starts_in_minutes: minutes_between(now, starts_at),
+        next_segment_starts_in_minutes: minutes_between(now, ends_at),
     })
 }
 
 /// Resolve a `pattern.r` value to a segment name by looking up
 /// `r.to_string()` in the segments map. Missing keys (typical for
-/// `r == 0`, which the widget uses for blank gaps) yield an empty
-/// string — the walker exposes that as "currently a gap".
+/// `r == 0`, which the widget uses for blank gaps) yield the
+/// explicit `"(idle)"` sentinel — clearer than an empty string and
+/// distinguishable from a real segment that just happens to be named
+/// nothing.
 fn segment_name(def: &EventDefinition, r: u32) -> String {
     let key = r.to_string();
     def.segments
         .get(&key)
         .map(|s| s.name.clone())
-        .unwrap_or_default()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "(idle)".to_owned())
 }
 
 #[cfg(test)]
@@ -514,7 +516,8 @@ mod tests {
         // 40 min after midnight → 10 min into the gap.
         let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 40, 0).unwrap();
         let occ = walk_event(&def, now).unwrap();
-        assert_eq!(occ.current_segment, "");
+        assert_eq!(occ.current_segment, "(idle)");
+        assert_eq!(occ.current_segment_total_minutes, 30);
         assert_eq!(occ.next_segment_name, "Tequatl");
         assert_eq!(occ.next_segment_starts_in_minutes, 20);
     }

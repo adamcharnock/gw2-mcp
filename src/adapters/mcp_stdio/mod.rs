@@ -336,6 +336,41 @@ impl McpServer {
             .ok_or(CallError::NoApiKey)
     }
 
+    /// Resolve the `player_access` filter for tools that accept one.
+    /// Explicit caller list wins (empty list ≡ opt out). Otherwise
+    /// auto-derive via [`Service::infer_owned_expansions`], which is
+    /// the single place that knows how to combine `/v2/account` +
+    /// masteries + mastery-points into a definitive ownership set.
+    /// Auto-derive failures degrade silently to "no filter" so the
+    /// tools still work unauthenticated.
+    async fn resolve_player_access(
+        &self,
+        args: &serde_json::Value,
+        explicit: Option<std::collections::HashSet<crate::domain::Expansion>>,
+    ) -> (
+        Option<std::collections::HashSet<crate::domain::Expansion>>,
+        Option<&'static str>,
+    ) {
+        if let Some(set) = explicit {
+            return if set.is_empty() {
+                (None, None)
+            } else {
+                (Some(set), Some("explicit"))
+            };
+        }
+        let auto_key = match args.get("api_key").and_then(|v| v.as_str()) {
+            Some(raw) if !raw.trim().is_empty() => crate::domain::ApiKey::new(raw).ok(),
+            _ => self.service.default_api_key().cloned(),
+        };
+        let Some(key) = auto_key else {
+            return (None, None);
+        };
+        match self.service.infer_owned_expansions(&key).await {
+            Some(owned) if !owned.is_empty() => (Some(owned), Some("auto")),
+            _ => (None, None),
+        }
+    }
+
     async fn handle_get_currencies(
         &self,
         args: &serde_json::Value,
@@ -660,39 +695,12 @@ impl McpServer {
         let active_festivals = parsing::parse_active_festivals(args.get("active_festivals"))?;
 
         // player_access: explicit caller value wins; otherwise try
-        // auto-fetch from /v2/account. Auto-fetch failures degrade
-        // silently to "no filter" (same pattern as plan_route).
+        // auto-derive via Service::infer_owned_expansions (one entry
+        // point owns access-token + mastery + mastery-points fusion;
+        // see service/maps.rs for the documented signal hierarchy).
+        // Auto-derivation failures degrade silently to "no filter".
         let explicit_access = parse_player_access(args.get("player_access"))?;
-        let (player_access, source): (
-            Option<std::collections::HashSet<crate::domain::Expansion>>,
-            Option<&'static str>,
-        ) = if let Some(set) = explicit_access {
-            if set.is_empty() {
-                (None, None)
-            } else {
-                (Some(set), Some("explicit"))
-            }
-        } else {
-            let auto_key = match args.get("api_key").and_then(|v| v.as_str()) {
-                Some(raw) if !raw.trim().is_empty() => crate::domain::ApiKey::new(raw).ok(),
-                _ => self.service.default_api_key().cloned(),
-            };
-            if let Some(key) = auto_key {
-                match self.service.get_account(&key).await {
-                    Ok(acc) => {
-                        let owned = crate::service::expand_account_access(&acc.access);
-                        if owned.is_empty() {
-                            (None, None)
-                        } else {
-                            (Some(owned), Some("auto"))
-                        }
-                    }
-                    Err(_) => (None, None),
-                }
-            } else {
-                (None, None)
-            }
-        };
+        let (player_access, source) = self.resolve_player_access(args, explicit_access).await;
 
         let filters = crate::service::EventScheduleFilters {
             within_minutes,
@@ -881,38 +889,7 @@ impl McpServer {
         // filter" so the tool still works in offline / unauthed
         // contexts. The response echoes which path was taken.
         let explicit_access = parse_player_access(args.get("player_access"))?;
-        let (player_access, source): (
-            Option<std::collections::HashSet<crate::domain::Expansion>>,
-            Option<&'static str>,
-        ) = if let Some(set) = explicit_access {
-            if set.is_empty() {
-                (None, None)
-            } else {
-                (Some(set), Some("explicit"))
-            }
-        } else {
-            // Try auto-fetch. Resolve the api key without raising — a
-            // missing key just means "no filter".
-            let auto_key = match args.get("api_key").and_then(|v| v.as_str()) {
-                Some(raw) if !raw.trim().is_empty() => crate::domain::ApiKey::new(raw).ok(),
-                _ => self.service.default_api_key().cloned(),
-            };
-            if let Some(key) = auto_key {
-                match self.service.get_account(&key).await {
-                    Ok(acc) => {
-                        let owned = crate::service::expand_account_access(&acc.access);
-                        if owned.is_empty() {
-                            (None, None)
-                        } else {
-                            (Some(owned), Some("auto"))
-                        }
-                    }
-                    Err(_) => (None, None),
-                }
-            } else {
-                (None, None)
-            }
-        };
+        let (player_access, source) = self.resolve_player_access(args, explicit_access).await;
 
         let filters = crate::service::RouteFilters {
             prefer,

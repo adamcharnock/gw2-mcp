@@ -821,7 +821,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::AccountBankSnapshot>(),
         Tool::new(
             "get_account_materials",
-            "Account material storage. `summary=true` (default) drops count=0 rows (most of the materials tab is empty slots) and sorts by count desc — answers 'what crafting materials do I have?'. `summary=false` returns every slot. Item + category names pre-resolved. Requires `account` + `inventories` scopes.",
+            "Account material storage, grouped as `categories[].items[]` (e.g. 'Basic Crafting Materials', 'Festive Materials'). `summary=true` (default) drops count=0 rows (most of the materials tab is empty slots) and sorts items within each category by count desc — answers 'what crafting materials do I have?'. `summary=false` returns every slot. Item + category names pre-resolved. Requires `account` + `inventories` scopes.",
             get_account_materials,
         )
         .annotate(read_only_open_world("Get Account Materials"))

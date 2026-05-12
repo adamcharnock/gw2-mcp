@@ -17,8 +17,8 @@ mod wiki;
 pub use account::{
     AccountAchievementsSnapshot, AccountBankSnapshot, AccountMasteriesSnapshot,
     AccountMaterialsSnapshot, BankItemEntry, CharacterInventorySnapshot, CharacterList,
-    DailiesWhich, MasteryPointBalance, MaterialItemEntry, RefreshAccountCacheResult,
-    WizardsVaultSnapshot,
+    DailiesWhich, MasteryPointBalance, MaterialCategoryGroup, MaterialItemEntry,
+    RefreshAccountCacheResult, WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 pub use events::EventScheduleFilters;
