@@ -1,23 +1,27 @@
 name: Release
 
 # Builds cross-compiled native binaries for every supported target and
-# attaches them to a GitHub Release. This is the *primary* distribution
-# channel for gw2-mcp — Docker (see publish.yml) is retained as a secondary
-# option, but the headline Mumble Link feature only works when the binary
-# runs on the same host as the GW2 client, so users overwhelmingly want
-# a native binary.
+# attaches them to a single rolling GitHub Release tagged `latest`. This
+# is the *primary* distribution channel for gw2-mcp — the headline Mumble
+# Link feature only works when the binary runs on the same host as the
+# GW2 client, so users overwhelmingly want a native binary.
+#
+# Versioning posture: intentionally loose. There are no `vX.Y.Z` tags;
+# every push to `main` overwrites the `latest` release with a fresh set
+# of binaries. Asset filenames embed `latest` (not a version), so
+# re-uploads overwrite the previous binaries at the same download URL.
+# If a user needs to pin a specific commit, the workflow run page keeps
+# 14-day-retained build artefacts (see ci.yml's `cross-build` job).
 #
 # Triggers:
-#   - tag push (vX.Y.Z): build full matrix, upload tar.gz / .zip artefacts to
-#                        the GitHub Release for that tag, sha256 alongside.
+#   - push to `main`: rebuild everything, replace the `latest` release.
+#   - workflow_dispatch: same, useful for re-running after a transient
+#                        runner failure.
 #
-# For per-commit cross-compile sanity checks (no upload), see the
-# `cross-build` job in ci.yml.
-#
-# Design notes (see commit message for full rationale):
+# Design notes:
 #   - Native runners are used wherever GitHub provides them: macos-latest
-#     (arm64), macos-13 (x86_64), windows-latest, ubuntu-latest. Only
-#     aarch64-unknown-linux-gnu is genuinely cross-compiled; taiki-e's
+#     (arm64), macos-15-intel (x86_64), windows-latest, ubuntu-latest.
+#     Only aarch64-unknown-linux-gnu is genuinely cross-compiled; taiki-e's
 #     action transparently uses `cross` for that target.
 #   - chatr (transitive reqwest 0.11) requires openssl-sys; `cross`'s
 #     stock aarch64-unknown-linux-gnu image already has libssl-dev. The
@@ -29,13 +33,8 @@ name: Release
 
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to build (e.g. v0.1.0). Must already exist."
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -45,13 +44,46 @@ env:
   # Pinned via .mise.toml — keep in sync.
   RUST_TOOLCHAIN: "1.91"
 
+# Rolling release: if a newer push comes in mid-build, cancel the older
+# run — its binaries would just be overwritten anyway.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
+  # Single-shot job that recreates the rolling `latest` tag + Release so
+  # the matrix build below has a fresh upload target. Deleting and
+  # re-creating (rather than editing in place) keeps stale assets from
+  # earlier matrices that may have removed/renamed a target from piling
+  # up indefinitely.
+  refresh-release:
+    name: refresh latest release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete previous latest release + tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `|| true` because the very first run won't have one to delete.
+          gh release delete latest --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+      - name: Create fresh latest tag
+        run: |
+          git tag latest
+          git push origin refs/tags/latest
+      - name: Create fresh latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create latest \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Latest build" \
+            --notes "Rolling build from main @ ${{ github.sha }}" \
+            --latest
+
   build:
     name: build ${{ matrix.target }}
+    needs: refresh-release
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -73,7 +105,7 @@ jobs:
             build-tool: cross
 
           # Windows x86_64 — native build on windows-latest, MSVC toolchain.
-          # rustls is the default TLS backend for our reqwest 0.12; chatr's
+          # rustls is the default TLS backend for our reqwest 0.13; chatr's
           # transitive reqwest 0.11 uses Windows SChannel via native-tls and
           # does not need OpenSSL on this target.
           - target: x86_64-pc-windows-msvc
@@ -101,6 +133,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Pick up the `latest` tag the refresh-release job just pushed,
+          # so taiki-e's action uploads to the matching GitHub Release.
+          ref: refs/tags/latest
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -138,9 +174,9 @@ jobs:
       #   - builds with --release --locked --target <triple>
       #   - strips the binary
       #   - tars / zips it with a stable naming convention
-      #     (gw2-mcp-<tag>-<triple>.{tar.gz,zip})
+      #     (gw2-mcp-latest-<triple>.{tar.gz,zip})
       #   - computes sha256 sidecars
-      #   - uploads everything to the GitHub Release for the pushed tag
+      #   - uploads everything to the GitHub Release for tag `latest`
       #   - if the target is anything other than the host's native triple,
       #     transparently switches to `cross` (for aarch64-linux only here)
       - name: Build & upload binary
@@ -148,6 +184,8 @@ jobs:
         with:
           bin: gw2-mcp
           target: ${{ matrix.target }}
+          # `$tag` expands to `latest` here, so asset names are stable
+          # across pushes and re-uploads overwrite cleanly.
           archive: gw2-mcp-$tag-$target
           tar: unix
           zip: windows
@@ -161,6 +199,4 @@ jobs:
           # other targets (the `if: matrix.bundle-holder` guards build it).
           include: ${{ matrix.bundle-holder && 'target/x86_64-pc-windows-gnu/release/gw2-mcp-holder.exe' || '' }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          # If the workflow was triggered via workflow_dispatch, fall back
-          # to the user-supplied tag (the action defaults to GITHUB_REF).
-          ref: refs/tags/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          ref: refs/tags/latest

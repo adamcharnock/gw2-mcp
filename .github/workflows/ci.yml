@@ -2,12 +2,10 @@ name: CI
 
 on:
   # Trigger on every push to any branch so feature branches produce
-  # downloadable binaries before a PR exists. Tag pushes are explicitly
-  # excluded because release.yml already covers those with versioned
-  # GitHub Release uploads — running ci.yml on tags would be duplicate
-  # work. PR events still fire on main-targeted PRs from forks (where
-  # push events in the fork don't reach this repo's CI). The concurrency
-  # group cancels stale runs on the same ref.
+  # downloadable binaries before a PR exists. PR events still fire on
+  # main-targeted PRs from forks (where push events in the fork don't
+  # reach this repo's CI). The concurrency group cancels stale runs on
+  # the same ref.
   push:
     branches: ['**']
   pull_request:
@@ -119,9 +117,10 @@ jobs:
 
   # Build the full release matrix on every push. Binaries are uploaded
   # as workflow artefacts (14-day retention) so you can grab them from
-  # any CI run — handy for testing branches before releasing. The
-  # canonical tagged-release uploads still happen in release.yml when a
-  # vX.Y.Z tag lands; this job's artefacts are intentionally ephemeral.
+  # any CI run — handy for testing branches before they merge to main.
+  # The canonical rolling `latest` release uploads happen in release.yml
+  # on every push to main; this job's artefacts are the per-branch /
+  # per-PR equivalent.
   cross-build:
     name: cross build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}

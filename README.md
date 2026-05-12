@@ -89,16 +89,17 @@ understands.
 > binary per OS rather than a container image — Docker can't see the
 > host's shared memory.
 
-Download the binary for your platform from the latest
-[GitHub Release](https://github.com/adamcharnock/gw2-mcp/releases/latest):
+gw2-mcp ships a single rolling **`latest`** release that's refreshed
+automatically on every push to `main`. Download from
+[GitHub Release `latest`](https://github.com/adamcharnock/gw2-mcp/releases/latest):
 
 | OS                | Architecture           | Archive                                                   |
 |-------------------|------------------------|-----------------------------------------------------------|
-| Linux             | x86_64                 | `gw2-mcp-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`          |
-| Linux             | aarch64 (arm64 / Pi)   | `gw2-mcp-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz`         |
-| Windows           | x86_64                 | `gw2-mcp-vX.Y.Z-x86_64-pc-windows-msvc.zip`               |
-| macOS             | aarch64 (Apple Silicon)| `gw2-mcp-vX.Y.Z-aarch64-apple-darwin.tar.gz`              |
-| macOS             | x86_64 (Intel)         | `gw2-mcp-vX.Y.Z-x86_64-apple-darwin.tar.gz`               |
+| Linux             | x86_64                 | `gw2-mcp-latest-x86_64-unknown-linux-gnu.tar.gz`          |
+| Linux             | aarch64 (arm64 / Pi)   | `gw2-mcp-latest-aarch64-unknown-linux-gnu.tar.gz`         |
+| Windows           | x86_64                 | `gw2-mcp-latest-x86_64-pc-windows-msvc.zip`               |
+| macOS             | aarch64 (Apple Silicon)| `gw2-mcp-latest-aarch64-apple-darwin.tar.gz`              |
+| macOS             | x86_64 (Intel)         | `gw2-mcp-latest-x86_64-apple-darwin.tar.gz`               |
 
 Each archive contains a single `gw2-mcp` (or `gw2-mcp.exe`) binary plus a
 sibling `.sha256` checksum. **macOS tarballs additionally ship
@@ -107,10 +108,13 @@ the main binary — the server discovers it as a sibling and copies it into
 your CrossOver bottle automatically. See [macOS / CrossOver specifics](#macos--crossover-specifics)
 below for details.
 
+If you need to pin a specific commit's binaries, every CI run keeps the
+same archives as 14-day workflow artefacts on its run page.
+
 On Linux / macOS:
 
 ```bash
-tar -xzf gw2-mcp-vX.Y.Z-<triple>.tar.gz
+tar -xzf gw2-mcp-latest-<triple>.tar.gz
 ./gw2-mcp --version
 ```
 
