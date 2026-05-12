@@ -104,6 +104,7 @@ impl McpServer {
             "list_characters" => self.handle_list_characters(&args).await,
             "get_account_achievements" => self.handle_get_account_achievements(&args).await,
             "get_account_bank" => self.handle_get_account_bank(&args).await,
+            "get_account_materials" => self.handle_get_account_materials(&args).await,
             "get_account_masteries" => self.handle_get_account_masteries(&args).await,
             "get_account_raids" => self.handle_get_account_raids(&args).await,
             "get_account_dungeons" => self.handle_get_account_dungeons(&args).await,
@@ -597,6 +598,20 @@ impl McpServer {
             .get_account_bank(&key, summary)
             .await
             .map_err(|e| annotate_endpoint(e, "get_account_bank"))?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
+    async fn handle_get_account_materials(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let summary = parse_summary(args);
+        let v = self
+            .service
+            .get_account_materials(&key, summary)
+            .await
+            .map_err(|e| annotate_endpoint(e, "get_account_materials"))?;
         Ok(serde_json::to_value(&v)?)
     }
 
@@ -1098,8 +1113,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            35,
-            "tier-6 (a + b + c): 12 base + get_info + 8 account/coaching (+get_account_bank) + 7 navigation + 6 search + 1 refresh = 35"
+            36,
+            "tier-6 (a + b + c): 12 base + get_info + 9 account/coaching (+get_account_bank, +get_account_materials) + 7 navigation + 6 search + 1 refresh = 36"
         );
     }
 

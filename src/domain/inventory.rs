@@ -32,8 +32,8 @@ pub struct InventorySlot {
 }
 
 /// Wire shape of `/v2/account/materials`. One per material-storage
-/// row, including empty ones (count=0). The service groups by
-/// `category` in summary mode.
+/// row, including empty ones (count=0). The service filters out
+/// zero-count rows in summary mode.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaterialSlot {
     pub id: u32,
@@ -41,4 +41,18 @@ pub struct MaterialSlot {
     pub count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,
+}
+
+/// One material category from `/v2/materials/<id>`. Static metadata;
+/// changes only when a new expansion ships. The service caches the
+/// full set under `STATIC_TTL`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MaterialCategory {
+    pub id: u32,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub order: u32,
+    #[serde(default)]
+    pub items: Vec<u32>,
 }

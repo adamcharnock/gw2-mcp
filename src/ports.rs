@@ -249,6 +249,22 @@ pub trait Gw2Api: Send + Sync + 'static {
         key: &ApiKey,
     ) -> Result<Vec<crate::domain::InventorySlot>, Gw2ApiError>;
 
+    /// `/v2/account/materials` — requires `inventories` scope. Always
+    /// returns every material-storage row, including count=0.
+    async fn fetch_account_materials(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<crate::domain::MaterialSlot>, Gw2ApiError>;
+
+    /// `/v2/materials` — public, no key. Returns the full id list.
+    async fn fetch_all_material_category_ids(&self) -> Result<Vec<u32>, Gw2ApiError>;
+
+    /// `/v2/materials?ids=…` — public, no key.
+    async fn fetch_material_categories(
+        &self,
+        ids: &[u32],
+    ) -> Result<BTreeMap<u32, crate::domain::MaterialCategory>, Gw2ApiError>;
+
     /// `/v2/masteries` — public, no key. Returns the full id list.
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError>;
 

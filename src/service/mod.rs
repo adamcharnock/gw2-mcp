@@ -12,9 +12,9 @@ mod search;
 mod wiki;
 
 pub use account::{
-    AccountAchievementsSnapshot, AccountBankSnapshot, AccountMasteriesSnapshot, BankItemEntry,
-    CharacterList, DailiesWhich, MasteryPointBalance, RefreshAccountCacheResult,
-    WizardsVaultSnapshot,
+    AccountAchievementsSnapshot, AccountBankSnapshot, AccountMasteriesSnapshot,
+    AccountMaterialsSnapshot, BankItemEntry, CharacterList, DailiesWhich, MasteryPointBalance,
+    MaterialItemEntry, RefreshAccountCacheResult, WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 use maps::RegionLookupError;

@@ -13,8 +13,8 @@ use tracing::{debug, warn};
 use super::{DAILIES_TTL, STATIC_TTL, Service, ServiceError, WALLET_TTL};
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, Currency,
-    CurrencyId, Dungeon, InventorySlot, ItemId, Raid, WalletEntry, WalletInfo, WizardsVaultTrack,
-    next_daily_reset, next_raid_reset, title_case,
+    CurrencyId, Dungeon, InventorySlot, ItemId, MaterialCategory, MaterialSlot, Raid, WalletEntry,
+    WalletInfo, WizardsVaultTrack, next_daily_reset, next_raid_reset, title_case,
 };
 
 /// Which Wizard's Vault track to fetch — `Daily`, `Weekly`, or
@@ -695,6 +695,109 @@ impl Service {
         })
     }
 
+    /// Fetch the account material storage and project it for the LLM.
+    ///
+    /// Summary mode (`summary=true`, default): drops count=0 rows (most
+    /// of the materials list — empty slots dominate). Sorted by count
+    /// descending. Drops binding.
+    ///
+    /// Full mode (`summary=false`): every slot including count=0,
+    /// binding preserved.
+    ///
+    /// Item names + category names are pre-resolved (best-effort).
+    pub async fn get_account_materials(
+        &self,
+        key: &ApiKey,
+        summary: bool,
+    ) -> Result<AccountMaterialsSnapshot, ServiceError> {
+        let cache_key = format!("account_materials:{}", key.fingerprint());
+        let slots: Vec<MaterialSlot> = if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str::<Vec<MaterialSlot>>(&json)
+        {
+            v
+        } else {
+            let v = self.gw2.fetch_account_materials(key).await?;
+            if let Ok(json) = serde_json::to_string(&v) {
+                self.cache.set(&cache_key, json, WALLET_TTL).await;
+            }
+            v
+        };
+
+        // Best-effort enrichment: item names + category names.
+        let unique_item_ids: Vec<ItemId> = {
+            let mut set = BTreeSet::new();
+            for s in &slots {
+                if s.count == 0 && summary {
+                    continue;
+                }
+                if let Ok(id) = ItemId::new(i64::from(s.id)) {
+                    set.insert(id);
+                }
+            }
+            set.into_iter().collect()
+        };
+        let item_names = self.item_names_for(&unique_item_ids).await;
+        let category_table = self.material_category_table().await;
+
+        let mut items: Vec<MaterialItemEntry> = slots
+            .iter()
+            .filter(|s| !summary || s.count > 0)
+            .map(|s| MaterialItemEntry {
+                id: s.id,
+                name: item_names.get(&s.id).cloned(),
+                category: s.category,
+                category_name: category_table.get(&s.category).map(|c| c.name.clone()),
+                count: s.count,
+                binding: if summary { None } else { s.binding.clone() },
+            })
+            .collect();
+        items.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+
+        let total_slots = slots.len();
+        let used_slots = slots.iter().filter(|s| s.count > 0).count();
+
+        Ok(AccountMaterialsSnapshot {
+            summary,
+            items,
+            used_slots,
+            total_slots,
+            fetched_at: self.clock.now(),
+        })
+    }
+
+    /// Fetch + cache the full `/v2/materials` table. Static — only
+    /// changes with new expansions — so one `STATIC_TTL` cache entry
+    /// covers every consumer. Empty map on any failure.
+    async fn material_category_table(&self) -> BTreeMap<u32, MaterialCategory> {
+        const KEY: &str = "material_categories:all";
+        if let Some(json) = self.cache.get(KEY).await
+            && let Ok(map) = serde_json::from_str::<BTreeMap<u32, MaterialCategory>>(&json)
+        {
+            return map;
+        }
+        let ids = match self.gw2.fetch_all_material_category_ids().await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(error = ?e, "failed to enumerate material category ids; category names unavailable");
+                return BTreeMap::new();
+            }
+        };
+        if ids.is_empty() {
+            return BTreeMap::new();
+        }
+        let map = match self.gw2.fetch_material_categories(&ids).await {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(error = ?e, "failed to fetch material categories; returning ids without names");
+                return BTreeMap::new();
+            }
+        };
+        if let Ok(json) = serde_json::to_string(&map) {
+            self.cache.set(KEY, json, STATIC_TTL).await;
+        }
+        map
+    }
+
     /// Batch-resolve `ItemId -> name` for a set of ids. Best-effort —
     /// empty map on any failure. Skips ids that don't validate.
     async fn item_names_for(&self, ids: &[ItemId]) -> BTreeMap<u32, String> {
@@ -1000,6 +1103,32 @@ pub struct BankItemEntry {
     pub bound_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charges: Option<u32>,
+}
+
+/// Result of `get_account_materials`. See `Service::get_account_materials`
+/// for summary-vs-full shape semantics.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AccountMaterialsSnapshot {
+    pub summary: bool,
+    pub items: Vec<MaterialItemEntry>,
+    /// Slots with `count > 0`. The denominator of fill ratio.
+    pub used_slots: usize,
+    /// Every slot the material storage tab has, even count=0 ones.
+    pub total_slots: usize,
+    pub fetched_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MaterialItemEntry {
+    pub id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub category: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category_name: Option<String>,
+    pub count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<String>,
 }
 
 fn total_mastery_points_earned(

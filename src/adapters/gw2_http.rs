@@ -272,6 +272,29 @@ impl Gw2Api for HttpGw2Api {
         Ok(raw.into_iter().flatten().collect())
     }
 
+    async fn fetch_account_materials(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<crate::domain::MaterialSlot>, Gw2ApiError> {
+        let url = format!("{}/account/materials", self.base_url);
+        self.fetch_authed_json(&url, key, None).await
+    }
+
+    async fn fetch_all_material_category_ids(&self) -> Result<Vec<u32>, Gw2ApiError> {
+        let url = format!("{}/materials", self.base_url);
+        self.fetch_public_json(&url).await
+    }
+
+    async fn fetch_material_categories(
+        &self,
+        ids: &[u32],
+    ) -> Result<BTreeMap<u32, crate::domain::MaterialCategory>, Gw2ApiError> {
+        self.fetch_by_ids("materials", ids, |c: crate::domain::MaterialCategory| {
+            (c.id, c)
+        })
+        .await
+    }
+
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
         self.fetch_id_list("masteries", MasteryId::new).await
     }

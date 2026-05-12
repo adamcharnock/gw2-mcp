@@ -280,6 +280,28 @@ pub(super) fn build_tools() -> Vec<Tool> {
         }))
         .expect("valid schema literal");
 
+    let get_account_materials: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "api_key": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "format": "password",
+                    "writeOnly": true,
+                    "pattern": API_KEY_PATTERN,
+                    "description": "GW2 API key with `account` + `inventories` scopes. Optional — falls back to the server-configured key."
+                },
+                "summary": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When true (default), drops empty (count=0) rows and binding info. Pass false for every slot including count=0 with binding preserved."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
     let get_dailies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -718,6 +740,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Get Account Bank"))
         .with_output_schema::<crate::service::AccountBankSnapshot>(),
+        Tool::new(
+            "get_account_materials",
+            "Account material storage. `summary=true` (default) drops count=0 rows (most of the materials tab is empty slots) and sorts by count desc — answers 'what crafting materials do I have?'. `summary=false` returns every slot. Item + category names pre-resolved. Requires `account` + `inventories` scopes.",
+            get_account_materials,
+        )
+        .annotate(read_only_open_world("Get Account Materials"))
+        .with_output_schema::<crate::service::AccountMaterialsSnapshot>(),
         Tool::new(
             "get_account_masteries",
             "Mastery track progress, enriched with track name, region, current level name. Includes points_by_region: per-region {earned, spent, unspent} totals (answers 'what can I afford to finish?'). Requires `account` + `progression` scopes.",

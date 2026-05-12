@@ -307,6 +307,8 @@ pub struct FakeGw2Api {
     pub masteries_response: Mutex<Vec<AccountMastery>>,
     pub mastery_points_response: Mutex<gw2_mcp::domain::AccountMasteryPoints>,
     pub bank_response: Mutex<Vec<gw2_mcp::domain::InventorySlot>>,
+    pub materials_response: Mutex<Vec<gw2_mcp::domain::MaterialSlot>>,
+    pub material_categories: Mutex<BTreeMap<u32, gw2_mcp::domain::MaterialCategory>>,
     pub raids_response: Mutex<Vec<String>>,
     pub dungeons_response: Mutex<Vec<String>>,
     pub wizards_vault_daily: Mutex<WizardsVaultTrack>,
@@ -366,6 +368,8 @@ impl FakeGw2Api {
                 unlocked: Vec::new(),
             }),
             bank_response: Mutex::new(Vec::new()),
+            materials_response: Mutex::new(Vec::new()),
+            material_categories: Mutex::new(BTreeMap::new()),
             raids_response: Mutex::new(Vec::new()),
             dungeons_response: Mutex::new(Vec::new()),
             wizards_vault_daily: Mutex::new(default_vault_track()),
@@ -404,6 +408,14 @@ impl FakeGw2Api {
 
     pub fn set_bank(&self, slots: Vec<gw2_mcp::domain::InventorySlot>) {
         *self.bank_response.lock().unwrap() = slots;
+    }
+
+    pub fn set_materials(&self, slots: Vec<gw2_mcp::domain::MaterialSlot>) {
+        *self.materials_response.lock().unwrap() = slots;
+    }
+
+    pub fn add_material_category(&self, cat: gw2_mcp::domain::MaterialCategory) {
+        self.material_categories.lock().unwrap().insert(cat.id, cat);
     }
 
     pub fn add_currency(&self, c: Currency) {
@@ -714,6 +726,34 @@ impl Gw2Api for FakeGw2Api {
         _key: &ApiKey,
     ) -> Result<Vec<gw2_mcp::domain::InventorySlot>, Gw2ApiError> {
         Ok(self.bank_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_account_materials(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<Vec<gw2_mcp::domain::MaterialSlot>, Gw2ApiError> {
+        Ok(self.materials_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_all_material_category_ids(&self) -> Result<Vec<u32>, Gw2ApiError> {
+        Ok(self
+            .material_categories
+            .lock()
+            .unwrap()
+            .keys()
+            .copied()
+            .collect())
+    }
+
+    async fn fetch_material_categories(
+        &self,
+        ids: &[u32],
+    ) -> Result<BTreeMap<u32, gw2_mcp::domain::MaterialCategory>, Gw2ApiError> {
+        let table = self.material_categories.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| table.get(id).map(|c| (*id, c.clone())))
+            .collect())
     }
 
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
