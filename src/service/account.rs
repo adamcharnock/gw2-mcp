@@ -34,8 +34,14 @@ impl Service {
 
         if let Some(json) = self.cache.get(&cache_key).await {
             match serde_json::from_str::<WalletInfo>(&json) {
-                Ok(info) => {
+                Ok(mut info) => {
                     debug!(fingerprint = %key.fingerprint(), "wallet cache hit");
+                    // Cached `updated_at` is intentional; the delta has
+                    // to be recomputed against now-time on every read so
+                    // the LLM-visible value tracks wall clock, not when
+                    // we cached.
+                    info.updated_minutes_ago =
+                        super::minutes_between(info.updated_at, self.clock.now());
                     return Ok(info);
                 }
                 // A poisoned cache entry should never block the request — log
@@ -46,7 +52,21 @@ impl Service {
 
         debug!(fingerprint = %key.fingerprint(), "wallet cache miss");
 
-        let entries = self.gw2.fetch_wallet(key).await?;
+        let raw_entries = self.gw2.fetch_wallet(key).await?;
+        // Annotate cap-bearing currencies. Done in service (not the
+        // HTTP adapter) so the cap table is a domain concern, not an
+        // adapter concern.
+        let entries: Vec<WalletEntry> = raw_entries
+            .into_iter()
+            .map(|mut e| {
+                if let Some(cap) = crate::domain::currency_caps::get_cap(e.id) {
+                    e.holding_cap = cap.holding_cap;
+                    e.weekly_earn_cap = cap.weekly_earn_cap;
+                    e.at_risk = crate::domain::currency_caps::is_at_risk(e.value, cap);
+                }
+                e
+            })
+            .collect();
 
         // Best-effort metadata enrichment — empty map is acceptable.
         let currencies = match self.fetch_currencies_for(&entries).await {
@@ -62,6 +82,7 @@ impl Service {
             entries,
             currencies,
             updated_at: self.clock.now(),
+            updated_minutes_ago: 0,
         };
 
         // Cache failures aren't fatal — they just mean the next call refetches.
@@ -360,11 +381,13 @@ impl Service {
                 wings: wings_out,
             });
         }
+        let weekly_reset_at = next_raid_reset(now);
         Ok(AccountRaidsSnapshot {
             raids,
             cleared_count,
             total_count: total,
-            weekly_reset_at: next_raid_reset(now),
+            weekly_reset_at,
+            weekly_reset_in_minutes: super::minutes_between(now, weekly_reset_at),
             fetched_at: now,
         })
     }
@@ -418,11 +441,13 @@ impl Service {
                 paths: paths_out,
             });
         }
+        let daily_reset_at = next_daily_reset(now);
         Ok(AccountDungeonsSnapshot {
             dungeons,
             cleared_count,
             total_count: total,
-            daily_reset_at: next_daily_reset(now),
+            daily_reset_at,
+            daily_reset_in_minutes: super::minutes_between(now, daily_reset_at),
             fetched_at: now,
         })
     }
@@ -607,6 +632,11 @@ pub struct AccountRaidsSnapshot {
     pub cleared_count: usize,
     pub total_count: usize,
     pub weekly_reset_at: DateTime<Utc>,
+    /// Minutes until `weekly_reset_at`. Sibling of the absolute
+    /// timestamp per the time-delta convention (see
+    /// `service::minutes_between`); the LLM should prefer this over
+    /// computing from `weekly_reset_at` itself.
+    pub weekly_reset_in_minutes: i64,
     pub fetched_at: DateTime<Utc>,
 }
 
@@ -639,6 +669,9 @@ pub struct AccountDungeonsSnapshot {
     pub cleared_count: usize,
     pub total_count: usize,
     pub daily_reset_at: DateTime<Utc>,
+    /// Minutes until `daily_reset_at`. Sibling of the absolute
+    /// timestamp per the time-delta convention.
+    pub daily_reset_in_minutes: i64,
     pub fetched_at: DateTime<Utc>,
 }
 

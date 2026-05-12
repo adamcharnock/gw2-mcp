@@ -39,6 +39,12 @@ pub struct CharacterBuildSnapshot {
     #[schemars(schema_with = "crate::ports::opaque_value_array_schema")]
     pub equipment_tabs: Vec<serde_json::Value>,
     pub fetched_at: DateTime<Utc>,
+    /// Minutes since `fetched_at`. Recomputed at response time
+    /// (snapshot is cached for `WALLET_TTL` so this can range
+    /// 0..5 min on cache-hit). See the time-delta convention in
+    /// `service::minutes_between`.
+    #[serde(default)]
+    pub fetched_minutes_ago: i64,
 }
 
 impl Service {
@@ -71,6 +77,7 @@ impl Service {
                 build_tabs,
                 equipment_tabs,
                 fetched_at: self.clock.now(),
+                fetched_minutes_ago: 0,
             };
             if let Ok(json) = serde_json::to_string(&snap) {
                 self.cache.set(&cache_key, json, WALLET_TTL).await;
@@ -96,6 +103,7 @@ impl Service {
             build_tabs: resolved_build_tabs,
             equipment_tabs,
             fetched_at: raw_snap.fetched_at,
+            fetched_minutes_ago: super::minutes_between(raw_snap.fetched_at, self.clock.now()),
         })
     }
 

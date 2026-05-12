@@ -42,6 +42,9 @@ async fn wallet_caches_within_ttl() {
     gw2.set_wallet(vec![WalletEntry {
         id: CurrencyId::new(1).unwrap(),
         value: 1234,
+        holding_cap: None,
+        weekly_earn_cap: None,
+        at_risk: None,
     }]);
     gw2.add_currency(currency(1, "Coin"));
 
@@ -75,6 +78,9 @@ async fn wallet_refetches_after_ttl_expiry() {
     gw2.set_wallet(vec![WalletEntry {
         id: CurrencyId::new(1).unwrap(),
         value: 1,
+        holding_cap: None,
+        weekly_earn_cap: None,
+        at_risk: None,
     }]);
     let svc = build(gw2.clone(), wiki, cache, clock.clone());
     let key = valid_api_key();
@@ -100,6 +106,9 @@ async fn wallet_succeeds_when_currency_metadata_fails() {
     gw2.set_wallet(vec![WalletEntry {
         id: CurrencyId::new(99).unwrap(),
         value: 5,
+        holding_cap: None,
+        weekly_earn_cap: None,
+        at_risk: None,
     }]);
     // Note: no currency 99 added.
 

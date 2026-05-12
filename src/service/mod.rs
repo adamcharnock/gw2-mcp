@@ -44,6 +44,60 @@ pub const STATIC_TTL: Duration = Duration::from_secs(60 * 60 * 24 * 365); // 1 y
 pub const WIKI_TTL: Duration = Duration::from_secs(60 * 60 * 24); // 1 day
 pub const WALLET_TTL: Duration = Duration::from_secs(5 * 60); // 5 minutes
 
+/// Number of whole minutes from `from` to `to`. Positive when `to` is
+/// in the future, negative when in the past. Saturates on overflow.
+///
+/// **Tool convention**: every response field that carries an absolute
+/// `DateTime<Utc>` (`*_at`) ships a sibling relative delta computed via
+/// this helper (`*_in_minutes` for future events / resets,
+/// `*_minutes_ago` for past timestamps like `fetched_at`). LLMs are
+/// notoriously bad at converting ISO 8601 strings into "in 38 minutes"
+/// — pre-computing kills that hallucination class. New tools with
+/// time-valued responses MUST follow this convention.
+#[must_use]
+pub(crate) fn minutes_between(
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> i64 {
+    (to - from).num_minutes()
+}
+
+#[cfg(test)]
+mod minutes_between_tests {
+    use super::minutes_between;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn same_instant_is_zero() {
+        let t = Utc::now();
+        assert_eq!(minutes_between(t, t), 0);
+    }
+
+    #[test]
+    fn future_is_positive() {
+        let t = Utc::now();
+        let later = t + Duration::minutes(42);
+        assert_eq!(minutes_between(t, later), 42);
+    }
+
+    #[test]
+    fn past_is_negative() {
+        let t = Utc::now();
+        let earlier = t - Duration::minutes(17);
+        assert_eq!(minutes_between(t, earlier), -17);
+    }
+
+    #[test]
+    fn truncates_partial_minutes() {
+        // `num_minutes` rounds toward zero — 30s → 0 min, 89s → 1 min, etc.
+        let t = Utc::now();
+        let near = t + Duration::seconds(30);
+        assert_eq!(minutes_between(t, near), 0);
+        let further = t + Duration::seconds(89);
+        assert_eq!(minutes_between(t, further), 1);
+    }
+}
+
 /// Dailies roll over once per day. A 1-hour TTL keeps the worst case at
 /// 24 fetches/day per server while still picking up the rollover within
 /// an hour — short enough that the LLM never plans an obsolete routine

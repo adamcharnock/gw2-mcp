@@ -85,6 +85,12 @@ impl Gw2Api for HttpGw2Api {
                     id: CurrencyId::new(w.id)
                         .map_err(|e| Gw2ApiError::Decode(format!("currency id {}: {e}", w.id)))?,
                     value: w.value,
+                    // Cap annotations are populated by the service
+                    // layer (it owns the cap table) — adapters only
+                    // map wire → typed domain.
+                    holding_cap: None,
+                    weekly_earn_cap: None,
+                    at_risk: None,
                 })
             })
             .collect()

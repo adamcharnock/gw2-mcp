@@ -11,6 +11,7 @@ pub mod build_slug;
 pub mod character;
 pub mod continents;
 pub mod currency;
+pub mod currency_caps;
 pub mod error;
 pub mod instances;
 pub mod map_neighbors;
