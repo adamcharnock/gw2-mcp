@@ -259,6 +259,19 @@ impl Gw2Api for HttpGw2Api {
         self.fetch_authed_json(&url, key, None).await
     }
 
+    async fn fetch_account_bank(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<crate::domain::InventorySlot>, Gw2ApiError> {
+        let url = format!("{}/account/bank", self.base_url);
+        // Bank is Vec<Option<Slot>>; empty bank slots come back as
+        // explicit nulls. Drop them so the service only sees occupied
+        // slots — the LLM never cares about "slot 42 is empty".
+        let raw: Vec<Option<crate::domain::InventorySlot>> =
+            self.fetch_authed_json(&url, key, None).await?;
+        Ok(raw.into_iter().flatten().collect())
+    }
+
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
         self.fetch_id_list("masteries", MasteryId::new).await
     }

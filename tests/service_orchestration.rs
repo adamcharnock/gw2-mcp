@@ -122,6 +122,88 @@ async fn wallet_succeeds_when_currency_metadata_fails() {
 }
 
 #[tokio::test]
+async fn bank_summary_groups_by_item_id_and_sums_counts() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    // Three slots: two stacks of item 42 (10 + 5 = 15) and one of
+    // item 43 (count 1). Summary should collapse to two rows.
+    gw2.set_bank(vec![
+        gw2_mcp::domain::InventorySlot {
+            id: 42,
+            count: 10,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 42,
+            count: 5,
+            binding: Some("Account".into()),
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 43,
+            count: 1,
+            binding: None,
+            bound_to: None,
+            charges: None,
+        },
+    ]);
+
+    let svc = build(gw2.clone(), wiki, cache.clone(), clock.clone());
+    let key = valid_api_key();
+
+    let snap = svc.get_account_bank(&key, true).await.unwrap();
+    assert!(snap.summary);
+    assert_eq!(snap.items.len(), 2, "summary collapses two slots of id=42");
+    assert_eq!(snap.unique_item_count, 2);
+    assert_eq!(snap.used_slots, 3);
+    // Largest stockpile first.
+    assert_eq!(snap.items[0].id, 42);
+    assert_eq!(snap.items[0].count, 15);
+    assert!(snap.items[0].binding.is_none(), "summary drops binding");
+    assert_eq!(snap.items[1].id, 43);
+    assert_eq!(snap.items[1].count, 1);
+}
+
+#[tokio::test]
+async fn bank_full_mode_preserves_per_slot_detail() {
+    let clock = TestClock::new();
+    let cache = TestCache::new(clock.clone());
+    let gw2 = FakeGw2Api::new();
+    let wiki = FakeWiki::new();
+
+    gw2.set_bank(vec![
+        gw2_mcp::domain::InventorySlot {
+            id: 42,
+            count: 10,
+            binding: Some("Account".into()),
+            bound_to: None,
+            charges: None,
+        },
+        gw2_mcp::domain::InventorySlot {
+            id: 42,
+            count: 5,
+            binding: Some("Character".into()),
+            bound_to: Some("Hero".into()),
+            charges: None,
+        },
+    ]);
+
+    let svc = build(gw2, wiki, cache, clock);
+    let snap = svc.get_account_bank(&valid_api_key(), false).await.unwrap();
+    assert!(!snap.summary);
+    assert_eq!(snap.items.len(), 2, "full mode keeps per-slot rows");
+    assert_eq!(snap.items[0].binding.as_deref(), Some("Account"));
+    assert_eq!(snap.items[1].binding.as_deref(), Some("Character"));
+    assert_eq!(snap.items[1].bound_to.as_deref(), Some("Hero"));
+}
+
+#[tokio::test]
 async fn wallet_propagates_unauthorized() {
     let clock = TestClock::new();
     let cache = TestCache::new(clock.clone());

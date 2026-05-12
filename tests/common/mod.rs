@@ -306,6 +306,7 @@ pub struct FakeGw2Api {
     pub achievements_response: Mutex<Vec<AccountAchievement>>,
     pub masteries_response: Mutex<Vec<AccountMastery>>,
     pub mastery_points_response: Mutex<gw2_mcp::domain::AccountMasteryPoints>,
+    pub bank_response: Mutex<Vec<gw2_mcp::domain::InventorySlot>>,
     pub raids_response: Mutex<Vec<String>>,
     pub dungeons_response: Mutex<Vec<String>>,
     pub wizards_vault_daily: Mutex<WizardsVaultTrack>,
@@ -364,6 +365,7 @@ impl FakeGw2Api {
                 totals: Vec::new(),
                 unlocked: Vec::new(),
             }),
+            bank_response: Mutex::new(Vec::new()),
             raids_response: Mutex::new(Vec::new()),
             dungeons_response: Mutex::new(Vec::new()),
             wizards_vault_daily: Mutex::new(default_vault_track()),
@@ -398,6 +400,10 @@ impl FakeGw2Api {
 
     pub fn set_wallet_unauthorized(&self) {
         *self.wallet_response.lock().unwrap() = Err(Gw2ApiError::Unauthorized);
+    }
+
+    pub fn set_bank(&self, slots: Vec<gw2_mcp::domain::InventorySlot>) {
+        *self.bank_response.lock().unwrap() = slots;
     }
 
     pub fn add_currency(&self, c: Currency) {
@@ -701,6 +707,13 @@ impl Gw2Api for FakeGw2Api {
         _key: &ApiKey,
     ) -> Result<gw2_mcp::domain::AccountMasteryPoints, Gw2ApiError> {
         Ok(self.mastery_points_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_account_bank(
+        &self,
+        _key: &ApiKey,
+    ) -> Result<Vec<gw2_mcp::domain::InventorySlot>, Gw2ApiError> {
+        Ok(self.bank_response.lock().unwrap().clone())
     }
 
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {

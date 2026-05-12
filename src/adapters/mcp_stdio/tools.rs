@@ -258,6 +258,28 @@ pub(super) fn build_tools() -> Vec<Tool> {
         }))
         .expect("valid schema literal");
 
+    let get_account_bank: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "api_key": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "format": "password",
+                    "writeOnly": true,
+                    "pattern": API_KEY_PATTERN,
+                    "description": "GW2 API key with `account` + `inventories` scopes. Optional — falls back to the server-configured key."
+                },
+                "summary": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When true (default), groups slots by item id with summed counts (drops binding/charges). Pass false for one row per occupied slot with binding/charges preserved — useful for 'find my soulbound legendaries' or per-slot audit."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
     let get_dailies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -689,6 +711,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Get Account Achievements"))
         .with_output_schema::<crate::service::AccountAchievementsSnapshot>(),
+        Tool::new(
+            "get_account_bank",
+            "Account bank contents. `summary=true` (default) groups slots by item id with summed counts — answers 'what do I have stockpiled?'. `summary=false` returns one row per occupied slot with binding + charges. Item names pre-resolved. Requires `account` + `inventories` scopes.",
+            get_account_bank,
+        )
+        .annotate(read_only_open_world("Get Account Bank"))
+        .with_output_schema::<crate::service::AccountBankSnapshot>(),
         Tool::new(
             "get_account_masteries",
             "Mastery track progress, enriched with track name, region, current level name. Includes points_by_region: per-region {earned, spent, unspent} totals (answers 'what can I afford to finish?'). Requires `account` + `progression` scopes.",

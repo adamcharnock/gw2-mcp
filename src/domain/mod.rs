@@ -14,6 +14,7 @@ pub mod currency;
 pub mod currency_caps;
 pub mod error;
 pub mod instances;
+pub mod inventory;
 pub mod map_neighbors;
 pub mod mastery;
 pub mod reference;
@@ -34,6 +35,7 @@ pub use continents::{Region, RegionMap};
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
 pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};
+pub use inventory::{InventorySlot, MaterialSlot};
 pub use map_neighbors::{
     ConnectionType, Expansion, MapNeighborEntry, MapNeighborLink, MapNeighbors, MapNeighborsError,
 };

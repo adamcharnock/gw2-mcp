@@ -240,6 +240,15 @@ pub trait Gw2Api: Send + Sync + 'static {
         key: &ApiKey,
     ) -> Result<crate::domain::AccountMasteryPoints, Gw2ApiError>;
 
+    /// `/v2/account/bank` — requires `inventories` scope. Returns one
+    /// element per bank slot; null elements are empty slots. Adapter
+    /// drops null slots before returning, so the inner Vec is
+    /// "occupied slots only".
+    async fn fetch_account_bank(
+        &self,
+        key: &ApiKey,
+    ) -> Result<Vec<crate::domain::InventorySlot>, Gw2ApiError>;
+
     /// `/v2/masteries` — public, no key. Returns the full id list.
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError>;
 

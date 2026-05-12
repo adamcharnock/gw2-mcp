@@ -13,8 +13,8 @@ use tracing::{debug, warn};
 use super::{DAILIES_TTL, STATIC_TTL, Service, ServiceError, WALLET_TTL};
 use crate::domain::{
     Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, Currency,
-    CurrencyId, Dungeon, Raid, WalletEntry, WalletInfo, WizardsVaultTrack, next_daily_reset,
-    next_raid_reset, title_case,
+    CurrencyId, Dungeon, InventorySlot, ItemId, Raid, WalletEntry, WalletInfo, WizardsVaultTrack,
+    next_daily_reset, next_raid_reset, title_case,
 };
 
 /// Which Wizard's Vault track to fetch — `Daily`, `Weekly`, or
@@ -608,6 +608,111 @@ impl Service {
         Ok(WizardsVaultSnapshot::from_track(track))
     }
 
+    /// Fetch the account bank and project it for LLM consumption.
+    ///
+    /// Summary mode (`summary=true`, default): collapses to one row per
+    /// unique item id with summed counts. Strips binding/charges. Use
+    /// case: "what do I have stockpiled?".
+    ///
+    /// Full mode (`summary=false`): one row per occupied slot, with
+    /// binding + charges preserved. Use case: "find my soulbound legendaries"
+    /// or "which slots are filled with what".
+    ///
+    /// Item names are pre-resolved via `/v2/items` so the LLM doesn't
+    /// have to follow up with `get_items`. Name lookup is best-effort
+    /// — a failure leaves `name: None` rather than poisoning the whole
+    /// response.
+    pub async fn get_account_bank(
+        &self,
+        key: &ApiKey,
+        summary: bool,
+    ) -> Result<AccountBankSnapshot, ServiceError> {
+        let cache_key = format!("account_bank:{}", key.fingerprint());
+        let slots: Vec<InventorySlot> = if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str::<Vec<InventorySlot>>(&json)
+        {
+            v
+        } else {
+            let v = self.gw2.fetch_account_bank(key).await?;
+            if let Ok(json) = serde_json::to_string(&v) {
+                self.cache.set(&cache_key, json, WALLET_TTL).await;
+            }
+            v
+        };
+
+        // Item-name resolution — collect unique ids, batch-resolve.
+        let unique_ids: Vec<ItemId> = {
+            let mut set = BTreeSet::new();
+            for s in &slots {
+                if let Ok(id) = ItemId::new(i64::from(s.id)) {
+                    set.insert(id);
+                }
+            }
+            set.into_iter().collect()
+        };
+        let names = self.item_names_for(&unique_ids).await;
+
+        let items: Vec<BankItemEntry> = if summary {
+            // Group by id, sum counts. Order by descending count so the
+            // LLM sees biggest stockpiles first.
+            let mut by_id: BTreeMap<u32, u32> = BTreeMap::new();
+            for s in &slots {
+                *by_id.entry(s.id).or_default() += s.count;
+            }
+            let mut entries: Vec<BankItemEntry> = by_id
+                .into_iter()
+                .map(|(id, total)| BankItemEntry {
+                    id,
+                    name: names.get(&id).cloned(),
+                    count: total,
+                    binding: None,
+                    bound_to: None,
+                    charges: None,
+                })
+                .collect();
+            entries.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+            entries
+        } else {
+            slots
+                .iter()
+                .map(|s| BankItemEntry {
+                    id: s.id,
+                    name: names.get(&s.id).cloned(),
+                    count: s.count,
+                    binding: s.binding.clone(),
+                    bound_to: s.bound_to.clone(),
+                    charges: s.charges,
+                })
+                .collect()
+        };
+
+        Ok(AccountBankSnapshot {
+            summary,
+            unique_item_count: unique_ids.len(),
+            used_slots: slots.len(),
+            items,
+            fetched_at: self.clock.now(),
+        })
+    }
+
+    /// Batch-resolve `ItemId -> name` for a set of ids. Best-effort —
+    /// empty map on any failure. Skips ids that don't validate.
+    async fn item_names_for(&self, ids: &[ItemId]) -> BTreeMap<u32, String> {
+        if ids.is_empty() {
+            return BTreeMap::new();
+        }
+        match self.get_items(ids).await {
+            Ok(m) => m
+                .into_iter()
+                .map(|(id, item)| (id.get(), item.name))
+                .collect(),
+            Err(e) => {
+                warn!(error = ?e, "failed to resolve item names; bank entries will use id only");
+                BTreeMap::new()
+            }
+        }
+    }
+
     pub(super) async fn fetch_currencies_for(
         &self,
         entries: &[WalletEntry],
@@ -863,6 +968,38 @@ pub struct MasteryPointBalance {
     pub earned: u32,
     pub spent: u32,
     pub unspent: i32,
+}
+
+/// Result of `get_account_bank`. See `Service::get_account_bank` for
+/// summary-vs-full shape semantics.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AccountBankSnapshot {
+    /// Echoes the request arg. Lets the LLM disambiguate at call time
+    /// without re-checking its arguments.
+    pub summary: bool,
+    /// Number of distinct item ids found across the bank.
+    pub unique_item_count: usize,
+    /// Number of occupied bank slots (after null-filtering by adapter).
+    pub used_slots: usize,
+    pub items: Vec<BankItemEntry>,
+    pub fetched_at: DateTime<Utc>,
+}
+
+/// One row in the bank response. In summary mode each row aggregates a
+/// single item id across all slots (binding/charges are dropped). In
+/// full mode each row is one slot (binding/charges preserved).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct BankItemEntry {
+    pub id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charges: Option<u32>,
 }
 
 fn total_mastery_points_earned(

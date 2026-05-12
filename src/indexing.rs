@@ -414,6 +414,12 @@ mod tests {
                 unlocked: Vec::new(),
             })
         }
+        async fn fetch_account_bank(
+            &self,
+            _: &ApiKey,
+        ) -> Result<Vec<crate::domain::InventorySlot>, Gw2ApiError> {
+            Ok(Vec::new())
+        }
         async fn fetch_all_mastery_ids(
             &self,
         ) -> Result<Vec<crate::domain::MasteryId>, Gw2ApiError> {
