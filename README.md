@@ -85,10 +85,9 @@ understands.
 > (`get_my_location`, `find_nearby`, `describe_facing`, `get_directions`)
 > read live in-game state from a shared-memory region the GW2 client
 > writes every frame. That only works when the MCP server runs on the
-> **same host** as the game — Docker containers can't see the host's
-> shared memory. The pre-built binaries are therefore the recommended
-> way to run gw2-mcp; the Docker image is retained for headless / API-
-> only deployments where Mumble Link doesn't matter.
+> **same host** as the game, which is why gw2-mcp ships as a native
+> binary per OS rather than a container image — Docker can't see the
+> host's shared memory.
 
 Download the binary for your platform from the latest
 [GitHub Release](https://github.com/adamcharnock/gw2-mcp/releases/latest):
@@ -209,46 +208,6 @@ current state.
 If you only run ChatGPT Desktop and don't want to operate a bridge,
 Claude Desktop or Claude Code are the simpler hosts.
 
-### Docker (headless, no Mumble Link)
-
-```json
-{
-  "mcpServers": {
-    "gw2": {
-      "command": "docker",
-      "args": ["run", "--rm", "-i", "ghcr.io/adamcharnock/gw2-mcp:latest"]
-    }
-  }
-}
-```
-
-Containers can't see the host's shared-memory `MumbleLink`, so the four
-nav tools return a "not connected" error there. Everything else works.
-Image registry details (tags, architectures, provenance) below.
-
-### Docker image details
-
-For headless / containerised deployments where the Mumble Link
-navigation tools aren't needed, an image is published to **GitHub
-Container Registry** on every push to `main` and on `vX.Y.Z` tags:
-
-- Image: `ghcr.io/adamcharnock/gw2-mcp`
-- Architectures: `linux/amd64`, `linux/arm64` (Apple Silicon native)
-- Base: distroless `cc-debian12:nonroot` (~25 MB, runs as non-root, no shell)
-- Provenance + SBOM attestations are published alongside each manifest
-
-Available tags:
-
-| Tag                      | When                                    |
-|--------------------------|-----------------------------------------|
-| `latest`                 | Latest push to `main`                   |
-| `main`                   | Latest push to `main`                   |
-| `X.Y.Z`, `X.Y`           | Pushed when a `vX.Y.Z` git tag lands    |
-| `sha-<short>`            | Every commit (use this for hard pinning) |
-
-For production deployments, prefer pinning to a `vX.Y.Z` or `sha-<short>` tag
-rather than `latest`.
-
 ## Tools
 
 | Tool                    | Required args     | Optional args                                       | Notes |
@@ -308,12 +267,12 @@ region the game writes every frame.
 | macOS (CrossOver) | Bundled `gw2-mcp-holder.exe` runs in-bottle via `cxstart`, pre-creates the `MumbleLink` Section, mirrors snapshots to `<bottle>/drive_c/users/Public/gw2-mcp/mumble.bin`, which the macOS server reads. **Auto-managed** — no extra setup. | Works |
 | macOS (Whisky) | Same approach as CrossOver, launched via Whisky's bundled `wine64` with `WINEPREFIX=<bottle>`. **Auto-managed** — no extra setup. | Works |
 | macOS (Parallels VM) | Not reachable from the host | Use the Windows side directly |
-| Docker / headless | Not applicable | Pass `--no-mumble-link` to silence the auto-probe |
+| Headless / CI | Not applicable | Pass `--no-mumble-link` to silence the auto-probe |
 
 The server **never fails** at startup when no Mumble Link is reachable —
 it wires a stub that returns a clear "not connected" error from the four
 navigation tools while everything else keeps working. Pass `--no-mumble-link`
-to deliberately disable Mumble Link (useful in Docker, CI, headless deployments).
+to deliberately disable Mumble Link (useful in CI / headless deployments).
 Pass `--no-mumble-holder` (macOS only) to skip the in-bottle holder spawn
 without disabling the reader, useful if you're managing the holder yourself.
 

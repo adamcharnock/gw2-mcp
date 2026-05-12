@@ -1,0 +1,16 @@
+# cargo-audit configuration. Picked up automatically by `cargo audit`
+# when run from the repo root (path: `./audit.toml` or `~/.cargo/audit.toml`).
+
+[advisories]
+# Advisories we knowingly accept. Each entry should justify why the
+# advisory does NOT actually apply to our compiled binary.
+ignore = [
+    # rsa 0.9.x is pulled in by sqlx-mysql 0.8.x. We configure sqlx with
+    # `default-features = false, features = ["sqlite", "macros",
+    # "runtime-tokio", "migrate"]` — `sqlx-mysql` is NOT compiled into
+    # our binary. The Marvin-attack RSA timing vulnerability requires
+    # actually invoking the rsa crate's vulnerable code paths, which we
+    # never do. No upstream fix is available; suppress until sqlx-mysql
+    # severs the dep (tracked at https://github.com/launchbadge/sqlx/issues).
+    "RUSTSEC-2023-0071",
+]

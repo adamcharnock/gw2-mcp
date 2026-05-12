@@ -75,7 +75,7 @@ struct Cli {
     #[arg(long, env = "RUST_LOG", default_value = "info")]
     log: String,
 
-    /// Disable the Mumble Link reader. Useful for headless/Docker
+    /// Disable the Mumble Link reader. Useful for headless / CI
     /// deployments where GW2 isn't running on the same host. The
     /// navigation tools (`get_my_location`, `describe_facing`,
     /// `find_nearby` with `here`, `get_directions` with `here`) will
