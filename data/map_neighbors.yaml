@@ -1235,8 +1235,7 @@
   neighbors:
   - map_id: 1121
     name: Gilded Hollow
-    direction: C
-    connection: physical
+    connection: guild_hall
     min_level: 80
     max_level: 80
   - map_id: 1045
@@ -1290,14 +1289,12 @@
     expansion: heart_of_thorns
   - map_id: 1124
     name: Lost Precipice
-    direction: NW
-    connection: physical
+    connection: guild_hall
     min_level: 80
     max_level: 80
   - map_id: 1158
     name: Noble's Folly
-    direction: SSW
-    connection: physical
+    connection: guild_hall
     min_level: 80
     max_level: 80
   - map_id: 1015
@@ -1547,8 +1544,7 @@
     max_level: 80
   - map_id: 1250
     name: Windswept Haven
-    direction: NW
-    connection: physical
+    connection: guild_hall
     min_level: 80
     max_level: 80
 1263:
@@ -1740,7 +1736,7 @@
   neighbors:
   - map_id: 1462
     name: Isle of Reflection
-    connection: asura_gate
+    connection: guild_hall
     min_level: 80
     max_level: 80
   - map_id: 1438

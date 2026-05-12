@@ -56,6 +56,36 @@ use serde::{Deserialize, Serialize};
 
 const GW2_API_BASE: &str = "https://api.guildwars2.com/v2";
 const WIKI_API_BASE: &str = "https://wiki.guildwars2.com/api.php";
+
+/// Map ids of the five guild halls that appear as neighbors of HoT /
+/// PoF / EoD open-world maps via their wiki infoboxes. The wiki
+/// reports a direction code (often "C" for "contained") and the
+/// generic infer-from-direction rule mistags these as `physical`.
+/// Force `connection: guild_hall` with no direction for any neighbor
+/// link pointing to one of these ids.
+///
+/// Each id is the one currently referenced from the open-world side
+/// in `data/map_neighbors.yaml`; the GW2 API exposes many additional
+/// instance variants of each hall but the curated table only ever
+/// links to the canonical id.
+const GUILD_HALL_MAP_IDS: &[u32] = &[
+    1121, // Gilded Hollow         (HoT)
+    1124, // Lost Precipice        (HoT)
+    1158, // Noble's Folly         (PoF)
+    1250, // Windswept Haven       (PoF)
+    1462, // Isle of Reflection    (EoD)
+];
+
+const fn is_guild_hall(map_id: u32) -> bool {
+    let mut i = 0;
+    while i < GUILD_HALL_MAP_IDS.len() {
+        if GUILD_HALL_MAP_IDS[i] == map_id {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
 const USER_AGENT: &str = concat!(
     "gw2-mcp-scraper/",
     env!("CARGO_PKG_VERSION"),
@@ -217,11 +247,23 @@ async fn main() -> Result<()> {
                 let target_expansion = scraped
                     .get(id)
                     .and_then(|z| expansion_with_core_default(z.requires_raw.as_deref()));
+                let (connection, direction) = if is_guild_hall(*id) {
+                    // Guild halls aren't physical neighbors of their
+                    // open-world maps; the wiki infobox's direction
+                    // code ("C" etc.) doesn't survive the physical /
+                    // asura-gate / guild-hall taxonomy.
+                    (Some("guild_hall".to_owned()), None)
+                } else {
+                    (
+                        Some(infer_connection_type(raw.direction.as_deref()).to_owned()),
+                        raw.direction.clone(),
+                    )
+                };
                 neighbors.push(YamlNeighbor {
                     map_id: *id,
                     name: neighbor_name,
-                    connection: Some(infer_connection_type(raw.direction.as_deref()).to_owned()),
-                    direction: raw.direction.clone(),
+                    connection,
+                    direction,
                     min_level: target_map.and_then(|m| m.min_level),
                     max_level: target_map.and_then(|m| m.max_level),
                     expansion: target_expansion,
@@ -1276,6 +1318,19 @@ Body text below.
         );
         let n = reconcile_directions(&mut out);
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn guild_hall_map_ids_classified_as_such() {
+        // The known guild halls referenced from the curated open-world
+        // entries.
+        for id in [1121u32, 1124, 1158, 1250, 1462] {
+            assert!(is_guild_hall(id), "expected {id} to be a guild hall");
+        }
+        // Open-world maps stay non-guild-hall.
+        for id in [15u32, 50, 1043, 1052] {
+            assert!(!is_guild_hall(id));
+        }
     }
 
     #[test]
