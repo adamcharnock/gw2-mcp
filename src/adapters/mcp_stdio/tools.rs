@@ -818,7 +818,7 @@ pub(super) fn build_tools() -> Vec<Tool> {
         .with_output_schema::<crate::service::CharacterInventorySnapshot>(),
         Tool::new(
             "get_market_prices",
-            "Trading-post buy/sell orderbook summary for a list of GW2 item ids. No API key required. Coin values are in copper — gold = price / 10000. Each item gets {buys: {unit_price, quantity}, sells: {unit_price, quantity}}; un-tradeable items are silently omitted. Cached 60s — prices age out fast.",
+            "Trading-post buy/sell orderbook summary for a list of GW2 item ids. No API key required. Coin values are in copper — gold = price / 10000. Each item gets {buys: {unit_price, quantity}, sells: {unit_price, quantity}, whitelisted}. `whitelisted: true` means the item is on the F2P-tradeable allowlist (effectively: anyone can trade it via the TP); `false` means it's restricted to paid accounts. Un-tradeable items (soulbound, account-bound) are silently omitted from the response. Cached 60s — prices age out fast.",
             get_market_prices,
         )
         .annotate(read_only_open_world("Get Market Prices"))

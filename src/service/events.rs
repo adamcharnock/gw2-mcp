@@ -16,9 +16,11 @@
 //!
 //! ## Indexing
 //!
-//! `pattern[i].r` is **1-based** into `segments[]`. `r == 0` means
-//! "gap with no active segment" — surfaced as an empty
-//! `current_segment` string.
+//! `segments` is a map keyed by stringified integer (`"0"`, `"1"`, …);
+//! `pattern.r` is the key. `r == 0` typically points at a blank/gap
+//! segment with an empty name — we surface that as an empty
+//! `current_segment` string. Out-of-bounds `r` (segment missing) is
+//! also surfaced as empty.
 
 use std::time::Duration;
 
@@ -35,7 +37,10 @@ use crate::domain::{
 /// day is plenty of slack and keeps a typical session on one HTTP fetch.
 const EVENT_SCHEDULE_TTL: Duration = Duration::from_secs(60 * 60 * 24);
 
-const EVENT_SCHEDULE_CACHE_KEY: &str = "event_schedule:raw";
+// Cache key carries a version suffix so the previous (broken-shape)
+// entries don't get reparsed by the corrected parser. Bump this on any
+// future widget-shape change that requires a forced refresh.
+const EVENT_SCHEDULE_CACHE_KEY: &str = "event_schedule:raw:v2";
 
 impl Service {
     /// Compute the per-event "current segment + next segment" view.
@@ -91,24 +96,21 @@ impl Service {
 /// fields); anything we didn't model is dropped, which is fine because
 /// we only ever read what we modelled.
 fn raw_as_value(raw: &EventScheduleRaw) -> serde_json::Value {
-    let mut out = serde_json::Map::new();
-    out.insert(
-        "config".to_owned(),
-        serde_json::json!({ "version": raw.config.version }),
-    );
+    let mut events_map = serde_json::Map::new();
     for (slug, def) in &raw.events {
-        let segments: Vec<_> = def
-            .segments
-            .iter()
-            .map(|s| {
+        let mut segments = serde_json::Map::new();
+        for (key, s) in &def.segments {
+            segments.insert(
+                key.clone(),
                 serde_json::json!({
                     "name": s.name,
                     "link": s.link,
                     "chatlink": s.chatlink,
-                })
-            })
-            .collect();
+                }),
+            );
+        }
         let pattern: Vec<_> = def
+            .sequences
             .pattern
             .iter()
             .map(|p| serde_json::json!({ "r": p.r, "d": p.d }))
@@ -119,19 +121,21 @@ fn raw_as_value(raw: &EventScheduleRaw) -> serde_json::Value {
             .iter()
             .map(|p| serde_json::json!({ "r": p.r, "d": p.d }))
             .collect();
-        out.insert(
+        events_map.insert(
             slug.clone(),
             serde_json::json!({
                 "category": def.category,
                 "name": def.name,
                 "link": def.link,
                 "segments": segments,
-                "pattern": pattern,
-                "sequences": { "partial": partial },
+                "sequences": { "pattern": pattern, "partial": partial },
             }),
         );
     }
-    serde_json::Value::Object(out)
+    serde_json::json!({
+        "config": { "version": raw.config.version },
+        "events": events_map,
+    })
 }
 
 fn build_schedule_response(
@@ -174,13 +178,14 @@ fn build_schedule_response(
 }
 
 /// Walk a single event's pattern and produce its current-segment +
-/// next-segment view at `now`. Returns `None` for events with neither
-/// `pattern` nor `sequences.partial` populated.
+/// next-segment view at `now`. Prefers `sequences.pattern` (the
+/// recurring cycle); falls back to `sequences.partial` for events
+/// that publish only a non-cyclic daily schedule (hard world bosses).
 fn walk_event(def: &EventDefinition, now: DateTime<Utc>) -> Option<EventOccurrence> {
-    let slots: &[PatternSlot] = if def.pattern.is_empty() {
+    let slots: &[PatternSlot] = if def.sequences.pattern.is_empty() {
         &def.sequences.partial
     } else {
-        &def.pattern
+        &def.sequences.pattern
     };
     if slots.is_empty() {
         return None;
@@ -228,15 +233,14 @@ fn walk_event(def: &EventDefinition, now: DateTime<Utc>) -> Option<EventOccurren
     })
 }
 
-/// Resolve a `pattern.r` value to a segment name. `r == 0` is a gap;
-/// otherwise `segments[r - 1]`. Out-of-bounds yields an empty string.
+/// Resolve a `pattern.r` value to a segment name by looking up
+/// `r.to_string()` in the segments map. Missing keys (typical for
+/// `r == 0`, which the widget uses for blank gaps) yield an empty
+/// string — the walker exposes that as "currently a gap".
 fn segment_name(def: &EventDefinition, r: u32) -> String {
-    if r == 0 {
-        return String::new();
-    }
-    let idx = (r - 1) as usize;
+    let key = r.to_string();
     def.segments
-        .get(idx)
+        .get(&key)
         .map(|s| s.name.clone())
         .unwrap_or_default()
 }
@@ -248,26 +252,33 @@ mod tests {
     use chrono::TimeZone;
     use std::collections::BTreeMap;
 
+    fn seg(name: &str) -> SegmentDefinition {
+        SegmentDefinition {
+            name: name.to_owned(),
+            link: None,
+            chatlink: None,
+        }
+    }
+
+    fn segments_map(pairs: &[(u32, &str)]) -> BTreeMap<String, SegmentDefinition> {
+        pairs.iter().map(|(k, n)| (k.to_string(), seg(n))).collect()
+    }
+
     fn def_day_and_night() -> EventDefinition {
         EventDefinition {
             category: "Core Tyria".to_owned(),
             name: "Day and night".to_owned(),
             link: None,
-            segments: ["Day", "Dusk", "Night", "Dawn"]
-                .iter()
-                .map(|n| SegmentDefinition {
-                    name: (*n).to_owned(),
-                    link: None,
-                    chatlink: None,
-                })
-                .collect(),
-            pattern: vec![
-                PatternSlot { r: 1, d: 70 },
-                PatternSlot { r: 2, d: 5 },
-                PatternSlot { r: 3, d: 40 },
-                PatternSlot { r: 4, d: 5 },
-            ],
-            sequences: EventSequences::default(),
+            segments: segments_map(&[(1, "Day"), (2, "Dusk"), (3, "Night"), (4, "Dawn")]),
+            sequences: EventSequences {
+                pattern: vec![
+                    PatternSlot { r: 1, d: 70 },
+                    PatternSlot { r: 2, d: 5 },
+                    PatternSlot { r: 3, d: 40 },
+                    PatternSlot { r: 4, d: 5 },
+                ],
+                partial: vec![],
+            },
         }
     }
 
@@ -321,20 +332,15 @@ mod tests {
             category: "Core Tyria".to_owned(),
             name: "World bosses (synthetic)".to_owned(),
             link: None,
-            segments: ["A", "B", "C"]
-                .iter()
-                .map(|n| SegmentDefinition {
-                    name: (*n).to_owned(),
-                    link: None,
-                    chatlink: None,
-                })
-                .collect(),
-            pattern: vec![
-                PatternSlot { r: 1, d: 90 },
-                PatternSlot { r: 2, d: 90 },
-                PatternSlot { r: 3, d: 90 },
-            ],
-            sequences: EventSequences::default(),
+            segments: segments_map(&[(1, "A"), (2, "B"), (3, "C")]),
+            sequences: EventSequences {
+                pattern: vec![
+                    PatternSlot { r: 1, d: 90 },
+                    PatternSlot { r: 2, d: 90 },
+                    PatternSlot { r: 3, d: 90 },
+                ],
+                partial: vec![],
+            },
         };
         // 150 minutes after midnight: position = 150 % 270 = 150.
         // Walk: A occupies [0,90), B occupies [90,180). So B is current.
@@ -351,16 +357,15 @@ mod tests {
             category: "Core Tyria".to_owned(),
             name: "Hard world bosses (synthetic)".to_owned(),
             link: None,
-            segments: vec![SegmentDefinition {
-                name: "Tequatl".to_owned(),
-                link: None,
-                chatlink: None,
-            }],
-            pattern: vec![
-                PatternSlot { r: 1, d: 30 }, // Tequatl
-                PatternSlot { r: 0, d: 30 }, // gap
-            ],
-            sequences: EventSequences::default(),
+            // Only segment "1" defined; r=0 falls through to empty.
+            segments: segments_map(&[(1, "Tequatl")]),
+            sequences: EventSequences {
+                pattern: vec![
+                    PatternSlot { r: 1, d: 30 }, // Tequatl
+                    PatternSlot { r: 0, d: 30 }, // gap (no segment "0" registered)
+                ],
+                partial: vec![],
+            },
         };
         // 40 min after midnight → 10 min into the gap.
         let now = Utc.with_ymd_and_hms(2026, 5, 12, 0, 40, 0).unwrap();
@@ -376,13 +381,9 @@ mod tests {
             category: "Core Tyria".to_owned(),
             name: "From-partial".to_owned(),
             link: None,
-            segments: vec![SegmentDefinition {
-                name: "Only".to_owned(),
-                link: None,
-                chatlink: None,
-            }],
-            pattern: vec![],
+            segments: segments_map(&[(1, "Only")]),
             sequences: EventSequences {
+                pattern: vec![],
                 partial: vec![PatternSlot { r: 1, d: 60 }],
             },
         };

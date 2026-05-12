@@ -2,24 +2,46 @@
 //!
 //! Source: <https://wiki.guildwars2.com/index.php?title=Widget:Event_timer/data.json&action=raw>
 //!
-//! Wire layout (verified live, widget version `v5.1`):
+//! Wire layout (verified live against widget version `v5.1`):
 //! ```json
 //! {
 //!   "config": { "version": "v5.1", ... },
-//!   "core-dn": {
-//!     "category": "Core Tyria",
-//!     "name": "Day and night",
-//!     "segments": [{"name": "Day", "link": "...", "bg": [...]}, ...],
-//!     "pattern": [{"r": 1, "d": 70}, {"r": 2, "d": 5}, ...]
-//!   },
-//!   "core-wb": { ... },
-//!   ...
+//!   "events": {
+//!     "t":       { ...template, empty fields, ignored... },
+//!     "core-dn": {
+//!       "category": "Core Tyria",
+//!       "name": "Day and night",
+//!       "segments": {
+//!         "1": {"name": "Day", "link": "...", "bg": [...]},
+//!         "2": {"name": "Dusk", ...},
+//!         ...
+//!       },
+//!       "sequences": {
+//!         "pattern": [{"r": 1, "d": 70}, {"r": 2, "d": 5}, ...],
+//!         "partial": [...]
+//!       }
+//!     },
+//!     "core-wb": { ... },
+//!     ...
+//!   }
 //! }
 //! ```
 //!
-//! Events are top-level keys (slugs like `core-dn`), not an array. A
-//! template entry under key `"t"` carries empty fields and is filtered
-//! out at parse time.
+//! - Events live in an inner `events` object keyed by slug (`core-dn`,
+//!   `hot-vb`, `festival-db`, …).
+//! - `segments` is a **map** keyed by stringified integers (`"0"`, `"1"`,
+//!   `"2"`, …), not an array. `pattern.r` is the key into this map.
+//! - The recurring cycle lives at `sequences.pattern`; for the handful
+//!   of events that don't have one (e.g. hard world bosses), the day's
+//!   schedule lives at `sequences.partial` and we fall back to it.
+//! - A template entry under key `"t"` carries empty fields and is
+//!   filtered out at parse time.
+//!
+//! Two prior bugs in this parser inspired the loud doc comment: the
+//! events were assumed to be at the top level (drove a zero-result
+//! tool), and `segments` was assumed to be an array indexed by
+//! `pattern.r - 1`. The shape above is what the widget actually
+//! publishes.
 //!
 //! `pattern` is the recurring cycle: each entry says "play segment `r`
 //! for `d` minutes". `r` is **1-based** into `segments[]`; `r == 0`
@@ -48,9 +70,7 @@ pub struct EventScheduleRaw {
 }
 
 impl EventScheduleRaw {
-    /// Parse the raw JSON body served by the wiki widget. The widget JSON
-    /// is one big object with `config` and event slugs intermixed at the
-    /// top level; this helper handles the split.
+    /// Parse the raw JSON body served by the wiki widget.
     pub fn from_json_value(v: serde_json::Value) -> Result<Self, String> {
         let serde_json::Value::Object(mut map) = v else {
             return Err("top-level event timer JSON must be an object".to_owned());
@@ -61,8 +81,15 @@ impl EventScheduleRaw {
         let config: EventScheduleConfig =
             serde_json::from_value(config_val).map_err(|e| format!("decode `config`: {e}"))?;
 
+        let events_val = map
+            .remove("events")
+            .ok_or_else(|| "missing top-level `events` object".to_owned())?;
+        let serde_json::Value::Object(event_map) = events_val else {
+            return Err("`events` must be an object keyed by slug".to_owned());
+        };
+
         let mut events = BTreeMap::new();
-        for (slug, val) in map {
+        for (slug, val) in event_map {
             // Skip the placeholder template entry shipped under key "t".
             if slug == "t" {
                 continue;
@@ -70,9 +97,10 @@ impl EventScheduleRaw {
             let def: EventDefinition = match serde_json::from_value(val) {
                 Ok(d) => d,
                 Err(e) => {
-                    // Soft-fail: drop unparseable entries, keep going.
-                    // The widget occasionally ships malformed test rows.
-                    tracing::debug!(
+                    // Drop unparseable entries but keep going. Logged at
+                    // warn (not debug) so a future widget schema change
+                    // surfaces in default-level logs instead of vanishing.
+                    tracing::warn!(
                         slug = slug.as_str(),
                         error = %e,
                         "skipping unparseable event timer entry"
@@ -105,18 +133,24 @@ pub struct EventDefinition {
     pub name: String,
     #[serde(default)]
     pub link: Option<String>,
+    /// Segment map keyed by stringified integer (`"0"`, `"1"`, …). The
+    /// widget uses `pattern.r` as a key into this map; `r == 0`
+    /// conventionally references a blank/gap segment.
     #[serde(default)]
-    pub segments: Vec<SegmentDefinition>,
-    #[serde(default)]
-    pub pattern: Vec<PatternSlot>,
-    /// Some events (Hard world bosses, etc.) publish the 24h schedule
-    /// here when `pattern` is empty. Same `{r, d}` shape.
+    pub segments: BTreeMap<String, SegmentDefinition>,
     #[serde(default)]
     pub sequences: EventSequences,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct EventSequences {
+    /// Recurring cycle. Walked first; if empty, the walker falls back
+    /// to `partial`.
+    #[serde(default)]
+    pub pattern: Vec<PatternSlot>,
+    /// The "day's schedule" for non-cyclic events (hard world bosses)
+    /// — and a leading-fragment of the current cycle for cyclic ones.
+    /// Only used when `pattern` is empty.
     #[serde(default)]
     pub partial: Vec<PatternSlot>,
 }
@@ -177,16 +211,23 @@ mod tests {
     const SAMPLE: &str = r#"
     {
       "config": { "version": "v5.1" },
-      "t": { "category": "", "name": "", "segments": [], "pattern": [] },
-      "core-dn": {
-        "category": "Core Tyria",
-        "name": "Day and night",
-        "segments": [
-          {"name": "Day"}, {"name": "Dusk"}, {"name": "Night"}, {"name": "Dawn"}
-        ],
-        "pattern": [
-          {"r": 1, "d": 70}, {"r": 2, "d": 5}, {"r": 3, "d": 40}, {"r": 4, "d": 5}
-        ]
+      "events": {
+        "t": { "category": "", "name": "", "segments": {}, "sequences": {"pattern": []} },
+        "core-dn": {
+          "category": "Core Tyria",
+          "name": "Day and night",
+          "segments": {
+            "1": {"name": "Day"},
+            "2": {"name": "Dusk"},
+            "3": {"name": "Night"},
+            "4": {"name": "Dawn"}
+          },
+          "sequences": {
+            "pattern": [
+              {"r": 1, "d": 70}, {"r": 2, "d": 5}, {"r": 3, "d": 40}, {"r": 4, "d": 5}
+            ]
+          }
+        }
       }
     }
     "#;
@@ -200,9 +241,10 @@ mod tests {
         let dn = raw.events.get("core-dn").unwrap();
         assert_eq!(dn.name, "Day and night");
         assert_eq!(dn.segments.len(), 4);
-        assert_eq!(dn.pattern.len(), 4);
-        assert_eq!(dn.pattern[0].r, 1);
-        assert_eq!(dn.pattern[0].d, 70);
+        assert_eq!(dn.sequences.pattern.len(), 4);
+        assert_eq!(dn.sequences.pattern[0].r, 1);
+        assert_eq!(dn.sequences.pattern[0].d, 70);
+        assert_eq!(dn.segments.get("1").unwrap().name, "Day");
     }
 
     #[test]
