@@ -21,7 +21,6 @@ use gw2_mcp::ports::{
     SearchIndex, Wiki,
 };
 use gw2_mcp::service::Service;
-use tracing_subscriber::EnvFilter;
 
 /// Top-level subcommands. Default (none) runs the MCP server over stdio
 /// — the historical entrypoint. `doctor` and `print-config` are
@@ -74,6 +73,18 @@ struct Cli {
     /// Tracing filter (e.g. `debug` or `gw2_mcp=debug,reqwest=info`).
     #[arg(long, env = "RUST_LOG", default_value = "info")]
     log: String,
+
+    /// Override the log directory for the per-invocation file log. By
+    /// default uses a platform-standard location:
+    /// `~/Library/Logs/gw2-mcp/` on macOS, `~/.local/state/gw2-mcp/logs/`
+    /// on Linux, `%LOCALAPPDATA%\gw2-mcp\logs\` on Windows.
+    #[arg(long, env = "GW2_LOG_DIR")]
+    log_dir: Option<PathBuf>,
+
+    /// Disable per-invocation file logging entirely. stderr logging is
+    /// unchanged. Useful for CI / tests / read-only filesystems.
+    #[arg(long, env = "GW2_NO_FILE_LOG", default_value_t = false)]
+    no_file_log: bool,
 
     /// Disable the Mumble Link reader. Useful for headless / CI
     /// deployments where GW2 isn't running on the same host. The
@@ -139,12 +150,14 @@ async fn main() -> anyhow::Result<ExitCode> {
         });
     }
 
-    // MCP uses stdout for the protocol. Logs go to stderr only.
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_new(&cli.log).unwrap_or_else(|_| EnvFilter::new("info")))
-        .with_writer(std::io::stderr)
-        .with_ansi(false)
-        .init();
+    // MCP uses stdout for the protocol. Logs go to stderr AND a
+    // per-invocation file under a platform-standard logs directory so
+    // failed-connect debugging doesn't depend on the MCP client's
+    // stderr capture (which is often discarded silently).
+    let logging_init = gw2_mcp::logging::init(&cli.log, cli.log_dir.as_deref(), cli.no_file_log)?;
+    if let Some(path) = &logging_init.log_path {
+        tracing::info!(log_file = %path.display(), "per-invocation log file opened");
+    }
 
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let cache: Arc<dyn Cache> = Arc::new(MemoryCache::new(clock.clone()));

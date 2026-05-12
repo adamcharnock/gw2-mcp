@@ -13,5 +13,6 @@ pub mod cli;
 pub mod dev_build;
 pub mod domain;
 pub mod indexing;
+pub mod logging;
 pub mod ports;
 pub mod service;

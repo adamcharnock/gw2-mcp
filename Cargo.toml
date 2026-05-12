@@ -64,6 +64,13 @@ anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Per-invocation file log appender. Non-rotating: each gw2-mcp invocation
+# opens its own file (named with timestamp + pid), so debugging a single
+# MCP-client connect failure means tailing one file, not grepping a shared
+# log. We don't use the `non_blocking` worker — log volume is tiny and a
+# blocking write keeps shutdown ordering simple (no WorkerGuard to thread
+# through main's return path).
+tracing-appender = "0.2"
 
 # Domain primitives
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
