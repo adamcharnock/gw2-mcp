@@ -955,23 +955,19 @@ impl ServerHandler for McpServer {
         //   are GW2 API keys, and the MCP elicitation spec explicitly
         //   forbids using it for sensitive material. Clients can prompt
         //   the user themselves before invoking the auth'd tools.
-        ServerInfo {
-            protocol_version: rmcp::model::ProtocolVersion::default(),
-            capabilities: ServerCapabilities::builder()
+        ServerInfo::new(
+            ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
                 .enable_prompts()
                 .build(),
-            server_info: Implementation {
-                name: "gw2-mcp".to_owned(),
-                version: env!("CARGO_PKG_VERSION").to_owned(),
-                ..Default::default()
-            },
-            // Single source of truth — same string is returned verbatim by
-            // the `get_info` tool for clients that drop or truncate
-            // `initialize.instructions`.
-            instructions: Some(SERVER_RUNBOOK.to_owned()),
-        }
+        )
+        .with_server_info(Implementation::new("gw2-mcp", env!("CARGO_PKG_VERSION")))
+        .with_protocol_version(rmcp::model::ProtocolVersion::default())
+        // Single source of truth — same string is returned verbatim by the
+        // `get_info` tool for clients that drop or truncate
+        // `initialize.instructions`.
+        .with_instructions(SERVER_RUNBOOK)
     }
 
     async fn list_tools(
@@ -1030,14 +1026,9 @@ impl ServerHandler for McpServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
         match self.read_resource_body(&request.uri).await {
-            Ok(body) => Ok(ReadResourceResult {
-                contents: vec![ResourceContents::TextResourceContents {
-                    uri: request.uri,
-                    mime_type: Some(RESOURCE_JSON_MIME.to_owned()),
-                    text: body,
-                    meta: None,
-                }],
-            }),
+            Ok(body) => Ok(ReadResourceResult::new(vec![
+                ResourceContents::text(body, request.uri).with_mime_type(RESOURCE_JSON_MIME),
+            ])),
             Err(msg) => {
                 if msg.starts_with("resource_not_found:") {
                     Err(ErrorData::resource_not_found(msg, None))

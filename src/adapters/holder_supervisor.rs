@@ -645,9 +645,17 @@ fn install_if_changed(source: &Path, dest: &Path) -> anyhow::Result<()> {
 #[cfg(target_os = "macos")]
 fn file_sha256(path: &Path) -> anyhow::Result<[u8; 32]> {
     use sha2::{Digest, Sha256};
+    use std::io::Read;
     let mut f = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut f, &mut hasher)?;
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     Ok(hasher.finalize().into())
 }
 
@@ -656,9 +664,8 @@ fn file_sha256(path: &Path) -> anyhow::Result<[u8; 32]> {
 /// user, no clock skew or PID-recycling concerns.
 #[cfg(target_os = "macos")]
 fn generate_session_token() -> String {
-    use rand::RngCore;
     let mut buf = [0u8; SESSION_TOKEN_BYTES];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::fill(&mut buf);
     hex::encode(buf)
 }
 

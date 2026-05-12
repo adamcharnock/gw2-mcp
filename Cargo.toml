@@ -46,11 +46,11 @@ async-trait = "0.1"
 futures = "0.3"
 
 # MCP server
-rmcp = { version = "0.14", features = ["server", "transport-io", "macros"] }
+rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
 schemars = { version = "1.1", features = ["chrono04"] }
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "query"] }
 url = "2.5"
 percent-encoding = "2.3"
 
@@ -67,7 +67,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # Domain primitives
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 base64 = "0.22"
 
@@ -78,14 +78,14 @@ moka = { version = "0.12", features = ["future"] }
 chatr = "0.7"
 
 # HTML parsing (Snow Crows scraper, Phase B.3)
-scraper = "0.20"
+scraper = "0.27"
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 
 # Retry-After header parsing + jitter
 httpdate = "1"
-rand = "0.8"
+rand = "0.10"
 
 # Mumble Link reader: zero-copy struct casts of the C-shaped MumbleLink block.
 bytemuck = { version = "1", features = ["derive"] }
@@ -105,7 +105,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "migrate",
 ] }
 # OS-standard cache directory resolution.
-directories = "5"
+directories = "6"
 
 # aarch64-linux-only: pin `openssl-sys`'s `vendored` feature so the
 # cross-build compiles OpenSSL from source. Scoped to this single
@@ -139,7 +139,7 @@ fs2 = "0.4"
 # windows crate references SECURITY_ATTRIBUTES (we pass None, but the type
 # binding must be available). The other features cover OpenFileMappingW,
 # CreateFileMappingW, MapViewOfFile, FlushViewOfFile, etc.
-windows = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Memory", "Win32_Security"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Memory", "Win32_Security"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

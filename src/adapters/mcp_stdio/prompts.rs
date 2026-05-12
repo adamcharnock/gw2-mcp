@@ -19,12 +19,9 @@ use rmcp::model::{GetPromptResult, Prompt, PromptArgument, PromptMessage, Prompt
 #[allow(clippy::too_many_lines)]
 pub(super) fn build_prompts() -> Vec<Prompt> {
     fn arg(name: &str, description: &str, required: bool) -> PromptArgument {
-        PromptArgument {
-            name: name.to_owned(),
-            title: None,
-            description: Some(description.to_owned()),
-            required: Some(required),
-        }
+        PromptArgument::new(name)
+            .with_description(description)
+            .with_required(required)
     }
 
     vec![
@@ -232,10 +229,8 @@ fn optional_arg(args: &serde_json::Map<String, serde_json::Value>, arg: &str) ->
 }
 
 fn finish_prompt(description: &str, body: String) -> GetPromptResult {
-    GetPromptResult {
-        description: Some(description.to_owned()),
-        messages: vec![PromptMessage::new_text(PromptMessageRole::User, body)],
-    }
+    GetPromptResult::new(vec![PromptMessage::new_text(PromptMessageRole::User, body)])
+        .with_description(description)
 }
 
 fn render_analyze_character(

@@ -578,9 +578,17 @@ fn verdict_line(results: &[CheckResult], ansi: bool) -> String {
 
 fn file_sha256(path: &Path) -> std::io::Result<[u8; 32]> {
     use sha2::{Digest, Sha256};
+    use std::io::Read;
     let mut f = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut f, &mut hasher)?;
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     Ok(hasher.finalize().into())
 }
 
