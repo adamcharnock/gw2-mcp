@@ -17,7 +17,10 @@ pub use account::{
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 use maps::RegionLookupError;
-pub use maps::{MapNeighborsResponse, RegionMapEntry, RegionMapList, RegionQuery};
+pub use maps::{
+    MapNeighborsResponse, MapRef, MapRefResolved, RegionMapEntry, RegionMapList, RegionQuery,
+    RouteEdge, RouteHop, RoutePath, RoutePlan,
+};
 pub use navigation::{
     DirectionsResult, FacingDescription, LocationRef, MapSummary, MountInfo, MyLocationSnapshot,
     NearbyFilter, NearbySearchResult, ResolvedLocation,

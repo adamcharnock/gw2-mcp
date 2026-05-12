@@ -8,12 +8,16 @@
 //! detail floor), build an in-memory index keyed by both region id
 //! and lowercased name, and cache under `STATIC_TTL`.
 
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
 use super::{STATIC_TTL, Service, ServiceError};
-use crate::domain::{Expansion, MapNeighborLink, MapNeighbors, MapNeighborsError, Region};
+use crate::domain::{
+    ConnectionType, Expansion, MapNeighborLink, MapNeighbors, MapNeighborsError, Region,
+};
 
 /// How the caller asked us to find a region — by GW2 numeric id or by
 /// (case-insensitive) name.
@@ -43,6 +47,75 @@ pub struct RegionMapEntry {
     pub name: String,
     pub min_level: u32,
     pub max_level: u32,
+}
+
+/// How the caller asked us to identify a single map. Distinct from
+/// [`RegionQuery`] because the input shapes overlap with the
+/// `find_nearby` / `get_my_location` "where am I?" idiom — adding a
+/// `Here` variant lets the LLM chain `plan_route` with Mumble Link
+/// state directly.
+#[derive(Debug, Clone)]
+pub enum MapRef {
+    Id(u32),
+    Name(String),
+    Here,
+}
+
+/// Echo of which map the caller meant after we resolved it. Lets the
+/// LLM confirm "yes, by 'Caledon Forest' you meant map 873" without a
+/// second lookup.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MapRefResolved {
+    pub map_id: u32,
+    pub name: String,
+}
+
+/// Output of `plan_route`. The top-K hop-count-shortest paths between
+/// two maps in the curated adjacency graph.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoutePlan {
+    pub from: MapRefResolved,
+    pub to: MapRefResolved,
+    pub paths: Vec<RoutePath>,
+    pub total: usize,
+}
+
+/// One candidate route. Counts are pre-summed so the LLM can pick
+/// "fewest gate transitions" or "most physical exploration" without
+/// re-walking `hops`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoutePath {
+    pub hop_count: usize,
+    pub asura_gate_count: usize,
+    pub physical_count: usize,
+    pub story_gate_count: usize,
+    pub hops: Vec<RouteHop>,
+}
+
+/// One stop along the route. `arrived_via` is `None` on the first hop
+/// (the starting map) and `Some(...)` on every subsequent hop,
+/// describing how the player got there from the previous hop.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RouteHop {
+    pub map_id: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrived_via: Option<RouteEdge>,
+}
+
+/// Connection metadata for a single edge between two consecutive hops.
+/// Mirrors [`MapNeighborLink`] but only the fields the LLM needs to
+/// narrate the step.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RouteEdge {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<ConnectionType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_location: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Errors specific to the region-lookup path.
@@ -80,6 +153,19 @@ pub enum RegionLookupError {
 
     #[error("failed to load curated map-neighbor table: {0}")]
     NeighborsLoad(MapNeighborsError),
+
+    #[error(
+        "no map named `{name}` is present in the curated adjacency table. The graph only covers public open-world maps and the major hub cities — try the map's exact wiki name, or pass a numeric id."
+    )]
+    MapNotFound { name: String },
+
+    #[error("multiple maps match `{name}` in the adjacency table: {matches}. Disambiguate by id.")]
+    MapAmbiguous { name: String, matches: String },
+
+    #[error(
+        "no route exists between map {from} and map {to} in the curated adjacency graph. This usually means one or both maps aren't reachable from open-world Tyria via the modelled portals/borders (e.g. a one-way-from-only entrance, or a map that's an island in the graph)."
+    )]
+    NoRouteFound { from: u32, to: u32 },
 }
 
 /// Response shape for `get_map_neighbors`. Wrapped in an object so
@@ -161,6 +247,107 @@ impl Service {
             total: entry.neighbors.len(),
             neighbors: entry.neighbors,
         })
+    }
+
+    /// Plan up to `k` shortest-hop routes between two maps in the
+    /// curated adjacency graph. Uses Yen's K-shortest loopless paths
+    /// over the directed graph defined by `MapNeighbors` edges, with
+    /// uniform edge weight (= one hop per edge).
+    ///
+    /// `from` and `to` accept any of [`MapRef::Id`], [`MapRef::Name`]
+    /// (case-insensitive substring match against the curated table),
+    /// or [`MapRef::Here`] (resolves via Mumble Link).
+    ///
+    /// `k` is clamped to `1..=10` so a runaway request can't burn CPU.
+    pub fn plan_route(
+        &self,
+        from: MapRef,
+        to: MapRef,
+        k: usize,
+    ) -> Result<RoutePlan, ServiceError> {
+        let table = neighbors_table()?;
+        let from_id = self.resolve_map_ref(&from, table)?;
+        let to_id = self.resolve_map_ref(&to, table)?;
+        let k = k.clamp(1, 10);
+
+        let from_entry =
+            table
+                .get(from_id)
+                .ok_or(ServiceError::Region(RegionLookupError::NoNeighborData {
+                    map_id: from_id,
+                }))?;
+        let to_entry =
+            table
+                .get(to_id)
+                .ok_or(ServiceError::Region(RegionLookupError::NoNeighborData {
+                    map_id: to_id,
+                }))?;
+
+        // Trivial path: start == end.
+        if from_id == to_id {
+            return Ok(RoutePlan {
+                from: MapRefResolved {
+                    map_id: from_id,
+                    name: from_entry.name.clone(),
+                },
+                to: MapRefResolved {
+                    map_id: to_id,
+                    name: to_entry.name.clone(),
+                },
+                paths: vec![RoutePath {
+                    hop_count: 0,
+                    asura_gate_count: 0,
+                    physical_count: 0,
+                    story_gate_count: 0,
+                    hops: vec![RouteHop {
+                        map_id: from_id,
+                        name: from_entry.name.clone(),
+                        arrived_via: None,
+                    }],
+                }],
+                total: 1,
+            });
+        }
+
+        let id_paths = k_shortest_paths(table, from_id, to_id, k);
+        if id_paths.is_empty() {
+            return Err(ServiceError::Region(RegionLookupError::NoRouteFound {
+                from: from_id,
+                to: to_id,
+            }));
+        }
+
+        let paths: Vec<RoutePath> = id_paths
+            .into_iter()
+            .map(|p| build_route_path(table, &p))
+            .collect();
+        Ok(RoutePlan {
+            total: paths.len(),
+            from: MapRefResolved {
+                map_id: from_id,
+                name: from_entry.name.clone(),
+            },
+            to: MapRefResolved {
+                map_id: to_id,
+                name: to_entry.name.clone(),
+            },
+            paths,
+        })
+    }
+
+    fn resolve_map_ref(
+        &self,
+        r: &MapRef,
+        table: &'static MapNeighbors,
+    ) -> Result<u32, ServiceError> {
+        match r {
+            MapRef::Id(id) => Ok(*id),
+            MapRef::Name(n) => resolve_map_name(table, n),
+            MapRef::Here => {
+                let snap = self.mumble.snapshot()?;
+                Ok(snap.context.map_id)
+            }
+        }
     }
 
     /// Resolve a region by id or name and return its map list.
@@ -249,6 +436,214 @@ impl Service {
             self.cache.set(CACHE_KEY, json, STATIC_TTL).await;
         }
         Ok(index)
+    }
+}
+
+/// Look up a map id by case-insensitive name. Builds a fresh index
+/// each call — the table is small (<150 entries) so the cost is
+/// negligible, and avoiding a second `OnceLock` keeps the module
+/// simple.
+fn resolve_map_name(table: &MapNeighbors, name: &str) -> Result<u32, ServiceError> {
+    let needle = name.trim().to_lowercase();
+    if needle.is_empty() {
+        return Err(ServiceError::Region(RegionLookupError::MapNotFound {
+            name: name.to_owned(),
+        }));
+    }
+    let mut exact: Vec<(u32, String)> = Vec::new();
+    let mut substring: Vec<(u32, String)> = Vec::new();
+    for (id, entry) in table.iter() {
+        let lower = entry.name.to_lowercase();
+        if lower == needle {
+            exact.push((id, entry.name.clone()));
+        } else if lower.contains(&needle) {
+            substring.push((id, entry.name.clone()));
+        }
+    }
+    if exact.len() == 1 {
+        return Ok(exact[0].0);
+    }
+    if !exact.is_empty() {
+        let names: Vec<String> = exact.iter().map(|(_, n)| n.clone()).collect();
+        return Err(ServiceError::Region(RegionLookupError::MapAmbiguous {
+            name: name.to_owned(),
+            matches: names.join(", "),
+        }));
+    }
+    match substring.len() {
+        0 => Err(ServiceError::Region(RegionLookupError::MapNotFound {
+            name: name.to_owned(),
+        })),
+        1 => Ok(substring[0].0),
+        _ => {
+            let mut names: Vec<String> = substring.iter().map(|(_, n)| n.clone()).collect();
+            names.sort();
+            Err(ServiceError::Region(RegionLookupError::MapAmbiguous {
+                name: name.to_owned(),
+                matches: names.join(", "),
+            }))
+        }
+    }
+}
+
+/// Yen's K-shortest loopless paths over the directed graph defined by
+/// `nbrs`. Uniform edge weight (one hop per edge), so the inner
+/// shortest-path call is BFS.
+///
+/// Returns up to `k` paths, sorted by ascending hop count. Empty if no
+/// path exists.
+fn k_shortest_paths(nbrs: &MapNeighbors, src: u32, dst: u32, k: usize) -> Vec<Vec<u32>> {
+    let mut accepted: Vec<Vec<u32>> = Vec::new();
+    // Candidate set keyed by path content. The BTreeSet keeps
+    // insertion stable for the same-length tie-break.
+    let mut candidates: BTreeSet<Vec<u32>> = BTreeSet::new();
+
+    let Some(first) = bfs_path(nbrs, src, dst, &HashSet::new(), &HashSet::new()) else {
+        return Vec::new();
+    };
+    accepted.push(first);
+
+    while accepted.len() < k {
+        let prev = accepted.last().expect("at least one accepted").clone();
+        if prev.len() < 2 {
+            break;
+        }
+        // Each spur position generates one candidate.
+        for i in 0..prev.len() - 1 {
+            let spur_node = prev[i];
+            let root_path: &[u32] = &prev[0..=i];
+
+            // Block the next-edge of every previously-accepted path
+            // that shares this root, so we don't rediscover an
+            // already-seen continuation.
+            let mut blocked_edges: HashSet<(u32, u32)> = HashSet::new();
+            for p in &accepted {
+                if p.len() > i + 1 && &p[0..=i] == root_path {
+                    blocked_edges.insert((p[i], p[i + 1]));
+                }
+            }
+            // Block every node in the root path except the spur node
+            // itself, so the new spur doesn't loop back through them.
+            let blocked_nodes: HashSet<u32> = root_path[..i].iter().copied().collect();
+
+            let Some(spur) = bfs_path(nbrs, spur_node, dst, &blocked_nodes, &blocked_edges) else {
+                continue;
+            };
+            // Stitch root + spur, dropping spur's first node which
+            // duplicates root's last.
+            let mut total = root_path.to_vec();
+            total.extend(spur.iter().skip(1).copied());
+            candidates.insert(total);
+        }
+        // Pick the shortest candidate as the next accepted path.
+        let Some(next) = candidates.iter().min_by_key(|p| p.len()).cloned() else {
+            break;
+        };
+        candidates.remove(&next);
+        accepted.push(next);
+    }
+    accepted
+}
+
+/// BFS shortest path that respects blocked nodes and blocked edges.
+fn bfs_path(
+    nbrs: &MapNeighbors,
+    src: u32,
+    dst: u32,
+    blocked_nodes: &HashSet<u32>,
+    blocked_edges: &HashSet<(u32, u32)>,
+) -> Option<Vec<u32>> {
+    if blocked_nodes.contains(&src) {
+        return None;
+    }
+    if src == dst {
+        return Some(vec![src]);
+    }
+    let mut prev: HashMap<u32, u32> = HashMap::new();
+    let mut q: VecDeque<u32> = VecDeque::new();
+    let mut seen: HashSet<u32> = HashSet::new();
+    seen.insert(src);
+    q.push_back(src);
+    while let Some(cur) = q.pop_front() {
+        let Some(entry) = nbrs.get(cur) else {
+            continue;
+        };
+        for link in &entry.neighbors {
+            let next = link.map_id;
+            if seen.contains(&next) {
+                continue;
+            }
+            if blocked_nodes.contains(&next) {
+                continue;
+            }
+            if blocked_edges.contains(&(cur, next)) {
+                continue;
+            }
+            prev.insert(next, cur);
+            if next == dst {
+                let mut path = vec![dst];
+                let mut cursor = dst;
+                while let Some(&p) = prev.get(&cursor) {
+                    path.push(p);
+                    cursor = p;
+                }
+                path.reverse();
+                return Some(path);
+            }
+            seen.insert(next);
+            q.push_back(next);
+        }
+    }
+    None
+}
+
+/// Translate a sequence of map ids into a [`RoutePath`] with hop
+/// metadata pulled from the curated table.
+fn build_route_path(nbrs: &MapNeighbors, ids: &[u32]) -> RoutePath {
+    let mut hops: Vec<RouteHop> = Vec::with_capacity(ids.len());
+    let mut asura = 0usize;
+    let mut physical = 0usize;
+    let mut story = 0usize;
+    for (idx, &id) in ids.iter().enumerate() {
+        let entry = nbrs.get(id);
+        let name = entry.map_or_else(|| format!("map {id}"), |e| e.name.clone());
+        let arrived_via = if idx == 0 {
+            None
+        } else {
+            let prev_id = ids[idx - 1];
+            nbrs.get(prev_id).and_then(|prev_entry| {
+                prev_entry
+                    .neighbors
+                    .iter()
+                    .find(|n| n.map_id == id)
+                    .map(|link| {
+                        match link.connection {
+                            Some(ConnectionType::AsuraGate) => asura += 1,
+                            Some(ConnectionType::Physical) => physical += 1,
+                            Some(ConnectionType::StoryGate) => story += 1,
+                            _ => {}
+                        }
+                        RouteEdge {
+                            connection: link.connection,
+                            direction: link.direction.clone(),
+                            gate_location: link.gate_location.clone(),
+                            note: link.note.clone(),
+                        }
+                    })
+            })
+        };
+        hops.push(RouteHop {
+            map_id: id,
+            name,
+            arrived_via,
+        });
+    }
+    RoutePath {
+        hop_count: ids.len().saturating_sub(1),
+        asura_gate_count: asura,
+        physical_count: physical,
+        story_gate_count: story,
+        hops,
     }
 }
 
@@ -383,5 +778,172 @@ mod tests {
             msg.contains("Maguuma Jungle"),
             "must list available regions: {msg}"
         );
+    }
+
+    // ----- plan_route / Yen's K-shortest -----
+
+    /// Build a tiny synthetic adjacency graph from a (src, dst) edge
+    /// list. Names match the ids ("Map 1", "Map 2", …) so the test
+    /// only has to think about ids.
+    fn graph_from_edges(edges: &[(u32, u32)]) -> MapNeighbors {
+        use std::collections::BTreeMap;
+        use std::fmt::Write as _;
+        let mut by_id: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for &(a, b) in edges {
+            by_id.entry(a).or_default().push(b);
+            // Materialise destination nodes too — otherwise k_shortest
+            // can't return paths that pass through them.
+            by_id.entry(b).or_default();
+        }
+        let yaml_lines: Vec<String> = by_id
+            .iter()
+            .map(|(id, ns)| {
+                let mut s = format!("{id}:\n  name: Map {id}\n");
+                if ns.is_empty() {
+                    s.push_str("  neighbors: []\n");
+                } else {
+                    s.push_str("  neighbors:\n");
+                    for n in ns {
+                        let _ = writeln!(
+                            s,
+                            "    - map_id: {n}\n      name: Map {n}\n      connection: physical",
+                        );
+                    }
+                }
+                s
+            })
+            .collect();
+        MapNeighbors::from_yaml(&yaml_lines.join("")).expect("test fixture parses")
+    }
+
+    #[test]
+    fn k_shortest_paths_returns_top_k_by_hop_count() {
+        // Diamond: 1 → 2 → 4, 1 → 3 → 4, 1 → 2 → 3 → 4.
+        let g = graph_from_edges(&[(1, 2), (1, 3), (2, 4), (3, 4), (2, 3)]);
+        let paths = k_shortest_paths(&g, 1, 4, 3);
+        assert_eq!(paths.len(), 3);
+        // Two shortest paths of length 3 (1→2→4 and 1→3→4) plus the
+        // length-4 path (1→2→3→4).
+        assert_eq!(paths[0].len(), 3);
+        assert_eq!(paths[1].len(), 3);
+        assert_eq!(paths[2].len(), 4);
+    }
+
+    #[test]
+    fn k_shortest_paths_returns_empty_on_no_route() {
+        // 1 and 4 are in disjoint components.
+        let g = graph_from_edges(&[(1, 2), (3, 4)]);
+        let paths = k_shortest_paths(&g, 1, 4, 3);
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn k_shortest_paths_returns_trivial_path_on_self() {
+        let g = graph_from_edges(&[(1, 2)]);
+        let paths = k_shortest_paths(&g, 1, 1, 3);
+        assert_eq!(paths, vec![vec![1]]);
+    }
+
+    #[test]
+    fn k_shortest_paths_loopless() {
+        // A graph with a cycle that could trap a naive enumerator.
+        // 1 → 2 → 3 → 4; 2 → 3 → 2 (loop) so we must reject paths
+        // that revisit a node.
+        let g = graph_from_edges(&[(1, 2), (2, 3), (3, 2), (3, 4)]);
+        let paths = k_shortest_paths(&g, 1, 4, 5);
+        // Only one loopless path exists.
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn k_shortest_paths_handles_directed_graph() {
+        // 1 → 2 → 3, but 3 has no edge back to 2. The reverse query
+        // should fail.
+        let g = graph_from_edges(&[(1, 2), (2, 3)]);
+        let forward = k_shortest_paths(&g, 1, 3, 3);
+        assert_eq!(forward.len(), 1);
+        let reverse = k_shortest_paths(&g, 3, 1, 3);
+        assert!(reverse.is_empty());
+    }
+
+    #[test]
+    fn k_shortest_paths_returns_real_caledon_to_auric_basin() {
+        // Real curated table — at least one route must exist; first
+        // route must be reasonably short.
+        let table = MapNeighbors::load_embedded().expect("embedded YAML parses");
+        // 34 = Caledon Forest, 1043 = Auric Basin.
+        let paths = k_shortest_paths(&table, 34, 1043, 3);
+        assert!(!paths.is_empty(), "expected at least one route");
+        let first = &paths[0];
+        assert!(first.first() == Some(&34) && first.last() == Some(&1043));
+        assert!(
+            first.len() <= 6,
+            "shortest route from Caledon Forest to Auric Basin should be <=5 hops, got {first:?}",
+        );
+    }
+
+    #[test]
+    fn resolve_map_name_finds_canonical_name() {
+        let table = MapNeighbors::load_embedded().expect("parses");
+        assert_eq!(resolve_map_name(&table, "Caledon Forest").unwrap(), 34);
+        // Substring matches too.
+        assert_eq!(resolve_map_name(&table, "caledon").unwrap(), 34);
+    }
+
+    #[test]
+    fn resolve_map_name_empty_returns_not_found() {
+        let table = MapNeighbors::load_embedded().expect("parses");
+        let err = resolve_map_name(&table, "   ").unwrap_err();
+        assert!(err.to_string().contains("no map named"), "got: {err}");
+    }
+
+    #[test]
+    fn build_route_path_classifies_edges() {
+        // 1 →(physical) 2 →(asura_gate) 3 →(story_gate) 4
+        let yaml = r"
+1:
+  name: Alpha
+  neighbors:
+    - map_id: 2
+      name: Beta
+      connection: physical
+      direction: E
+2:
+  name: Beta
+  neighbors:
+    - map_id: 3
+      name: Gamma
+      connection: asura_gate
+      gate_location: Beta Waypoint
+3:
+  name: Gamma
+  neighbors:
+    - map_id: 4
+      name: Delta
+      connection: story_gate
+      note: requires story step
+4:
+  name: Delta
+  neighbors: []
+";
+        let g = MapNeighbors::from_yaml(yaml).expect("parses");
+        let path = build_route_path(&g, &[1, 2, 3, 4]);
+        assert_eq!(path.hop_count, 3);
+        assert_eq!(path.physical_count, 1);
+        assert_eq!(path.asura_gate_count, 1);
+        assert_eq!(path.story_gate_count, 1);
+        assert_eq!(path.hops.len(), 4);
+        assert!(path.hops[0].arrived_via.is_none());
+        let edge_to_beta = path.hops[1].arrived_via.as_ref().unwrap();
+        assert_eq!(edge_to_beta.connection, Some(ConnectionType::Physical));
+        assert_eq!(edge_to_beta.direction.as_deref(), Some("E"));
+        let edge_to_gamma = path.hops[2].arrived_via.as_ref().unwrap();
+        assert_eq!(
+            edge_to_gamma.gate_location.as_deref(),
+            Some("Beta Waypoint")
+        );
+        let edge_to_delta = path.hops[3].arrived_via.as_ref().unwrap();
+        assert_eq!(edge_to_delta.note.as_deref(), Some("requires story step"));
     }
 }

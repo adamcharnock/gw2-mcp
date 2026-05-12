@@ -403,6 +403,35 @@ pub(super) fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    let plan_route_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to"],
+        "properties": {
+            "from": {
+                "oneOf": [
+                    { "type": "object", "additionalProperties": false, "required": ["id"],   "properties": { "id":   { "type": "integer", "minimum": 1 } } },
+                    { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "description": "Map name (case-insensitive; substring matches too)." } } },
+                    { "type": "object", "additionalProperties": false, "required": ["here"], "properties": { "here": { "type": "boolean", "enum": [true], "description": "Resolve via Mumble Link — uses the map the player is currently on." } } }
+                ]
+            },
+            "to": {
+                "oneOf": [
+                    { "type": "object", "additionalProperties": false, "required": ["id"],   "properties": { "id":   { "type": "integer", "minimum": 1 } } },
+                    { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1 } } }
+                ]
+            },
+            "k": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "default": 3,
+                "description": "How many distinct shortest-hop routes to return. Capped at 10."
+            }
+        }
+    }))
+    .expect("valid schema literal");
+
     let list_maps_in_region_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -707,6 +736,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Get Map Neighbors"))
         .with_output_schema::<crate::service::MapNeighborsResponse>(),
+        Tool::new(
+            "plan_route",
+            "Find up to `k` (default 3) shortest-hop routes between two maps in the curated adjacency graph. Each of `from` and `to` accepts `{id: int}`, `{name: \"Caledon Forest\"}`, or `{here: true}` (resolves via Mumble Link). Returns paths ordered by fewest hops; each path lists every intermediate map with the `connection` used (`physical`/`asura_gate`/`story_gate`/etc.), the `direction` of the border (compass bearing for physical edges), and `gate_location` / `note` when the curated table has them. Pre-counted `asura_gate_count` / `physical_count` / `story_gate_count` per path let the LLM pick 'mostly walking' vs 'mostly gates' without re-walking `hops`. Same graph coverage as `get_map_neighbors` — open-world + the 11 hub cities, WvW excluded. Use for 'how do I get from X to Y?' questions.",
+            plan_route_schema,
+        )
+        .annotate(read_only_open_world("Plan Route"))
+        .with_output_schema::<crate::service::RoutePlan>(),
         Tool::new(
             "describe_facing",
             "Describe which way the player is facing in plain English plus the closest landmark in that direction. No arguments — reads live state from Mumble Link.",

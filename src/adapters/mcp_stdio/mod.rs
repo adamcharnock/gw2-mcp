@@ -23,8 +23,9 @@ use rmcp::{ErrorData, ServerHandler, ServiceExt};
 use parsing::{
     CallError, CursorPayload, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, annotate_endpoint,
     catalog_filter_hash, decode_cursor, encode_cursor, parse_id_array, parse_location_ref,
-    parse_nearby_filter, parse_optional_str, parse_optional_u32, parse_required_id_array,
-    parse_search_limit, parse_search_query, parse_summary, parse_tab_selector,
+    parse_map_ref, parse_nearby_filter, parse_optional_str, parse_optional_u32,
+    parse_required_id_array, parse_search_limit, parse_search_query, parse_summary,
+    parse_tab_selector,
 };
 use prompts::{PromptError, build_prompts, render_prompt};
 use resources::{
@@ -111,6 +112,7 @@ impl McpServer {
             "find_nearby" => self.handle_find_nearby(&args).await,
             "list_maps_in_region" => self.handle_list_maps_in_region(&args).await,
             "get_map_neighbors" => self.handle_get_map_neighbors(&args),
+            "plan_route" => self.handle_plan_route(&args),
             "describe_facing" => self.handle_describe_facing().await,
             "search_skills" => self.handle_search_skills(&args).await,
             "search_traits" => self.handle_search_traits(&args).await,
@@ -718,6 +720,21 @@ impl McpServer {
         Ok(serde_json::to_value(&res)?)
     }
 
+    fn handle_plan_route(&self, args: &serde_json::Value) -> Result<serde_json::Value, CallError> {
+        let from = parse_map_ref(args.get("from"), "from")?;
+        let to = parse_map_ref(args.get("to"), "to")?;
+        let k = args
+            .get("k")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(3);
+        let res = self
+            .service
+            .plan_route(from, to, k)
+            .map_err(CallError::Service)?;
+        Ok(serde_json::to_value(&res)?)
+    }
+
     async fn handle_list_maps_in_region(
         &self,
         args: &serde_json::Value,
@@ -1012,8 +1029,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            32,
-            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 6 navigation + 6 search = 32"
+            33,
+            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 7 navigation + 6 search = 33"
         );
     }
 

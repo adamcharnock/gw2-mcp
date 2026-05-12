@@ -78,6 +78,48 @@ pub(super) fn parse_location_ref(
     })
 }
 
+/// Parse a `MapRef` from MCP args — used by `plan_route` for both
+/// `from` and `to`. The MCP schema is a `oneOf`:
+/// `{id: int}` | `{name: str}` | `{here: true}`. As with
+/// [`parse_location_ref`], we recognise each shape by its
+/// discriminating key.
+pub(super) fn parse_map_ref(
+    v: Option<&serde_json::Value>,
+    field: &'static str,
+) -> Result<crate::service::MapRef, CallError> {
+    let v = v.ok_or(CallError::MissingArg(field))?;
+    let Some(obj) = v.as_object() else {
+        return Err(CallError::BadArg {
+            name: field,
+            expected: "object: {id: int}, {name: string}, or {here: true}",
+        });
+    };
+    if obj.get("here").and_then(serde_json::Value::as_bool) == Some(true) {
+        return Ok(crate::service::MapRef::Here);
+    }
+    if let Some(id) = obj.get("id").and_then(serde_json::Value::as_u64) {
+        let id = u32::try_from(id).map_err(|_| CallError::BadArg {
+            name: field,
+            expected: "id must fit in u32",
+        })?;
+        return Ok(crate::service::MapRef::Id(id));
+    }
+    if let Some(name) = obj.get("name").and_then(|v| v.as_str()) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(CallError::BadArg {
+                name: field,
+                expected: "name must be a non-empty string",
+            });
+        }
+        return Ok(crate::service::MapRef::Name(trimmed.to_owned()));
+    }
+    Err(CallError::BadArg {
+        name: field,
+        expected: "object: {id: int}, {name: string}, or {here: true}",
+    })
+}
+
 pub(super) fn parse_nearby_filter(
     v: Option<&serde_json::Value>,
 ) -> Result<crate::service::NearbyFilter, CallError> {
