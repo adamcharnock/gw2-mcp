@@ -12,9 +12,10 @@ use tracing::{debug, warn};
 
 use super::{DAILIES_TTL, STATIC_TTL, Service, ServiceError, WALLET_TTL};
 use crate::domain::{
-    Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey, Currency,
-    CurrencyId, Dungeon, InventorySlot, ItemId, MaterialCategory, MaterialSlot, Raid, WalletEntry,
-    WalletInfo, WizardsVaultTrack, next_daily_reset, next_raid_reset, title_case,
+    Account, AccountAchievement, AccountMastery, Achievement, AchievementId, ApiKey,
+    CharacterInventory, CharacterName, Currency, CurrencyId, Dungeon, InventorySlot, ItemId,
+    MaterialCategory, MaterialSlot, Raid, WalletEntry, WalletInfo, WizardsVaultTrack,
+    next_daily_reset, next_raid_reset, title_case,
 };
 
 /// Which Wizard's Vault track to fetch — `Daily`, `Weekly`, or
@@ -765,6 +766,99 @@ impl Service {
         })
     }
 
+    /// Fetch a character's bag inventory. Same summary-vs-full pattern
+    /// as `get_account_bank`. The character must exist on the account
+    /// for this key.
+    pub async fn get_character_inventory(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+        summary: bool,
+    ) -> Result<CharacterInventorySnapshot, ServiceError> {
+        let cache_key = format!(
+            "character_inventory:{}:{}",
+            key.fingerprint(),
+            name.as_str()
+        );
+        let inv: CharacterInventory = if let Some(json) = self.cache.get(&cache_key).await
+            && let Ok(v) = serde_json::from_str::<CharacterInventory>(&json)
+        {
+            v
+        } else {
+            let v = self.gw2.fetch_character_inventory(key, name).await?;
+            if let Ok(json) = serde_json::to_string(&v) {
+                self.cache.set(&cache_key, json, WALLET_TTL).await;
+            }
+            v
+        };
+
+        // Flatten all bags into one occupied-slot list. We don't surface
+        // per-bag structure — it's seldom what the LLM is asked about
+        // ("how many ascended chests do I have on this char?" doesn't
+        // care which bag they're in).
+        let occupied: Vec<&InventorySlot> = inv
+            .bags
+            .iter()
+            .flatten()
+            .flat_map(|bag| bag.inventory.iter().flatten())
+            .collect();
+        let total_slots: usize = inv.bags.iter().flatten().map(|b| b.size as usize).sum();
+
+        // Item-name resolution
+        let unique_ids: Vec<ItemId> = {
+            let mut set = BTreeSet::new();
+            for s in &occupied {
+                if let Ok(id) = ItemId::new(i64::from(s.id)) {
+                    set.insert(id);
+                }
+            }
+            set.into_iter().collect()
+        };
+        let names = self.item_names_for(&unique_ids).await;
+
+        let items: Vec<BankItemEntry> = if summary {
+            let mut by_id: BTreeMap<u32, u32> = BTreeMap::new();
+            for s in &occupied {
+                *by_id.entry(s.id).or_default() += s.count;
+            }
+            let mut entries: Vec<BankItemEntry> = by_id
+                .into_iter()
+                .map(|(id, total)| BankItemEntry {
+                    id,
+                    name: names.get(&id).cloned(),
+                    count: total,
+                    binding: None,
+                    bound_to: None,
+                    charges: None,
+                })
+                .collect();
+            entries.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+            entries
+        } else {
+            occupied
+                .iter()
+                .map(|s| BankItemEntry {
+                    id: s.id,
+                    name: names.get(&s.id).cloned(),
+                    count: s.count,
+                    binding: s.binding.clone(),
+                    bound_to: s.bound_to.clone(),
+                    charges: s.charges,
+                })
+                .collect()
+        };
+
+        Ok(CharacterInventorySnapshot {
+            character_name: name.as_str().to_owned(),
+            summary,
+            unique_item_count: unique_ids.len(),
+            used_slots: occupied.len(),
+            total_slots,
+            items,
+            fetched_at: self.clock.now(),
+        })
+    }
+
     /// Fetch + cache the full `/v2/materials` table. Static — only
     /// changes with new expansions — so one `STATIC_TTL` cache entry
     /// covers every consumer. Empty map on any failure.
@@ -1103,6 +1197,21 @@ pub struct BankItemEntry {
     pub bound_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charges: Option<u32>,
+}
+
+/// Result of `get_character_inventory`. Bag structure is flattened —
+/// the LLM gets a single per-character item list, not per-bag.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CharacterInventorySnapshot {
+    pub character_name: String,
+    pub summary: bool,
+    pub unique_item_count: usize,
+    pub used_slots: usize,
+    pub total_slots: usize,
+    /// Reuses `BankItemEntry` because the per-row shape is identical
+    /// (id, name, count, optional binding/charges).
+    pub items: Vec<BankItemEntry>,
+    pub fetched_at: DateTime<Utc>,
 }
 
 /// Result of `get_account_materials`. See `Service::get_account_materials`

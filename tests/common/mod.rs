@@ -309,6 +309,7 @@ pub struct FakeGw2Api {
     pub bank_response: Mutex<Vec<gw2_mcp::domain::InventorySlot>>,
     pub materials_response: Mutex<Vec<gw2_mcp::domain::MaterialSlot>>,
     pub material_categories: Mutex<BTreeMap<u32, gw2_mcp::domain::MaterialCategory>>,
+    pub character_inventory_response: Mutex<gw2_mcp::domain::CharacterInventory>,
     pub raids_response: Mutex<Vec<String>>,
     pub dungeons_response: Mutex<Vec<String>>,
     pub wizards_vault_daily: Mutex<WizardsVaultTrack>,
@@ -370,6 +371,9 @@ impl FakeGw2Api {
             bank_response: Mutex::new(Vec::new()),
             materials_response: Mutex::new(Vec::new()),
             material_categories: Mutex::new(BTreeMap::new()),
+            character_inventory_response: Mutex::new(gw2_mcp::domain::CharacterInventory {
+                bags: Vec::new(),
+            }),
             raids_response: Mutex::new(Vec::new()),
             dungeons_response: Mutex::new(Vec::new()),
             wizards_vault_daily: Mutex::new(default_vault_track()),
@@ -416,6 +420,10 @@ impl FakeGw2Api {
 
     pub fn add_material_category(&self, cat: gw2_mcp::domain::MaterialCategory) {
         self.material_categories.lock().unwrap().insert(cat.id, cat);
+    }
+
+    pub fn set_character_inventory(&self, inv: gw2_mcp::domain::CharacterInventory) {
+        *self.character_inventory_response.lock().unwrap() = inv;
     }
 
     pub fn add_currency(&self, c: Currency) {
@@ -754,6 +762,14 @@ impl Gw2Api for FakeGw2Api {
             .iter()
             .filter_map(|id| table.get(id).map(|c| (*id, c.clone())))
             .collect())
+    }
+
+    async fn fetch_character_inventory(
+        &self,
+        _key: &ApiKey,
+        _name: &CharacterName,
+    ) -> Result<gw2_mcp::domain::CharacterInventory, Gw2ApiError> {
+        Ok(self.character_inventory_response.lock().unwrap().clone())
     }
 
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {

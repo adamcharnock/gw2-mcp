@@ -56,3 +56,20 @@ pub struct MaterialCategory {
     #[serde(default)]
     pub items: Vec<u32>,
 }
+
+/// Wire shape of `/v2/characters/<name>/inventory`. The character's
+/// equipped bags, each with its own inventory of optional slots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CharacterInventory {
+    #[serde(default)]
+    pub bags: Vec<Option<CharacterBag>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CharacterBag {
+    /// Item id of the bag itself (e.g. "20 Slot Invisible Bag").
+    pub id: u32,
+    pub size: u32,
+    #[serde(default)]
+    pub inventory: Vec<Option<InventorySlot>>,
+}

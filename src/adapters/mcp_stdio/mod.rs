@@ -105,6 +105,7 @@ impl McpServer {
             "get_account_achievements" => self.handle_get_account_achievements(&args).await,
             "get_account_bank" => self.handle_get_account_bank(&args).await,
             "get_account_materials" => self.handle_get_account_materials(&args).await,
+            "get_character_inventory" => self.handle_get_character_inventory(&args).await,
             "get_account_masteries" => self.handle_get_account_masteries(&args).await,
             "get_account_raids" => self.handle_get_account_raids(&args).await,
             "get_account_dungeons" => self.handle_get_account_dungeons(&args).await,
@@ -615,6 +616,25 @@ impl McpServer {
         Ok(serde_json::to_value(&v)?)
     }
 
+    async fn handle_get_character_inventory(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let raw_name = args
+            .get("character")
+            .and_then(|v| v.as_str())
+            .ok_or(CallError::MissingArg("character"))?;
+        let key = self.resolve_api_key(args)?;
+        let name = CharacterName::new(raw_name).map_err(CallError::Domain)?;
+        let summary = parse_summary(args);
+        let v = self
+            .service
+            .get_character_inventory(&key, &name, summary)
+            .await
+            .map_err(|e| annotate_endpoint(e, "get_character_inventory"))?;
+        Ok(serde_json::to_value(&v)?)
+    }
+
     async fn handle_get_account_masteries(
         &self,
         args: &serde_json::Value,
@@ -1113,8 +1133,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            36,
-            "tier-6 (a + b + c): 12 base + get_info + 9 account/coaching (+get_account_bank, +get_account_materials) + 7 navigation + 6 search + 1 refresh = 36"
+            37,
+            "tier-6 (a + b + c): 12 base + get_info + 10 account/coaching (+bank, +materials, +character_inventory) + 7 navigation + 6 search + 1 refresh = 37"
         );
     }
 

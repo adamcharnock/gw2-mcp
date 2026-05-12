@@ -302,6 +302,30 @@ pub(super) fn build_tools() -> Vec<Tool> {
         }))
         .expect("valid schema literal");
 
+    let get_character_inventory: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["character"],
+            "properties": {
+                "api_key": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "format": "password",
+                    "writeOnly": true,
+                    "pattern": API_KEY_PATTERN,
+                    "description": "GW2 API key with `characters` + `inventories` scopes. Optional — falls back to the server-configured key."
+                },
+                "character": { "type": "string", "description": "Character name (case-sensitive)." },
+                "summary": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When true (default), flattens all bags and groups by item id with summed counts. Pass false for one row per occupied slot with binding/charges."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
     let get_dailies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -747,6 +771,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Get Account Materials"))
         .with_output_schema::<crate::service::AccountMaterialsSnapshot>(),
+        Tool::new(
+            "get_character_inventory",
+            "A character's bag inventory, flattened across all equipped bags. `summary=true` (default) groups slots by item id with summed counts. `summary=false` returns per-slot with binding/charges. Item names pre-resolved. Requires `characters` + `inventories` scopes.",
+            get_character_inventory,
+        )
+        .annotate(read_only_open_world("Get Character Inventory"))
+        .with_output_schema::<crate::service::CharacterInventorySnapshot>(),
         Tool::new(
             "get_account_masteries",
             "Mastery track progress, enriched with track name, region, current level name. Includes points_by_region: per-region {earned, spent, unspent} totals (answers 'what can I afford to finish?'). Requires `account` + `progression` scopes.",

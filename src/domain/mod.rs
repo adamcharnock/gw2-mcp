@@ -35,7 +35,9 @@ pub use continents::{Region, RegionMap};
 pub use currency::{Currency, CurrencyId};
 pub use error::DomainError;
 pub use instances::{Dungeon, DungeonPath, Raid, RaidEvent, RaidWing};
-pub use inventory::{InventorySlot, MaterialCategory, MaterialSlot};
+pub use inventory::{
+    CharacterBag, CharacterInventory, InventorySlot, MaterialCategory, MaterialSlot,
+};
 pub use map_neighbors::{
     ConnectionType, Expansion, MapNeighborEntry, MapNeighborLink, MapNeighbors, MapNeighborsError,
 };

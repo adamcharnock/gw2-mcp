@@ -435,6 +435,13 @@ mod tests {
         ) -> Result<BTreeMap<u32, crate::domain::MaterialCategory>, Gw2ApiError> {
             Ok(BTreeMap::new())
         }
+        async fn fetch_character_inventory(
+            &self,
+            _: &ApiKey,
+            _: &crate::domain::CharacterName,
+        ) -> Result<crate::domain::CharacterInventory, Gw2ApiError> {
+            Ok(crate::domain::CharacterInventory { bags: Vec::new() })
+        }
         async fn fetch_all_mastery_ids(
             &self,
         ) -> Result<Vec<crate::domain::MasteryId>, Gw2ApiError> {

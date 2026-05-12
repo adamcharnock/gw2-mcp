@@ -265,6 +265,15 @@ pub trait Gw2Api: Send + Sync + 'static {
         ids: &[u32],
     ) -> Result<BTreeMap<u32, crate::domain::MaterialCategory>, Gw2ApiError>;
 
+    /// `/v2/characters/<name>/inventory` — requires `characters` +
+    /// `inventories` scopes. Returns the character's equipped bags
+    /// with their contents.
+    async fn fetch_character_inventory(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<crate::domain::CharacterInventory, Gw2ApiError>;
+
     /// `/v2/masteries` — public, no key. Returns the full id list.
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError>;
 

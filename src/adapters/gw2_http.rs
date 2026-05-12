@@ -295,6 +295,19 @@ impl Gw2Api for HttpGw2Api {
         .await
     }
 
+    async fn fetch_character_inventory(
+        &self,
+        key: &ApiKey,
+        name: &CharacterName,
+    ) -> Result<crate::domain::CharacterInventory, Gw2ApiError> {
+        let url = format!(
+            "{}/characters/{}/inventory",
+            self.base_url,
+            url_encode_segment(name.as_str())
+        );
+        self.fetch_authed_json(&url, key, Some(name)).await
+    }
+
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
         self.fetch_id_list("masteries", MasteryId::new).await
     }
