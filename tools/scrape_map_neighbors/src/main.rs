@@ -101,6 +101,10 @@ struct Args {
     /// Output YAML path.
     #[arg(long, default_value = "data/map_neighbors.yaml")]
     out: std::path::PathBuf,
+    /// Path to the curated overrides YAML applied as a final pass.
+    /// Optional — if the file doesn't exist, no overrides are applied.
+    #[arg(long, default_value = "data/map_neighbors_overrides.yaml")]
+    overrides: std::path::PathBuf,
     /// Limit to the first N zone pages (debugging / sampling).
     #[arg(long)]
     limit: Option<usize>,
@@ -141,6 +145,90 @@ struct YamlMapEntry {
     neighbors: Vec<YamlNeighbor>,
 }
 
+/// Hand-curated overrides applied as the final pass. Read from
+/// `data/map_neighbors_overrides.yaml`. Each section is independently
+/// optional. Designed to grow as more wiki-data-quality issues surface.
+///
+/// Round-3 use cases:
+/// - Re-tag wrongly-classified edges that the wiki infobox documents
+///   misleadingly (e.g. Plains of Ashford → Skywatch Archipelago is a
+///   story-gated portal, not a physical border).
+/// - Add edges the wiki doesn't document on either side (e.g.
+///   Mistlock Sanctuary → Lion's Arch via the lounge's Portal to Tyria).
+/// - Fill `expansion` on special maps where the wiki infobox has no
+///   `requires` field (festival maps, Living-World-Season-1/2 zones,
+///   guild halls).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct YamlOverrides {
+    edge_overrides: Vec<EdgeOverride>,
+    edge_additions: Vec<EdgeAddition>,
+    map_expansion_overrides: BTreeMap<u32, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EdgeOverride {
+    src_map_id: u32,
+    dst_map_id: u32,
+    #[serde(default)]
+    connection: Option<String>,
+    /// Use the YAML null literal (~) to explicitly clear the direction
+    /// field; absent means "leave as-is".
+    #[serde(default, deserialize_with = "deserialize_optional_clearable")]
+    direction: ClearableField<String>,
+    #[serde(default)]
+    gate_location: Option<String>,
+    #[serde(default)]
+    one_way: Option<bool>,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    expansion: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EdgeAddition {
+    src_map_id: u32,
+    dst_map_id: u32,
+    #[serde(default)]
+    connection: Option<String>,
+    #[serde(default)]
+    direction: Option<String>,
+    #[serde(default)]
+    gate_location: Option<String>,
+    #[serde(default)]
+    one_way: Option<bool>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+/// Tri-state for override fields where we need to distinguish "absent
+/// from the YAML" (leave as-is) from "explicit null" (clear it).
+#[derive(Debug, Default, Clone)]
+enum ClearableField<T> {
+    #[default]
+    Absent,
+    Clear,
+    Set(T),
+}
+
+fn deserialize_optional_clearable<'de, D, T>(de: D) -> Result<ClearableField<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    // serde gives us a present-but-possibly-null value here when the
+    // field is explicitly written; the outer `#[serde(default)]` on
+    // the field handles the absent case (which uses `Absent`).
+    let opt: Option<T> = Option::deserialize(de)?;
+    Ok(match opt {
+        Some(v) => ClearableField::Set(v),
+        None => ClearableField::Clear,
+    })
+}
+
 #[derive(Debug, Serialize)]
 struct YamlNeighbor {
     map_id: u32,
@@ -153,6 +241,23 @@ struct YamlNeighbor {
     /// "instance_portal", or "guild_hall".
     #[serde(skip_serializing_if = "Option::is_none")]
     connection: Option<String>,
+    /// "Where in the source map you portal out from" — only useful
+    /// for non-physical connections (asura gates, story gates,
+    /// instance portals). Populated by hand-curated overrides; the
+    /// wiki infobox doesn't carry this info.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gate_location: Option<String>,
+    /// Set to true when the edge is unidirectional (A→B but not B→A).
+    /// `symmetrize` and `reconcile_directions` both skip one-way
+    /// edges so the wiki's "secret portal" / "lounge teleport"
+    /// patterns survive the normalization passes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    one_way: Option<bool>,
+    /// Free-text note for player-facing context that doesn't fit the
+    /// structured fields (story prerequisites, passkey requirements,
+    /// festival timing).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     min_level: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -264,6 +369,9 @@ async fn main() -> Result<()> {
                     name: neighbor_name,
                     connection,
                     direction,
+                    gate_location: None,
+                    one_way: None,
+                    note: None,
                     min_level: target_map.and_then(|m| m.min_level),
                     max_level: target_map.and_then(|m| m.max_level),
                     expansion: target_expansion,
@@ -303,6 +411,27 @@ async fn main() -> Result<()> {
     eprintln!(
         "    rewrote {reconciled} non-canonical directions (lower-id side is authoritative)."
     );
+
+    eprintln!(
+        "[3.95/4] Applying curated overrides from {} …",
+        args.overrides.display()
+    );
+    if args.overrides.exists() {
+        let raw = std::fs::read_to_string(&args.overrides)
+            .with_context(|| format!("reading {}", args.overrides.display()))?;
+        let overrides: YamlOverrides = serde_yaml_bw::from_str(&raw)
+            .with_context(|| format!("parsing {}", args.overrides.display()))?;
+        let summary = apply_overrides(&mut output, &overrides, &maps);
+        eprintln!(
+            "    applied {} edge overrides, {} additions, {} expansion overrides ({} skipped).",
+            summary.edge_overrides_applied,
+            summary.edge_additions_applied,
+            summary.expansion_overrides_applied,
+            summary.skipped
+        );
+    } else {
+        eprintln!("    (no overrides file present — skipping)");
+    }
 
     eprintln!("[4/4] Writing YAML to {} …", args.out.display());
     let yaml = serde_yaml_bw::to_string(&output)?;
@@ -758,11 +887,19 @@ fn symmetrize(output: &mut YamlOutput) -> usize {
             if existing.contains(&(n.map_id, *src_id)) {
                 continue;
             }
+            // One-way edges (e.g. Mistlock Sanctuary's Portal to Tyria)
+            // shouldn't gain an auto-derived reverse.
+            if n.one_way.unwrap_or(false) {
+                continue;
+            }
             let reverse = YamlNeighbor {
                 map_id: *src_id,
                 name: src_entry.name.clone(),
                 direction: n.direction.as_deref().and_then(reverse_direction),
                 connection: n.connection.clone(),
+                gate_location: None,
+                one_way: None,
+                note: None,
                 min_level: src_entry.min_level,
                 max_level: src_entry.max_level,
                 expansion: src_entry.expansion.clone(),
@@ -852,6 +989,139 @@ fn reconcile_directions(output: &mut YamlOutput) -> usize {
         }
     }
     rewritten
+}
+
+#[derive(Debug, Default)]
+struct OverrideSummary {
+    edge_overrides_applied: usize,
+    edge_additions_applied: usize,
+    expansion_overrides_applied: usize,
+    /// Edge overrides or additions that referenced a src/dst that
+    /// isn't currently in the table; logged to stderr individually.
+    skipped: usize,
+}
+
+/// Apply hand-curated overrides as the final scraper pass. See
+/// [`YamlOverrides`] for the file shape.
+fn apply_overrides(
+    output: &mut YamlOutput,
+    overrides: &YamlOverrides,
+    maps: &BTreeMap<u32, GwMap>,
+) -> OverrideSummary {
+    let mut s = OverrideSummary::default();
+
+    // Edge overrides — mutate existing edges in place. Skip with a
+    // warning if the edge doesn't exist (scraper output may have
+    // shifted shape since the override was authored).
+    for ov in &overrides.edge_overrides {
+        let Some(entry) = output.maps.get_mut(&ov.src_map_id) else {
+            eprintln!(
+                "    !! edge_override {}→{}: src not in scraper output, skipping",
+                ov.src_map_id, ov.dst_map_id,
+            );
+            s.skipped += 1;
+            continue;
+        };
+        let Some(neighbor) = entry
+            .neighbors
+            .iter_mut()
+            .find(|n| n.map_id == ov.dst_map_id)
+        else {
+            eprintln!(
+                "    !! edge_override {}→{}: edge not in scraper output, skipping",
+                ov.src_map_id, ov.dst_map_id,
+            );
+            s.skipped += 1;
+            continue;
+        };
+        if let Some(c) = &ov.connection {
+            neighbor.connection = Some(c.clone());
+        }
+        match &ov.direction {
+            ClearableField::Absent => {}
+            ClearableField::Clear => neighbor.direction = None,
+            ClearableField::Set(v) => neighbor.direction = Some(v.clone()),
+        }
+        if let Some(g) = &ov.gate_location {
+            neighbor.gate_location = Some(g.clone());
+        }
+        if let Some(o) = ov.one_way {
+            neighbor.one_way = Some(o);
+        }
+        if let Some(n) = &ov.note {
+            neighbor.note = Some(n.clone());
+        }
+        if let Some(e) = &ov.expansion {
+            neighbor.expansion = Some(e.clone());
+        }
+        s.edge_overrides_applied += 1;
+    }
+
+    // Edge additions — append if not already present.
+    for add in &overrides.edge_additions {
+        let Some(entry) = output.maps.get_mut(&add.src_map_id) else {
+            eprintln!(
+                "    !! edge_addition {}→{}: src not in scraper output, skipping",
+                add.src_map_id, add.dst_map_id,
+            );
+            s.skipped += 1;
+            continue;
+        };
+        if entry.neighbors.iter().any(|n| n.map_id == add.dst_map_id) {
+            // Already there — treat as no-op (idempotent re-runs).
+            continue;
+        }
+        let target_map = maps.get(&add.dst_map_id);
+        let name = target_map
+            .map(|m| m.name.clone())
+            .unwrap_or_else(|| format!("map {}", add.dst_map_id));
+        entry.neighbors.push(YamlNeighbor {
+            map_id: add.dst_map_id,
+            name,
+            direction: add.direction.clone(),
+            connection: add.connection.clone(),
+            gate_location: add.gate_location.clone(),
+            one_way: add.one_way,
+            note: add.note.clone(),
+            min_level: target_map.and_then(|m| m.min_level),
+            max_level: target_map.and_then(|m| m.max_level),
+            expansion: None,
+        });
+        // Keep neighbor lists sorted for stable diffs.
+        entry.neighbors.sort_by(|a, b| a.name.cmp(&b.name));
+        s.edge_additions_applied += 1;
+    }
+
+    // Map-level expansion overrides — set on the source entry AND on
+    // every neighbor link pointing to that map id (each link carries
+    // its own copy).
+    for (map_id, expansion) in &overrides.map_expansion_overrides {
+        let mut applied_here = false;
+        if let Some(entry) = output.maps.get_mut(map_id) {
+            entry.expansion = Some(expansion.clone());
+            applied_here = true;
+        }
+        // Update every neighbor reference too.
+        for entry in output.maps.values_mut() {
+            for n in &mut entry.neighbors {
+                if n.map_id == *map_id {
+                    n.expansion = Some(expansion.clone());
+                    applied_here = true;
+                }
+            }
+        }
+        if applied_here {
+            s.expansion_overrides_applied += 1;
+        } else {
+            eprintln!(
+                "    !! map_expansion_override for map {map_id}: id not referenced \
+                 anywhere in scraper output, skipping"
+            );
+            s.skipped += 1;
+        }
+    }
+
+    s
 }
 
 /// Reverse a compass-direction string. Handles 16-point bearings
@@ -1112,6 +1382,9 @@ Body text below.
                     name: "Beta".into(),
                     direction: Some("NE".into()),
                     connection: Some("physical".into()),
+                    gate_location: None,
+                    one_way: None,
+                    note: None,
                     min_level: Some(20),
                     max_level: Some(30),
                     expansion: Some("core".into()),
@@ -1165,6 +1438,9 @@ Body text below.
                     name: "Unmodelled".into(),
                     direction: Some("N".into()),
                     connection: Some("physical".into()),
+                    gate_location: None,
+                    one_way: None,
+                    note: None,
                     min_level: None,
                     max_level: None,
                     expansion: None,
@@ -1193,6 +1469,9 @@ Body text below.
                     name: neighbor_name.into(),
                     direction: Some(dir.into()),
                     connection: Some("physical".into()),
+                    gate_location: None,
+                    one_way: None,
+                    note: None,
                     min_level: None,
                     max_level: None,
                     expansion: None,
@@ -1213,6 +1492,9 @@ Body text below.
             name: name.into(),
             direction: direction.map(str::to_owned),
             connection: Some("physical".into()),
+            gate_location: None,
+            one_way: None,
+            note: None,
             min_level: None,
             max_level: None,
             expansion: None,
@@ -1308,6 +1590,9 @@ Body text below.
             name: name.into(),
             direction: direction.map(str::to_owned),
             connection: Some("physical".into()),
+            gate_location: None,
+            one_way: None,
+            note: None,
             min_level: None,
             max_level: None,
             expansion: None,
@@ -1328,6 +1613,230 @@ Body text below.
         );
         let n = reconcile_directions(&mut out);
         assert_eq!(n, 0);
+    }
+
+    fn empty_maps_index() -> BTreeMap<u32, GwMap> {
+        BTreeMap::new()
+    }
+
+    fn maps_with(id: u32, name: &str, min: Option<u32>, max: Option<u32>) -> BTreeMap<u32, GwMap> {
+        let mut m = BTreeMap::new();
+        m.insert(
+            id,
+            GwMap {
+                id,
+                name: name.into(),
+                region_name: None,
+                min_level: min,
+                max_level: max,
+            },
+        );
+        m
+    }
+
+    #[test]
+    fn apply_overrides_rewrites_edge_fields() {
+        let mut out = build_pair(1, 2, Some("E"), Some("W"));
+        let raw = "
+edge_overrides:
+  - src_map_id: 1
+    dst_map_id: 2
+    connection: story_gate
+    direction: ~
+    gate_location: Lake Adorea
+    note: Story-gated portal
+";
+        let overrides: YamlOverrides = serde_yaml_bw::from_str(raw).unwrap();
+        let s = apply_overrides(&mut out, &overrides, &empty_maps_index());
+        assert_eq!(s.edge_overrides_applied, 1);
+        assert_eq!(s.skipped, 0);
+        let n = &out.maps[&1].neighbors[0];
+        assert_eq!(n.connection.as_deref(), Some("story_gate"));
+        assert_eq!(n.direction, None);
+        assert_eq!(n.gate_location.as_deref(), Some("Lake Adorea"));
+        assert_eq!(n.note.as_deref(), Some("Story-gated portal"));
+    }
+
+    #[test]
+    fn apply_overrides_absent_direction_leaves_value_alone() {
+        let mut out = build_pair(1, 2, Some("E"), Some("W"));
+        let raw = "
+edge_overrides:
+  - src_map_id: 1
+    dst_map_id: 2
+    connection: asura_gate
+";
+        let overrides: YamlOverrides = serde_yaml_bw::from_str(raw).unwrap();
+        apply_overrides(&mut out, &overrides, &empty_maps_index());
+        let n = &out.maps[&1].neighbors[0];
+        assert_eq!(n.connection.as_deref(), Some("asura_gate"));
+        // direction stayed as "E" because the override field was absent.
+        assert_eq!(n.direction.as_deref(), Some("E"));
+    }
+
+    #[test]
+    fn apply_overrides_appends_new_edge() {
+        // Single source, no neighbors. An addition pulls the name
+        // from the maps index.
+        let mut out = YamlOutput {
+            maps: BTreeMap::from([(
+                50,
+                YamlMapEntry {
+                    name: "Lion's Arch".into(),
+                    region_name: None,
+                    min_level: None,
+                    max_level: None,
+                    expansion: None,
+                    neighbors: vec![],
+                },
+            )]),
+        };
+        let raw = "
+edge_additions:
+  - src_map_id: 50
+    dst_map_id: 1206
+    connection: asura_gate
+    one_way: true
+    note: Portal to Tyria; requires Mistlock Sanctuary Passkey.
+";
+        let overrides: YamlOverrides = serde_yaml_bw::from_str(raw).unwrap();
+        let s = apply_overrides(
+            &mut out,
+            &overrides,
+            &maps_with(1206, "Mistlock Sanctuary", Some(80), Some(80)),
+        );
+        assert_eq!(s.edge_additions_applied, 1);
+        let n = &out.maps[&50].neighbors[0];
+        assert_eq!(n.map_id, 1206);
+        assert_eq!(n.name, "Mistlock Sanctuary");
+        assert_eq!(n.connection.as_deref(), Some("asura_gate"));
+        assert_eq!(n.one_way, Some(true));
+        assert_eq!(n.min_level, Some(80));
+    }
+
+    #[test]
+    fn apply_overrides_is_idempotent() {
+        // Same addition applied twice yields one edge, not two.
+        let mut out = YamlOutput {
+            maps: BTreeMap::from([(
+                50,
+                YamlMapEntry {
+                    name: "Lion's Arch".into(),
+                    region_name: None,
+                    min_level: None,
+                    max_level: None,
+                    expansion: None,
+                    neighbors: vec![],
+                },
+            )]),
+        };
+        let raw = "
+edge_additions:
+  - src_map_id: 50
+    dst_map_id: 1206
+    connection: asura_gate
+";
+        let overrides: YamlOverrides = serde_yaml_bw::from_str(raw).unwrap();
+        let s1 = apply_overrides(
+            &mut out,
+            &overrides,
+            &maps_with(1206, "Mistlock Sanctuary", None, None),
+        );
+        let s2 = apply_overrides(
+            &mut out,
+            &overrides,
+            &maps_with(1206, "Mistlock Sanctuary", None, None),
+        );
+        assert_eq!(s1.edge_additions_applied, 1);
+        assert_eq!(s2.edge_additions_applied, 0);
+        assert_eq!(out.maps[&50].neighbors.len(), 1);
+    }
+
+    #[test]
+    fn apply_overrides_expansion_propagates_to_neighbor_refs() {
+        // Map 50 has a neighbor pointing to 1483 with no expansion.
+        // Map 1483 is in the table but expansion is None too.
+        let mut out = YamlOutput {
+            maps: BTreeMap::from([
+                (
+                    50,
+                    YamlMapEntry {
+                        name: "Lion's Arch".into(),
+                        region_name: None,
+                        min_level: None,
+                        max_level: None,
+                        expansion: None,
+                        neighbors: vec![YamlNeighbor {
+                            map_id: 1483,
+                            name: "Memory of Old Lion's Arch".into(),
+                            direction: None,
+                            connection: Some("asura_gate".into()),
+                            gate_location: None,
+                            one_way: None,
+                            note: None,
+                            min_level: None,
+                            max_level: None,
+                            expansion: None,
+                        }],
+                    },
+                ),
+                (
+                    1483,
+                    YamlMapEntry {
+                        name: "Memory of Old Lion's Arch".into(),
+                        region_name: None,
+                        min_level: None,
+                        max_level: None,
+                        expansion: None,
+                        neighbors: vec![],
+                    },
+                ),
+            ]),
+        };
+        let raw = "
+map_expansion_overrides:
+  1483: living_world_season1
+";
+        let overrides: YamlOverrides = serde_yaml_bw::from_str(raw).unwrap();
+        let s = apply_overrides(&mut out, &overrides, &empty_maps_index());
+        assert_eq!(s.expansion_overrides_applied, 1);
+        assert_eq!(
+            out.maps[&1483].expansion.as_deref(),
+            Some("living_world_season1")
+        );
+        assert_eq!(
+            out.maps[&50].neighbors[0].expansion.as_deref(),
+            Some("living_world_season1")
+        );
+    }
+
+    #[test]
+    fn apply_overrides_warns_on_missing_edge() {
+        // Override targets an edge that doesn't exist; skipped counter
+        // increments, no panic.
+        let mut out = YamlOutput {
+            maps: BTreeMap::from([(
+                1,
+                YamlMapEntry {
+                    name: "Alpha".into(),
+                    region_name: None,
+                    min_level: None,
+                    max_level: None,
+                    expansion: None,
+                    neighbors: vec![],
+                },
+            )]),
+        };
+        let raw = "
+edge_overrides:
+  - src_map_id: 1
+    dst_map_id: 999
+    connection: asura_gate
+";
+        let overrides: YamlOverrides = serde_yaml_bw::from_str(raw).unwrap();
+        let s = apply_overrides(&mut out, &overrides, &empty_maps_index());
+        assert_eq!(s.edge_overrides_applied, 0);
+        assert_eq!(s.skipped, 1);
     }
 
     #[test]

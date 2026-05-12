@@ -1,0 +1,95 @@
+# Hand-curated overrides applied by `scrape-map-neighbors` as the final
+# pass, after symmetrize + reconcile_directions. The wiki infobox is the
+# source of truth for most edges; this file patches the cases where:
+#
+# - the infobox documents an edge with the wrong shape (Plains of
+#   Ashford → Skywatch Archipelago is a story-gated portal, not a
+#   physical border);
+# - both wiki pages omit a real in-game connection (Mistlock
+#   Sanctuary's Portal to Tyria → Lion's Arch);
+# - the `requires` field is absent for special maps that belong to
+#   Living-World Seasons 1-2 or are recurring festival content (SAB,
+#   Labyrinthine Cliffs, Crown Pavilion);
+# - guild-hall maps whose `requires` field is missing.
+#
+# Every claim below was verified against
+# `wiki.guildwars2.com/wiki/<MapName>` and the relevant URL is recorded
+# in the trailing comment for each row. Drop a row sooner than guess.
+
+edge_overrides:
+  # Plains of Ashford (19) → Skywatch Archipelago (1510).
+  # Wiki: main access is a portal at Wizard's Tower; from Plains of
+  # Ashford specifically, access is a story-gated "secret portal" at
+  # Lake Adorea — only available after the relevant SotO story chapter.
+  # Source: https://wiki.guildwars2.com/wiki/Skywatch_Archipelago
+  - src_map_id: 19
+    dst_map_id: 1510
+    connection: story_gate
+    direction: ~
+    gate_location: Lake Adorea (Plains of Ashford)
+    note: "Secret portal — requires SotO story progression. Main access is via Wizard's Tower."
+  # Reverse side of the same edge — symmetrize generated it as a
+  # physical border, but it's the same story-gated portal.
+  - src_map_id: 1510
+    dst_map_id: 19
+    connection: story_gate
+    direction: ~
+    gate_location: Lake Adorea (Plains of Ashford)
+    note: "Secret portal — requires SotO story progression."
+
+edge_additions:
+  # Mistlock Sanctuary (1206) → Lion's Arch (50) via the in-lounge
+  # "Portal to Tyria". One-way: you can leave Mistlock to LA but you
+  # can't board the portal from outside without a Mistlock Sanctuary
+  # Passkey (Gem Store). LA's wiki page does not document the inbound
+  # side, so we don't add it.
+  # Source:
+  # - https://wiki.guildwars2.com/wiki/Portal_to_Tyria_(Mistlock_Sanctuary)
+  # - https://wiki.guildwars2.com/wiki/Mistlock_Sanctuary
+  - src_map_id: 1206
+    dst_map_id: 50
+    connection: asura_gate
+    one_way: true
+    note: "Portal to Tyria within Mistlock Sanctuary. Reaching the sanctuary itself requires a Mistlock Sanctuary Passkey from the Gem Store."
+
+# Wiki `| requires =` is empty on every map below; the canonical
+# release is documented in prose / the page header instead.
+map_expansion_overrides:
+  # https://wiki.guildwars2.com/wiki/Southsun_Cove
+  # "introduced in The Lost Shores release" — Living World Season 1.
+  873: living_world_season1
+  # https://wiki.guildwars2.com/wiki/The_Silverwastes
+  # "introduced in parts during the releases Echoes of the Past,
+  # Tangled Paths, Seeds of Truth and Point of No Return" — LW Season 2.
+  1015: living_world_season2
+  # https://wiki.guildwars2.com/wiki/Memory_of_Old_Lion%27s_Arch
+  # "a lounge based on Lion's Arch … during Living World Season 1".
+  1483: living_world_season1
+  # https://wiki.guildwars2.com/wiki/Labyrinthine_Cliffs
+  # "only available during the Festival of the Four Winds".
+  922: festival
+  # https://wiki.guildwars2.com/wiki/The_Crown_Pavilion
+  # The map (id 929) is the seasonal festival arena; the year-round
+  # Crown Pavilion district inside Divinity's Reach is a separate
+  # interior. The map itself is festival content.
+  929: festival
+  # https://wiki.guildwars2.com/wiki/Super_Adventure_Box
+  # "only available during the Super Adventure Festival".
+  935: festival
+  # https://wiki.guildwars2.com/wiki/Gilded_Hollow
+  # Tagged "Heart of Thorns content" in the wiki page header.
+  1121: heart_of_thorns
+  # https://wiki.guildwars2.com/wiki/Lost_Precipice
+  # Tagged "Heart of Thorns content".
+  1124: heart_of_thorns
+  # https://wiki.guildwars2.com/wiki/Noble%27s_Folly
+  # Tagged "Heart of Thorns content" (wiki classifies by setting, not
+  # by the patch that added it — Noble's Folly shipped during PoF but
+  # the wiki tags it HoT).
+  1158: heart_of_thorns
+  # https://wiki.guildwars2.com/wiki/Windswept_Haven
+  # Tagged "Path of Fire content".
+  1250: path_of_fire
+  # https://wiki.guildwars2.com/wiki/Isle_of_Reflection
+  # "guild hall introduced with the End of Dragons expansion".
+  1462: end_of_dragons

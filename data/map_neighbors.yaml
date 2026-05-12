@@ -84,6 +84,7 @@
     connection: asura_gate
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
   - map_id: 1575
     name: Mistburned Barrens
     connection: asura_gate
@@ -102,7 +103,7 @@
     connection: asura_gate
     min_level: 80
     max_level: 80
-    expansion: core
+    expansion: festival
 19:
   name: Plains of Ashford
   region_name: Ascalon
@@ -140,8 +141,9 @@
     expansion: core
   - map_id: 1510
     name: Skywatch Archipelago
-    direction: S
-    connection: physical
+    connection: story_gate
+    gate_location: Lake Adorea (Plains of Ashford)
+    note: Secret portal — requires SotO story progression. Main access is via Wizard's Tower.
     min_level: 80
     max_level: 80
     expansion: secrets_of_the_obscure
@@ -296,6 +298,7 @@
     connection: physical
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
   - map_id: 15
     name: Queensdale
     direction: W
@@ -746,7 +749,7 @@
     connection: asura_gate
     min_level: 1
     max_level: 80
-    expansion: core
+    expansion: festival
   - map_id: 1155
     name: Lion's Arch Aerodrome
     direction: S
@@ -778,6 +781,7 @@
     connection: asura_gate
     min_level: 80
     max_level: 80
+    expansion: living_world_season1
   - map_id: 91
     name: The Grove
     connection: asura_gate
@@ -883,6 +887,7 @@
     connection: physical
     min_level: 80
     max_level: 80
+    expansion: living_world_season2
   - map_id: 23
     name: Kessex Hills
     direction: SE
@@ -903,6 +908,7 @@
     connection: physical
     min_level: 80
     max_level: 80
+    expansion: living_world_season2
 62:
   name: Cursed Shore
   region_name: Ruins of Orr
@@ -970,6 +976,7 @@
     connection: physical
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
   - map_id: 53
     name: Sparkfly Fen
     direction: SW, SE
@@ -1002,6 +1009,7 @@
     connection: asura_gate
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
 111:
   name: Victory or Death
   region_name: Ruins of Orr
@@ -1027,6 +1035,7 @@
     connection: asura_gate
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
   - map_id: 35
     name: Metrica Province
     connection: asura_gate
@@ -1038,7 +1047,7 @@
     connection: asura_gate
     min_level: 1
     max_level: 80
-    expansion: core
+    expansion: festival
 218:
   name: Black Citadel
   region_name: Ascalon
@@ -1064,6 +1073,7 @@
     connection: asura_gate
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
   - map_id: 19
     name: Plains of Ashford
     direction: E
@@ -1096,6 +1106,7 @@
     connection: asura_gate
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
   - map_id: 28
     name: Wayfarer Foothills
     direction: E
@@ -1128,6 +1139,7 @@
   region_name: Kryta
   min_level: 80
   max_level: 80
+  expansion: living_world_season1
   neighbors:
   - map_id: 50
     name: Lion's Arch
@@ -1140,12 +1152,13 @@
     connection: asura_gate
     min_level: 0
     max_level: 80
+    expansion: living_world_season1
 922:
   name: Labyrinthine Cliffs
   region_name: Tarnished Coast
   min_level: 1
   max_level: 80
-  expansion: core
+  expansion: festival
   neighbors:
   - map_id: 50
     name: Lion's Arch
@@ -1158,7 +1171,7 @@
   region_name: Kryta
   min_level: 80
   max_level: 80
-  expansion: core
+  expansion: festival
   neighbors:
   - map_id: 18
     name: Divinity's Reach
@@ -1171,7 +1184,7 @@
   region_name: Super Adventure Box
   min_level: 1
   max_level: 80
-  expansion: core
+  expansion: festival
   neighbors:
   - map_id: 139
     name: Rata Sum
@@ -1184,6 +1197,7 @@
   region_name: Maguuma Wastes
   min_level: 80
   max_level: 80
+  expansion: living_world_season2
   neighbors:
   - map_id: 54
     name: Brisban Wildlands
@@ -1197,6 +1211,7 @@
   region_name: Maguuma Wastes
   min_level: 80
   max_level: 80
+  expansion: living_world_season2
   neighbors:
   - map_id: 54
     name: Brisban Wildlands
@@ -1238,6 +1253,7 @@
     connection: guild_hall
     min_level: 80
     max_level: 80
+    expansion: heart_of_thorns
   - map_id: 1045
     name: Tangled Depths
     direction: SE
@@ -1292,17 +1308,20 @@
     connection: guild_hall
     min_level: 80
     max_level: 80
+    expansion: heart_of_thorns
   - map_id: 1158
     name: Noble's Folly
     connection: guild_hall
     min_level: 80
     max_level: 80
+    expansion: heart_of_thorns
   - map_id: 1015
     name: The Silverwastes
     direction: NE
     connection: physical
     min_level: 80
     max_level: 80
+    expansion: living_world_season2
 1155:
   name: Lion's Arch Aerodrome
   region_name: Kryta
@@ -1431,7 +1450,14 @@
   min_level: 80
   max_level: 80
   expansion: core
-  neighbors: []
+  neighbors:
+  - map_id: 50
+    name: Lion's Arch
+    connection: asura_gate
+    one_way: true
+    note: Portal to Tyria within Mistlock Sanctuary. Reaching the sanctuary itself requires a Mistlock Sanctuary Passkey from the Gem Store.
+    min_level: 0
+    max_level: 80
 1210:
   name: Crystal Oasis
   region_name: Crystal Desert
@@ -1547,6 +1573,7 @@
     connection: guild_hall
     min_level: 80
     max_level: 80
+    expansion: path_of_fire
 1263:
   name: Domain of Istan
   region_name: Crystal Desert
@@ -1739,6 +1766,7 @@
     connection: guild_hall
     min_level: 80
     max_level: 80
+    expansion: end_of_dragons
   - map_id: 1438
     name: New Kaineng City
     direction: E
@@ -1786,12 +1814,14 @@
   region_name: Kryta
   min_level: 80
   max_level: 80
+  expansion: living_world_season1
   neighbors: []
 1483:
   name: Memory of Old Lion's Arch
   region_name: Kryta
   min_level: 0
   max_level: 80
+  expansion: living_world_season1
   neighbors:
   - map_id: 218
     name: Black Citadel
@@ -1836,6 +1866,7 @@
     connection: asura_gate
     min_level: 80
     max_level: 80
+    expansion: living_world_season1
   - map_id: 91
     name: The Grove
     connection: asura_gate
@@ -1898,8 +1929,9 @@
   neighbors:
   - map_id: 19
     name: Plains of Ashford
-    direction: N
-    connection: physical
+    connection: story_gate
+    gate_location: Lake Adorea (Plains of Ashford)
+    note: Secret portal — requires SotO story progression.
     min_level: 1
     max_level: 15
     expansion: core
