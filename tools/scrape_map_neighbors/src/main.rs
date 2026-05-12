@@ -256,6 +256,12 @@ async fn main() -> Result<()> {
         added
     );
 
+    eprintln!("[3.85/4] Reconciling direction asymmetry on bidirectional edges …");
+    let reconciled = reconcile_directions(&mut output);
+    eprintln!(
+        "    rewrote {reconciled} non-canonical directions (lower-id side is authoritative)."
+    );
+
     eprintln!("[4/4] Writing YAML to {} …", args.out.display());
     let yaml = serde_yaml_bw::to_string(&output)?;
     std::fs::write(&args.out, yaml).with_context(|| format!("writing {}", args.out.display()))?;
@@ -735,6 +741,75 @@ fn symmetrize(output: &mut YamlOutput) -> usize {
     added
 }
 
+/// Round-3-feedback: when the wiki disagrees with itself, normalize on
+/// ingest. Walk every unordered pair `(a, b)` where both `a → b` and
+/// `b → a` exist with non-empty directions, pick the lower-id side as
+/// canonical, and overwrite the other side's direction with the
+/// compass-inverse of canonical's.
+///
+/// "Lower id wins" is a deterministic, re-run-stable rule — we can't
+/// ground-truth wiki disagreements without manual play-testing, so the
+/// rule only needs to be consistent.
+///
+/// Skips pairs where either side's direction is `None` / empty: those
+/// asymmetries are handled by [`symmetrize`], which derives the missing
+/// side from the present one.
+///
+/// Returns the count of directions rewritten.
+fn reconcile_directions(output: &mut YamlOutput) -> usize {
+    // Snapshot the canonical (lower-id) side's direction for every
+    // bidirectional pair. We must not mutate `output.maps` while
+    // iterating it, so collect first then apply.
+    let mut canonical_dirs: BTreeMap<(u32, u32), String> = BTreeMap::new();
+    for (src_id, entry) in &output.maps {
+        for n in &entry.neighbors {
+            let Some(dir) = n.direction.as_deref() else {
+                continue;
+            };
+            if dir.trim().is_empty() {
+                continue;
+            }
+            let lo = (*src_id).min(n.map_id);
+            let hi = (*src_id).max(n.map_id);
+            // Only record the lower-id-as-source view.
+            if *src_id == lo {
+                canonical_dirs.insert((lo, hi), dir.to_owned());
+            }
+        }
+    }
+
+    let mut rewritten = 0;
+    for ((lo, hi), canonical) in &canonical_dirs {
+        let Some(want) = reverse_direction(canonical) else {
+            // Canonical side has a direction that doesn't compass-
+            // reverse cleanly (rare; e.g. "C"). Leave as-is.
+            continue;
+        };
+        // Is the higher-id side also a bidirectional edge with a
+        // non-empty direction? If so, check whether it matches.
+        let Some(hi_entry) = output.maps.get_mut(hi) else {
+            continue;
+        };
+        for n in &mut hi_entry.neighbors {
+            if n.map_id != *lo {
+                continue;
+            }
+            let Some(current) = n.direction.as_deref() else {
+                break;
+            };
+            if current.trim().is_empty() {
+                break;
+            }
+            if current != want {
+                n.direction = Some(want.clone());
+                rewritten += 1;
+            }
+            break;
+        }
+    }
+    rewritten
+}
+
 /// Reverse a compass-direction string. Handles 16-point bearings
 /// (N/NE/ENE/etc.) and comma-separated multi-bearings ("NW, N" →
 /// "SE, S"). Returns `None` if any token doesn't reverse cleanly.
@@ -1075,6 +1150,132 @@ Body text below.
         out.maps.insert(2, make(2, "Beta", 1, "Alpha", "S"));
         let added = symmetrize(&mut out);
         assert_eq!(added, 0);
+    }
+
+    /// Helper for `reconcile_directions` tests: build a pair where
+    /// map `lo` lists map `hi` with `lo_dir`, and `hi` lists `lo`
+    /// with `hi_dir`. Both sides modelled, both with directions.
+    fn build_pair(lo: u32, hi: u32, lo_dir: Option<&str>, hi_dir: Option<&str>) -> YamlOutput {
+        let mk_neighbor = |map_id: u32, name: &str, direction: Option<&str>| YamlNeighbor {
+            map_id,
+            name: name.into(),
+            direction: direction.map(str::to_owned),
+            connection: Some("physical".into()),
+            min_level: None,
+            max_level: None,
+            expansion: None,
+        };
+        let mut out = YamlOutput {
+            maps: BTreeMap::new(),
+        };
+        out.maps.insert(
+            lo,
+            YamlMapEntry {
+                name: format!("Map{lo}"),
+                region_name: None,
+                min_level: None,
+                max_level: None,
+                expansion: None,
+                neighbors: vec![mk_neighbor(hi, &format!("Map{hi}"), lo_dir)],
+            },
+        );
+        out.maps.insert(
+            hi,
+            YamlMapEntry {
+                name: format!("Map{hi}"),
+                region_name: None,
+                min_level: None,
+                max_level: None,
+                expansion: None,
+                neighbors: vec![mk_neighbor(lo, &format!("Map{lo}"), hi_dir)],
+            },
+        );
+        out
+    }
+
+    #[test]
+    fn reconcile_directions_noop_on_matched_pair() {
+        // Map 1 → Map 2 = "E"; Map 2 → Map 1 = "W" (the correct inverse).
+        let mut out = build_pair(1, 2, Some("E"), Some("W"));
+        let n = reconcile_directions(&mut out);
+        assert_eq!(n, 0);
+        assert_eq!(out.maps[&2].neighbors[0].direction.as_deref(), Some("W"));
+    }
+
+    #[test]
+    fn reconcile_directions_rewrites_higher_id_side_on_mismatch() {
+        // Queensdale-style: Map 1 says Map 2 is "E", Map 2 says Map 1
+        // is "NW". Canonical (Map 1) wins, so Map 2's edge becomes "W".
+        let mut out = build_pair(1, 2, Some("E"), Some("NW"));
+        let n = reconcile_directions(&mut out);
+        assert_eq!(n, 1);
+        assert_eq!(out.maps[&1].neighbors[0].direction.as_deref(), Some("E"));
+        assert_eq!(out.maps[&2].neighbors[0].direction.as_deref(), Some("W"));
+    }
+
+    #[test]
+    fn reconcile_directions_skips_one_sided_missing_direction() {
+        // Map 2's edge has no direction yet — symmetrize handles that
+        // case; reconcile_directions must not touch it.
+        let mut out = build_pair(1, 2, Some("E"), None);
+        let n = reconcile_directions(&mut out);
+        assert_eq!(n, 0);
+        assert_eq!(out.maps[&2].neighbors[0].direction, None);
+    }
+
+    #[test]
+    fn reconcile_directions_rewrites_multi_segment_direction() {
+        // Queensdale-Kessex style: Map 1 says Map 2 is "SW, S"; Map 2
+        // says Map 1 is "NW, N". The compass-inverse of "SW, S" is
+        // "NE, N", so Map 2's edge gets rewritten.
+        let mut out = build_pair(1, 2, Some("SW, S"), Some("NW, N"));
+        let n = reconcile_directions(&mut out);
+        assert_eq!(n, 1);
+        assert_eq!(
+            out.maps[&2].neighbors[0].direction.as_deref(),
+            Some("NE, N"),
+        );
+    }
+
+    #[test]
+    fn reconcile_directions_leaves_uninvertable_canonical_alone() {
+        // "C" (contained / guild hall) echoes itself in reverse_bearing,
+        // so the inverse of "C" is "C" — matched, no rewrite.
+        let mut out = build_pair(1, 2, Some("C"), Some("C"));
+        let n = reconcile_directions(&mut out);
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn reconcile_directions_handles_purely_one_way_data() {
+        // Only Map 1 → Map 2 exists in the table (no reverse). Nothing
+        // to reconcile against. (symmetrize is the one that fills the
+        // missing side, but it runs before us anyway in main().)
+        let mk_neighbor = |map_id: u32, name: &str, direction: Option<&str>| YamlNeighbor {
+            map_id,
+            name: name.into(),
+            direction: direction.map(str::to_owned),
+            connection: Some("physical".into()),
+            min_level: None,
+            max_level: None,
+            expansion: None,
+        };
+        let mut out = YamlOutput {
+            maps: BTreeMap::new(),
+        };
+        out.maps.insert(
+            1,
+            YamlMapEntry {
+                name: "Alpha".into(),
+                region_name: None,
+                min_level: None,
+                max_level: None,
+                expansion: None,
+                neighbors: vec![mk_neighbor(2, "Beta", Some("E"))],
+            },
+        );
+        let n = reconcile_directions(&mut out);
+        assert_eq!(n, 0);
     }
 
     #[test]
