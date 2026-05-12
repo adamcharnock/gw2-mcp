@@ -6,12 +6,22 @@ name: Release
 # Link feature only works when the binary runs on the same host as the
 # GW2 client, so users overwhelmingly want a native binary.
 #
+# Atomicity: builds run first as a matrix and upload to workflow
+# artifacts. A final `publish` job deletes the old release + tag and
+# re-creates them with every binary already attached in one `gh release
+# create` call. There is no user-visible window where `latest` exists
+# but has no binaries (the previous design had a ~10-minute gap while
+# the matrix built).
+#
+# Naming: the release title carries the GitHub Actions run number plus
+# the short SHA — `Build #N (abc1234)` — so users can correlate the
+# release page with the workflow run and the commit.
+#
 # Versioning posture: intentionally loose. There are no `vX.Y.Z` tags;
-# every push to `main` overwrites the `latest` release with a fresh set
-# of binaries. Asset filenames embed `latest` (not a version), so
-# re-uploads overwrite the previous binaries at the same download URL.
-# If a user needs to pin a specific commit, the workflow run page keeps
-# 14-day-retained build artefacts (see ci.yml's `cross-build` job).
+# every push to `main` replaces the `latest` release with a fresh set
+# of binaries. Asset filenames embed `latest` (not a version) so
+# bookmarks like `…/releases/latest/download/gw2-mcp-latest-x86_64-…`
+# stay stable across pushes.
 #
 # Triggers:
 #   - push to `main`: rebuild everything, replace the `latest` release.
@@ -51,39 +61,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Single-shot job that recreates the rolling `latest` tag + Release so
-  # the matrix build below has a fresh upload target. Deleting and
-  # re-creating (rather than editing in place) keeps stale assets from
-  # earlier matrices that may have removed/renamed a target from piling
-  # up indefinitely.
-  refresh-release:
-    name: refresh latest release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Delete previous latest release + tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # `|| true` because the very first run won't have one to delete.
-          gh release delete latest --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
-      - name: Create fresh latest tag
-        run: |
-          git tag latest
-          git push origin refs/tags/latest
-      - name: Create fresh latest release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create latest \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Latest build" \
-            --notes "Rolling build from main @ ${{ github.sha }}" \
-            --latest
-
   build:
     name: build ${{ matrix.target }}
-    needs: refresh-release
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -133,10 +112,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          # Pick up the `latest` tag the refresh-release job just pushed,
-          # so taiki-e's action uploads to the matching GitHub Release.
-          ref: refs/tags/latest
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -170,33 +145,77 @@ jobs:
         if: matrix.bundle-holder
         run: cargo build --release --locked --target x86_64-pc-windows-gnu --bin gw2-mcp-holder
 
-      # taiki-e/upload-rust-binary-action does the heavy lifting:
-      #   - builds with --release --locked --target <triple>
-      #   - strips the binary
-      #   - tars / zips it with a stable naming convention
-      #     (gw2-mcp-latest-<triple>.{tar.gz,zip})
-      #   - computes sha256 sidecars
-      #   - uploads everything to the GitHub Release for tag `latest`
-      #   - if the target is anything other than the host's native triple,
-      #     transparently switches to `cross` (for aarch64-linux only here)
-      - name: Build & upload binary
+      # taiki-e/upload-rust-binary-action handles build + archive + checksum.
+      # `dry-run: true` skips the release-upload step entirely — we stage the
+      # archives to workflow artifacts instead and let the `publish` job
+      # attach them atomically once every matrix entry has succeeded.
+      - name: Build & archive (dry-run — staged for publish job)
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: gw2-mcp
           target: ${{ matrix.target }}
-          # `$tag` expands to `latest` here, so asset names are stable
-          # across pushes and re-uploads overwrite cleanly.
-          archive: gw2-mcp-$tag-$target
+          # Asset name baked in; users bookmark `…/releases/latest/download/<name>`.
+          archive: gw2-mcp-latest-$target
           tar: unix
           zip: windows
           checksum: sha256
           locked: true
-          # `cargo` for native targets, `cross` for aarch64-linux. Explicit
-          # so behaviour is deterministic across runner image refreshes.
           build-tool: ${{ matrix.build-tool }}
           # macOS bundles ship `gw2-mcp-holder.exe` next to `gw2-mcp` so
           # the CrossOver auto-supervisor finds it as a sibling. Empty on
-          # other targets (the `if: matrix.bundle-holder` guards build it).
+          # other targets.
           include: ${{ matrix.bundle-holder && 'target/x86_64-pc-windows-gnu/release/gw2-mcp-holder.exe' || '' }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ref: refs/tags/latest
+          dry-run: true
+
+      - name: Stage archive for publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.target }}
+          path: gw2-mcp-latest-${{ matrix.target }}.*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish rolling release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all built archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: archive-*
+          merge-multiple: true
+
+      - name: List staged assets (sanity check)
+        run: ls -la dist
+
+      # Atomic-ish swap: delete the previous `latest` release + tag, then
+      # immediately create a new one with all binaries attached in one
+      # `gh release create` call. The window where users would see no
+      # release at all is sub-second.
+      - name: Replace rolling `latest` release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FULL_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          short_sha="${FULL_SHA::7}"
+
+          # `|| true` because the very first run won't have one to delete.
+          gh release delete latest --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+
+          # Re-create the tag at the current commit and push it.
+          git tag -f latest
+          git push origin -f refs/tags/latest
+
+          gh release create latest \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Build #${RUN_NUMBER} (${short_sha})" \
+            --notes "Rolling build from main @ ${FULL_SHA} • GitHub Actions run #${RUN_NUMBER}." \
+            --latest \
+            dist/*
