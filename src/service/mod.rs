@@ -6,6 +6,7 @@ mod catalogs;
 mod character_build;
 mod decode_build;
 mod maps;
+mod market;
 mod navigation;
 mod reference;
 mod search;
@@ -24,6 +25,7 @@ pub use maps::{
     RouteEdge, RouteFilters, RouteFiltersSummary, RouteHop, RoutePath, RoutePlan, RoutePreference,
     expand_account_access,
 };
+pub use market::{MarketPriceEntry, MarketPricesResponse};
 pub use navigation::{
     DirectionsResult, FacingDescription, LocationRef, MapSummary, MountInfo, MyLocationSnapshot,
     NearbyFilter, NearbySearchResult, ResolvedLocation,
@@ -45,6 +47,11 @@ use crate::ports::{
 pub const STATIC_TTL: Duration = Duration::from_secs(60 * 60 * 24 * 365); // 1 year
 pub const WIKI_TTL: Duration = Duration::from_secs(60 * 60 * 24); // 1 day
 pub const WALLET_TTL: Duration = Duration::from_secs(5 * 60); // 5 minutes
+
+/// Trading-post prices change minute-to-minute. 60s is short enough
+/// that the LLM never quotes wildly-stale pricing while still letting
+/// concurrent calls for the same id ride the cache.
+pub const MARKET_TTL: Duration = Duration::from_secs(60);
 
 /// Number of whole minutes from `from` to `to`. Positive when `to` is
 /// in the future, negative when in the past. Saturates on overflow.

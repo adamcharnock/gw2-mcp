@@ -326,6 +326,23 @@ pub(super) fn build_tools() -> Vec<Tool> {
         }))
         .expect("valid schema literal");
 
+    let get_market_prices: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["item_ids"],
+            "properties": {
+                "item_ids": {
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 1 },
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "description": "GW2 item ids to look up. The GW2 bulk endpoint caps at 200 per call."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
     let get_dailies: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -778,6 +795,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Get Character Inventory"))
         .with_output_schema::<crate::service::CharacterInventorySnapshot>(),
+        Tool::new(
+            "get_market_prices",
+            "Trading-post buy/sell orderbook summary for a list of GW2 item ids. No API key required. Coin values are in copper — gold = price / 10000. Each item gets {buys: {unit_price, quantity}, sells: {unit_price, quantity}}; un-tradeable items are silently omitted. Cached 60s — prices age out fast.",
+            get_market_prices,
+        )
+        .annotate(read_only_open_world("Get Market Prices"))
+        .with_output_schema::<crate::service::MarketPricesResponse>(),
         Tool::new(
             "get_account_masteries",
             "Mastery track progress, enriched with track name, region, current level name. Includes points_by_region: per-region {earned, spent, unspent} totals (answers 'what can I afford to finish?'). Requires `account` + `progression` scopes.",

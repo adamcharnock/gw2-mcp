@@ -16,6 +16,7 @@ pub mod error;
 pub mod instances;
 pub mod inventory;
 pub mod map_neighbors;
+pub mod market;
 pub mod mastery;
 pub mod reference;
 pub mod reset;
@@ -41,6 +42,7 @@ pub use inventory::{
 pub use map_neighbors::{
     ConnectionType, Expansion, MapNeighborEntry, MapNeighborLink, MapNeighbors, MapNeighborsError,
 };
+pub use market::{MarketPrice, PriceOrderbook};
 pub use mastery::{AccountMasteryPoints, Mastery, MasteryId, MasteryLevel, RegionMasteryPoints};
 pub use reference::{
     Item, ItemId, Skill, SkillId, Specialization, SpecializationId, Trait, TraitId,

@@ -442,6 +442,13 @@ mod tests {
         ) -> Result<crate::domain::CharacterInventory, Gw2ApiError> {
             Ok(crate::domain::CharacterInventory { bags: Vec::new() })
         }
+        async fn fetch_market_prices(
+            &self,
+            _: &[crate::domain::ItemId],
+        ) -> Result<BTreeMap<crate::domain::ItemId, crate::domain::MarketPrice>, Gw2ApiError>
+        {
+            Ok(BTreeMap::new())
+        }
         async fn fetch_all_mastery_ids(
             &self,
         ) -> Result<Vec<crate::domain::MasteryId>, Gw2ApiError> {

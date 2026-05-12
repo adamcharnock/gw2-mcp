@@ -308,6 +308,16 @@ impl Gw2Api for HttpGw2Api {
         self.fetch_authed_json(&url, key, Some(name)).await
     }
 
+    async fn fetch_market_prices(
+        &self,
+        ids: &[crate::domain::ItemId],
+    ) -> Result<BTreeMap<crate::domain::ItemId, crate::domain::MarketPrice>, Gw2ApiError> {
+        self.fetch_by_ids("commerce/prices", ids, |p: crate::domain::MarketPrice| {
+            (p.id, p)
+        })
+        .await
+    }
+
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
         self.fetch_id_list("masteries", MasteryId::new).await
     }

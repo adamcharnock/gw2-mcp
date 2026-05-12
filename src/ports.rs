@@ -274,6 +274,14 @@ pub trait Gw2Api: Send + Sync + 'static {
         name: &CharacterName,
     ) -> Result<crate::domain::CharacterInventory, Gw2ApiError>;
 
+    /// `/v2/commerce/prices?ids=…` — public, no key. Returns one
+    /// orderbook summary per item (highest buy + lowest sell + total
+    /// quantity on each side). Volatile data — short cache TTL.
+    async fn fetch_market_prices(
+        &self,
+        ids: &[crate::domain::ItemId],
+    ) -> Result<BTreeMap<crate::domain::ItemId, crate::domain::MarketPrice>, Gw2ApiError>;
+
     /// `/v2/masteries` — public, no key. Returns the full id list.
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError>;
 

@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::error::DomainError;
@@ -15,7 +16,17 @@ use super::error::DomainError;
 macro_rules! id_newtype {
     ($name:ident, $err:ident) => {
         #[derive(
-            Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+            Debug,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            Serialize,
+            Deserialize,
+            JsonSchema,
         )]
         #[serde(transparent)]
         pub struct $name(u32);

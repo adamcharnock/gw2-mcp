@@ -310,6 +310,7 @@ pub struct FakeGw2Api {
     pub materials_response: Mutex<Vec<gw2_mcp::domain::MaterialSlot>>,
     pub material_categories: Mutex<BTreeMap<u32, gw2_mcp::domain::MaterialCategory>>,
     pub character_inventory_response: Mutex<gw2_mcp::domain::CharacterInventory>,
+    pub market_prices: Mutex<BTreeMap<ItemId, gw2_mcp::domain::MarketPrice>>,
     pub raids_response: Mutex<Vec<String>>,
     pub dungeons_response: Mutex<Vec<String>>,
     pub wizards_vault_daily: Mutex<WizardsVaultTrack>,
@@ -374,6 +375,7 @@ impl FakeGw2Api {
             character_inventory_response: Mutex::new(gw2_mcp::domain::CharacterInventory {
                 bags: Vec::new(),
             }),
+            market_prices: Mutex::new(BTreeMap::new()),
             raids_response: Mutex::new(Vec::new()),
             dungeons_response: Mutex::new(Vec::new()),
             wizards_vault_daily: Mutex::new(default_vault_track()),
@@ -770,6 +772,17 @@ impl Gw2Api for FakeGw2Api {
         _name: &CharacterName,
     ) -> Result<gw2_mcp::domain::CharacterInventory, Gw2ApiError> {
         Ok(self.character_inventory_response.lock().unwrap().clone())
+    }
+
+    async fn fetch_market_prices(
+        &self,
+        ids: &[ItemId],
+    ) -> Result<BTreeMap<ItemId, gw2_mcp::domain::MarketPrice>, Gw2ApiError> {
+        let table = self.market_prices.lock().unwrap();
+        Ok(ids
+            .iter()
+            .filter_map(|id| table.get(id).map(|p| (*id, p.clone())))
+            .collect())
     }
 
     async fn fetch_all_mastery_ids(&self) -> Result<Vec<MasteryId>, Gw2ApiError> {
