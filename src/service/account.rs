@@ -89,6 +89,54 @@ impl Service {
         Ok(acc)
     }
 
+    /// Invalidate every cached entry tied to this API key's
+    /// fingerprint. Use case: the user just bought an expansion (or
+    /// completed a Wizard's Vault objective, or claimed a daily
+    /// reward) and wants the next call to refetch from
+    /// `/v2/account` instead of returning the cached snapshot.
+    ///
+    /// Returns the list of cache keys that were cleared so the
+    /// caller can echo it back for transparency. Cache keys that
+    /// weren't populated are still listed — `Cache::delete` is a
+    /// no-op for absent keys, and "I cleared X" is more useful than
+    /// "I cleared whichever subset of X had been populated".
+    pub async fn refresh_account_cache(&self, key: &ApiKey) -> RefreshAccountCacheResult {
+        let fingerprint = key.fingerprint().clone();
+        let keys = [
+            format!("account:{fingerprint}"),
+            format!("wallet:{fingerprint}"),
+            format!("characters:{fingerprint}"),
+            format!("account_achievements:{fingerprint}"),
+            format!("account_masteries:{fingerprint}"),
+            format!("account_raids:{fingerprint}"),
+            format!("account_dungeons:{fingerprint}"),
+            format!("wizardsvault:daily:{fingerprint}"),
+            format!("wizardsvault:weekly:{fingerprint}"),
+            format!("wizardsvault:special:{fingerprint}"),
+        ];
+        for k in &keys {
+            self.cache.delete(k).await;
+        }
+        debug!(fingerprint = %fingerprint, cleared = keys.len(), "account cache cleared");
+        RefreshAccountCacheResult {
+            cleared_at: self.clock.now(),
+            cleared_count: keys.len(),
+            scopes: [
+                "account",
+                "wallet",
+                "characters",
+                "achievements",
+                "masteries",
+                "raids",
+                "dungeons",
+                "wizards_vault",
+            ]
+            .iter()
+            .map(|s| String::from(*s))
+            .collect(),
+        }
+    }
+
     /// Fetch character names only (`/v2/characters`). Cached `WALLET_TTL`.
     ///
     /// Wraps the bare API array in a [`CharacterList`] so MCP's
@@ -628,6 +676,19 @@ pub struct AccountAchievementEntry {
 pub struct CharacterList {
     pub characters: Vec<String>,
     pub total: usize,
+}
+
+/// Result of `refresh_account_cache`. Kept tiny on purpose — the
+/// caller doesn't need the actual cache-key strings (those would
+/// leak an internal naming scheme and inflate tokens for no gain).
+/// `cleared_count` is the operative answer; `cleared_at` lets the
+/// LLM say "refreshed at HH:MM"; `scopes` lists the categories
+/// cleared in human-readable terms.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RefreshAccountCacheResult {
+    pub cleared_at: DateTime<Utc>,
+    pub cleared_count: usize,
+    pub scopes: Vec<String>,
 }
 
 /// Object wrapper around the per-account achievement list. `summary`

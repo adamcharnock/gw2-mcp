@@ -113,6 +113,7 @@ impl McpServer {
             "list_maps_in_region" => self.handle_list_maps_in_region(&args).await,
             "get_map_neighbors" => self.handle_get_map_neighbors(&args),
             "plan_route" => self.handle_plan_route(&args).await,
+            "refresh_account_cache" => self.handle_refresh_account_cache(&args).await,
             "describe_facing" => self.handle_describe_facing().await,
             "search_skills" => self.handle_search_skills(&args).await,
             "search_traits" => self.handle_search_traits(&args).await,
@@ -720,6 +721,15 @@ impl McpServer {
         Ok(serde_json::to_value(&res)?)
     }
 
+    async fn handle_refresh_account_cache(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = self.resolve_api_key(args)?;
+        let res = self.service.refresh_account_cache(&key).await;
+        Ok(serde_json::to_value(&res)?)
+    }
+
     async fn handle_plan_route(
         &self,
         args: &serde_json::Value,
@@ -1081,8 +1091,8 @@ mod tests {
         let tools = build_tools();
         assert_eq!(
             tools.len(),
-            33,
-            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 7 navigation + 6 search = 33"
+            34,
+            "tier-6 (a + b + c): 12 base + get_info + 7 account/coaching + 7 navigation + 6 search + 1 refresh = 34"
         );
     }
 

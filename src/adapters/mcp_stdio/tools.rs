@@ -403,6 +403,20 @@ pub(super) fn build_tools() -> Vec<Tool> {
     }))
     .expect("valid schema literal");
 
+    let refresh_account_cache_schema: rmcp::model::JsonObject =
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "api_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Optional Guild Wars 2 API key whose cached data to invalidate. Falls back to the server's default key."
+                }
+            }
+        }))
+        .expect("valid schema literal");
+
     let plan_route_schema: rmcp::model::JsonObject = serde_json::from_value(serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -758,6 +772,13 @@ pub(super) fn build_tools() -> Vec<Tool> {
         )
         .annotate(read_only_open_world("Get Map Neighbors"))
         .with_output_schema::<crate::service::MapNeighborsResponse>(),
+        Tool::new(
+            "refresh_account_cache",
+            "Invalidate every cached entry tied to this API key (account snapshot, wallet, characters, achievements, masteries, raids, dungeons, Wizard's Vault daily/weekly/special). Use after buying an expansion or completing in-game progress so the next call refetches from the live Guild Wars 2 API. Returns the list of cache keys that were cleared. Does NOT clear the static reference catalogues (items, skills, traits) — those are shared across all users and don't go stale per-account.",
+            refresh_account_cache_schema,
+        )
+        .annotate(read_only_open_world("Refresh Account Cache"))
+        .with_output_schema::<crate::service::RefreshAccountCacheResult>(),
         Tool::new(
             "plan_route",
             "Find up to `k` (default 3) shortest-hop routes between two maps in the curated adjacency graph. Each of `from` and `to` accepts `{id: int}`, `{name: \"Caledon Forest\"}`, or `{here: true}` (resolves via Mumble Link). Returns paths ordered by fewest hops; each path lists every intermediate map with the `connection` used (`physical`/`asura_gate`/`story_gate`/etc.), the `direction` of the border (compass bearing for physical edges), and `gate_location` / `note` when the curated table has them. Pre-counted `asura_gate_count` / `physical_count` / `story_gate_count` per path let the LLM filter post-hoc; the optional `prefer` arg re-ranks server-side for 'walking' or 'gates' preferences. `exclude_connections` skips entire edge categories during search — e.g. `[\"story_gate\"]` to avoid routes a player may not have story access for. `player_access` filters edges by the expansions the player owns; ABSENT means auto-fetch from /v2/account, EMPTY ARRAY means no filtering, an explicit list overrides both. The response's `filters_applied` field echoes the effective filter state. Same graph coverage as `get_map_neighbors` — open-world + the 11 hub cities, WvW excluded.",

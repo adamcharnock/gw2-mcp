@@ -13,7 +13,7 @@ mod wiki;
 
 pub use account::{
     AccountAchievementsSnapshot, AccountMasteriesSnapshot, CharacterList, DailiesWhich,
-    WizardsVaultSnapshot,
+    RefreshAccountCacheResult, WizardsVaultSnapshot,
 };
 pub use character_build::{CharacterBuildSnapshot, TabSelector};
 use maps::RegionLookupError;
