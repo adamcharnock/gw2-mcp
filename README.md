@@ -27,58 +27,6 @@ transport.
 - **Smart caching** — long TTL for static data, short TTL for wallet,
   build-number-stamped local index that auto-refreshes on game patches.
 
-## Architecture
-
-Hexagonal:
-
-```
-src/
-  domain/      Pure types and validation (no IO).
-  ports.rs     Trait definitions: Cache, Clock, Gw2Api, Wiki, MumbleLink,
-               MapData, BuildCatalog, BuildCodeDecoder, SearchIndex.
-  service.rs   Orchestration. Knows ports, never adapters.
-  adapters/    Concrete impls: HTTP, in-memory + SQLite caches, system
-               clock, Mumble Link reader (Win named-mapping / Linux
-               /dev/shm / macOS in-bottle holder), MCP/stdio.
-  main.rs      CLI wiring — the only place that picks adapters.
-tests/         Integration tests (wiremock for HTTP, in-memory fakes for service).
-```
-
-The service depends only on traits, so adding a new transport (HTTP/SSE,
-daemon mode) is a one-file change in `adapters/`.
-
-## Quick start
-
-Requires [mise](https://mise.jdx.dev) (or Rust 1.91+ directly).
-
-```bash
-mise install              # install pinned Rust toolchain + tools
-mise run install-hooks    # install git hooks (lefthook)
-mise run build            # cargo build
-mise run test             # cargo test --all-targets
-mise run check-all        # fmt-check + clippy + test
-```
-
-Run the server (it speaks MCP over stdio):
-
-```bash
-mise run run
-```
-
-### Local secrets (.env)
-
-`mise` auto-loads variables from a `.env` file in the repo root whenever you
-`cd` into the project. Copy the example and fill in your GW2 API key for
-local testing:
-
-```bash
-cp .env.example .env
-# edit .env, set GW2_API_KEY=...
-```
-
-`.env` is gitignored. The example file documents every variable the binary
-understands.
-
 ## Install
 
 > **Why native binaries?** The Mumble Link navigation tools
@@ -105,11 +53,8 @@ Each archive contains a single `gw2-mcp` (or `gw2-mcp.exe`) binary plus a
 sibling `.sha256` checksum. **macOS tarballs additionally ship
 `gw2-mcp-holder.exe`** (the in-bottle Mumble Link helper); leave it next to
 the main binary — the server discovers it as a sibling and copies it into
-your CrossOver bottle automatically. See [macOS / CrossOver specifics](#macos--crossover-specifics)
+your CrossOver bottle automatically. See [Live game state (Mumble Link)](#live-game-state-mumble-link)
 below for details.
-
-If you need to pin a specific commit's binaries, every CI run keeps the
-same archives as 14-day workflow artefacts on its run page.
 
 On Linux / macOS:
 
@@ -125,20 +70,49 @@ quarantine attribute on both binaries:
 xattr -d com.apple.quarantine ./gw2-mcp ./gw2-mcp-holder.exe
 ```
 
-### Two self-diagnostic commands
+### First-run check
 
-After extracting the tarball but before wiring anything into an MCP
-client, run:
+After extracting but before wiring into an MCP client, run:
 
 ```bash
-./gw2-mcp print-config         # emits paste-ready JSON for Claude Desktop
 ./gw2-mcp doctor               # diagnoses Mumble Link / GW2 state on this host
+./gw2-mcp print-config         # emits paste-ready JSON for Claude Desktop
 ```
 
-`doctor` works on macOS (CrossOver/Whisky bottle discovery, holder
-install, mirror freshness, GW2 writing), Linux (`/dev/shm/MumbleLink`
-presence + freshness), and Windows (sanity guidance). It exits non-zero
-on any failure, so `doctor && launch-claude` pipelines correctly.
+`doctor` reports each step independently — CrossOver detected? Whisky
+detected? Bottles found? GW2 located? Holder installed? Mirror file
+fresh? GW2 actually writing live frames? — so you can see exactly where
+things fall over. On Linux it checks `/dev/shm/MumbleLink` freshness; on
+Windows it prints sanity guidance. It exits non-zero on any failure, so
+`doctor && launch-claude` pipelines correctly.
+
+`print-config` writes ready-to-paste JSON for the Claude Desktop config
+file (path varies per OS — see [MCP client config](#mcp-client-config)):
+
+```bash
+gw2-mcp print-config | pbcopy   # macOS — copy straight to clipboard
+gw2-mcp print-config --api-key "AAA...-BBB...-CCC..." --bottle "My Bottle"
+```
+
+`--api-key` and `--bottle` are optional; they inject `GW2_API_KEY` /
+`GW2_BOTTLE` into the snippet's `env` block.
+
+## Get a GW2 API key
+
+Most tools need a GW2 API key. Some (`wiki_search`, `decode_build_code`,
+catalog browsing, daily achievement IDs, the `search_*` index tools) work
+without one.
+
+1. https://account.arena.net/applications
+2. Create a key with `account` and `wallet` permissions (add `characters`
+   + `builds` if you want `get_character_build`, and `progression` for
+   achievements / masteries / raids / dungeons).
+3. Either pass the key per-call as the `api_key` argument, **or** set
+   `GW2_API_KEY=...` in your environment. When set, the server uses it
+   as the default; explicit `api_key` arguments still override.
+
+The key is hashed before caching and redacted in logs; the raw value
+never reaches the cache or appears in stderr output.
 
 ## MCP client config
 
@@ -174,24 +148,9 @@ Edit the config file at:
 `env` is optional — leave it out and pass `api_key` per-call instead.
 Restart Claude Desktop after editing. Quicker route: run
 `gw2-mcp print-config` to emit a ready-to-paste snippet with the
-absolute path filled in (`--api-key` / `--bottle` flags inject env vars).
+absolute path filled in.
 
 ### Claude Code
-
-**Project-scoped** (preferred): a `.mcp.json` ships in this repo's root
-that runs the server via `cargo run --release --quiet --bin gw2-mcp`.
-Anyone who clones the repo and launches Claude Code from the project
-directory gets the `gw2` server automatically — no further setup.
-
-> **First-launch warning.** On a fresh clone with no built `target/`,
-> the first time Claude Code starts the server it triggers a full
-> `cargo build --release` of the whole crate (~30–60s, sometimes a few
-> minutes on a cold cache). `--quiet` suppresses build progress, so
-> Claude Code will appear hung while cargo works. Run
-> `cargo build --release` once up front to avoid this — subsequent
-> launches are instant.
-
-**User-scoped** (any working directory):
 
 ```bash
 claude mcp add gw2 /absolute/path/to/gw2-mcp
@@ -199,6 +158,9 @@ claude mcp add gw2 /absolute/path/to/gw2-mcp
 
 …or edit `~/.claude.json` directly with the same `mcpServers` block shape
 as the Claude Desktop snippet above.
+
+(Running gw2-mcp from a cloned source tree? See
+[Development](#development).)
 
 ### ChatGPT Desktop
 
@@ -257,7 +219,7 @@ Claude Desktop or Claude Code are the simpler hosts.
 
 Resource: `gw2://currencies` — full currency list as JSON.
 
-## Navigation (live position via Mumble Link)
+## Live game state (Mumble Link)
 
 The four navigation tools (`get_my_location`, `get_directions`, `find_nearby`,
 `describe_facing`) read live in-game state from the Guild Wars 2 client over
@@ -321,32 +283,7 @@ automatically — no manual restart required.
 
 If anything fails (no CrossOver/Whisky, no bottle, missing launcher), the
 server logs a warning and continues without nav-tool support — every other
-tool keeps working. Run `gw2-mcp doctor` (see below) for a structured
-diagnosis.
-
-### Diagnostics and config helpers
-
-Two zero-server-startup subcommands help with setup:
-
-```bash
-gw2-mcp doctor          # macOS Mumble Link diagnostics — prints a checklist
-gw2-mcp print-config    # emit a Claude Desktop config snippet for this binary
-```
-
-`doctor` reports each step independently (CrossOver detected? Whisky detected?
-bottles found? GW2 located? holder installed? mirror file fresh? GW2 actually
-writing live frames?) so you can see exactly where things fall over. It exits
-non-zero if any step fails — handy in shell pipelines.
-
-`print-config` writes ready-to-paste JSON for `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```bash
-gw2-mcp print-config | pbcopy   # macOS — copy straight to clipboard
-gw2-mcp print-config --api-key "AAA...-BBB...-CCC..." --bottle "My Bottle"
-```
-
-`--api-key` and `--bottle` are optional; they inject `GW2_API_KEY` /
-`GW2_BOTTLE` into the snippet's `env` block.
+tool keeps working. Run `gw2-mcp doctor` for a structured diagnosis.
 
 ### Coordinate convention
 
@@ -399,34 +336,95 @@ While the index is still populating, `search_*` calls return a typed
 "still indexing" error so the LLM can switch to `get_*` (which works
 with explicit ids) or retry shortly.
 
-## Getting a GW2 API key
+## Logging
 
-1. https://account.arena.net/applications
-2. Create a key with `account` and `wallet` permissions (add `characters` +
-   `builds` if you want `get_character_build`).
-3. Either pass the key per-call as the `api_key` argument, **or** set
-   `GW2_API_KEY=...` in your environment / `.env` file. When set, the server
-   uses it as the default for `get_wallet` and `get_character_build`; explicit
-   `api_key` arguments still override.
+Logs go to **stderr only** — stdout is reserved for the MCP protocol.
+Set `RUST_LOG` to control verbosity (e.g. `RUST_LOG=gw2_mcp=debug`).
 
-The key is hashed before caching and redacted in logs; the raw value never
-reaches the cache or appears in stderr output.
+---
 
-## Development
+# Development
 
-| Command             | What it does |
-|---------------------|--------------|
-| `mise run fmt`      | `cargo fmt --all` |
-| `mise run clippy`   | `cargo clippy --all-targets --all-features -- -D warnings` |
-| `mise run test`     | `cargo test --all-targets` |
-| `mise run audit`    | `cargo audit` |
-| `mise run coverage` | HTML + text coverage via `cargo-llvm-cov` |
+Everything below is for working on gw2-mcp itself. If you just want to
+*use* it, the sections above are enough.
+
+## Architecture
+
+Hexagonal:
+
+```
+src/
+  domain/      Pure types and validation (no IO).
+  ports.rs     Trait definitions: Cache, Clock, Gw2Api, Wiki, MumbleLink,
+               MapData, BuildCatalog, BuildCodeDecoder, SearchIndex.
+  service.rs   Orchestration. Knows ports, never adapters.
+  adapters/    Concrete impls: HTTP, in-memory + SQLite caches, system
+               clock, Mumble Link reader (Win named-mapping / Linux
+               /dev/shm / macOS in-bottle holder), MCP/stdio.
+  main.rs      CLI wiring — the only place that picks adapters.
+tests/         Integration tests (wiremock for HTTP, in-memory fakes for service).
+```
+
+The service depends only on traits, so adding a new transport (HTTP/SSE,
+daemon mode) is a one-file change in `adapters/`.
+
+## Quick start
+
+Requires [mise](https://mise.jdx.dev) (or Rust 1.91+ directly).
+
+```bash
+mise install              # install pinned Rust toolchain + tools
+mise run install-hooks    # install git hooks (lefthook)
+mise run build            # cargo build
+mise run test             # cargo test --all-targets
+mise run check-all        # fmt-check + clippy + test
+mise run run              # run the server (stdio)
+```
+
+### Local secrets (.env)
+
+`mise` auto-loads variables from a `.env` file in the repo root whenever
+you `cd` into the project. Copy the example and fill in your GW2 API key
+for local testing:
+
+```bash
+cp .env.example .env
+# edit .env, set GW2_API_KEY=...
+```
+
+`.env` is gitignored. The example file documents every variable the
+binary understands.
+
+## Running from a cloned source tree (Claude Code)
+
+A `.mcp.json` ships in this repo's root that runs the server via
+`cargo run --release --quiet --bin gw2-mcp`. Anyone who clones the repo
+and launches Claude Code from the project directory gets the `gw2`
+server automatically — no extra setup.
+
+> **First-launch warning.** On a fresh clone with no built `target/`,
+> the first time Claude Code starts the server it triggers a full
+> `cargo build --release` of the whole crate (~30–60s, sometimes a few
+> minutes on a cold cache). `--quiet` suppresses build progress, so
+> Claude Code will appear hung while cargo works. Run
+> `cargo build --release` once up front to avoid this — subsequent
+> launches are instant.
+
+## Development commands
+
+| Command              | What it does |
+|----------------------|--------------|
+| `mise run fmt`       | `cargo fmt --all` |
+| `mise run clippy`    | `cargo clippy --all-targets --all-features -- -D warnings` |
+| `mise run test`      | `cargo test --all-targets` |
+| `mise run audit`     | `cargo audit` |
+| `mise run coverage`  | HTML + text coverage via `cargo-llvm-cov` |
 | `mise run check-all` | fmt-check + clippy + test |
 
-Pre-commit hooks (via lefthook) gate on: rejecting unsigned commits, gitleaks,
-`cargo fmt`, `cargo clippy -D warnings`, and `cargo test`.
+Pre-commit hooks (via lefthook) gate on: rejecting unsigned commits,
+gitleaks, `cargo fmt`, `cargo clippy -D warnings`, and `cargo test`.
 
-### macOS dev: auto-built holder
+## macOS dev: auto-built holder
 
 When `gw2-mcp` is launched from a cargo workspace on macOS (e.g. `cargo
 run` in this repo), it cross-builds `gw2-mcp-holder.exe` on demand and
@@ -438,17 +436,21 @@ Prerequisites (one-time):
 
 ```bash
 rustup target add x86_64-pc-windows-gnu
-brew install mingw-w64        # or pkgsCross.mingwW64.buildPackages.gcc on nix
+brew install mingw-w64        # or pkgsCross.mingwW64.buildPackages.gcc
+                              # + pkgsCross.mingwW64.windows.pthreads on nix
 ```
 
 Set `GW2_NO_AUTO_BUILD_HOLDER=1` to disable the convenience (e.g. when
 you're iterating on `src/bin/holder.rs` with a separate `cargo watch`
 and don't want gw2-mcp racing against it).
 
-## Logging
+## Pinning a specific commit's binaries
 
-Logs go to **stderr only** — stdout is reserved for the MCP protocol.
-Set `RUST_LOG` to control verbosity (e.g. `RUST_LOG=gw2_mcp=debug`).
+The release pipeline is intentionally loose: only the rolling `latest`
+tag exists, replaced on every push to `main`. If you need to pin a
+specific commit, every CI run keeps the same archives as 14-day
+workflow artefacts on its run page — open the run in GitHub Actions and
+download from the **Artifacts** section.
 
 ## License
 
